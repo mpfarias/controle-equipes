@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Colaborador {
+  id            Int             @id @default(autoincrement())
+  nome          String
+  matricula     String          @unique
+  equipe        Equipe          @default(A)
+  status        PolicialStatus  @default(ATIVO)
+  afastamentos  Afastamento[]
+  createdById   Int?
+  createdByName String?
+  updatedById   Int?
+  updatedByName String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+model Afastamento {
+  id             Int                @id @default(autoincrement())
+  colaboradorId  Int
+  colaborador    Colaborador        @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  motivo         String
+  descricao      String?
+  dataInicio     DateTime
+  dataFim        DateTime?
+  status         AfastamentoStatus  @default(ATIVO)
+  createdById    Int?
+  createdByName  String?
+  updatedById    Int?
+  updatedByName  String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+model Usuario {
+  id         Int      @id @default(autoincrement())
+  nome       String
+  matricula  String   @unique
+  senhaHash  String
+  equipe     Equipe   @default(A)
+  status     UsuarioStatus @default(ATIVO)
+  createdById   Int?
+  createdByName String?
+  updatedById   Int?
+  updatedByName String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+enum AfastamentoStatus {
+  ATIVO
+  ENCERRADO
+}
+
+enum PolicialStatus {
+  ATIVO
+  DESIGNADO
+  COMISSIONADO
+  PTTC
+  DESATIVADO
+}
+
+enum UsuarioStatus {
+  ATIVO
+  DESATIVADO
+}
+
+enum Equipe {
+  A
+  B
+  C
+  D
+  E
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+model AuditLog {
+  id        Int          @id @default(autoincrement())
+  entity    String
+  entityId  Int?
+  action    AuditAction
+  userId    Int?
+  userName  String?
+  before    Json?
+  after     Json?
+  createdAt DateTime     @default(now())
+}
+
