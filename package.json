@@ -1,0 +1,17 @@
+{
+  "name": "controle-equipes",
+  "version": "1.0.0",
+  "description": "Sistema de Controle de Afastamentos - Projeto completo",
+  "private": true,
+  "scripts": {
+    "setup": "node setup.js",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f mysql",
+    "start:api": "cd afastamentos-api && npm run start:dev",
+    "start:web": "cd afastamentos-web && npm run dev",
+    "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install",
+    "setup:db": "cd afastamentos-api && npm run db:setup"
+  }
+}
+

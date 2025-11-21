@@ -1,8 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { ensureInitialUser } from './on-startup';
 
 async function bootstrap() {
+  // Garantir que o usuário inicial existe antes de iniciar a API
+  await ensureInitialUser();
+
   const app = await NestFactory.create(AppModule);
   app.enableCors();
   app.useGlobalPipes(
