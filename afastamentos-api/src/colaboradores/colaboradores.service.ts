@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { AuditAction, Equipe, PolicialStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -29,11 +29,40 @@ export class ColaboradoresService {
     responsavelId?: number,
   ): Promise<ColaboradorWithRelations> {
     const actor = await this.audit.resolveActor(responsavelId);
+    const matriculaNormalizada = this.sanitizeMatricula(data.matricula);
+
+    // Verificar se já existe um colaborador (ativo ou desativado) com a mesma matrícula
+    const colaboradorExistente = await this.prisma.colaborador.findUnique({
+      where: { matricula: matriculaNormalizada },
+      include: { afastamentos: true },
+    });
+
+    if (colaboradorExistente) {
+      if (colaboradorExistente.status === PolicialStatus.DESATIVADO) {
+        // Colaborador existe mas está desativado - lançar erro especial para o frontend tratar
+        const errorResponse = {
+          message: 'COLABORADOR_DESATIVADO',
+          colaborador: {
+            id: colaboradorExistente.id,
+            nome: colaboradorExistente.nome,
+            matricula: colaboradorExistente.matricula,
+            equipe: colaboradorExistente.equipe,
+            status: colaboradorExistente.status,
+            createdAt: colaboradorExistente.createdAt,
+            updatedAt: colaboradorExistente.updatedAt,
+          },
+        };
+        throw new ConflictException(errorResponse);
+      } else {
+        // Colaborador ativo já existe
+        throw new ConflictException('Já existe um colaborador ativo com esta matrícula.');
+      }
+    }
 
     const created = await this.prisma.colaborador.create({
       data: {
         nome: this.sanitizeNome(data.nome),
-        matricula: this.sanitizeMatricula(data.matricula),
+        matricula: matriculaNormalizada,
         status: data.status ?? PolicialStatus.ATIVO,
         equipe: data.equipe ?? actor?.equipe ?? Equipe.A,
         createdById: actor?.id ?? null,
@@ -161,6 +190,40 @@ export class ColaboradoresService {
       before,
       after: updated,
     });
+  }
+
+  async activate(id: number, responsavelId?: number): Promise<ColaboradorWithRelations> {
+    const before = await this.prisma.colaborador.findUnique({
+      where: { id },
+      include: { afastamentos: true },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Colaborador ${id} não encontrado.`);
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const updated = await this.prisma.colaborador.update({
+      where: { id },
+      data: {
+        status: PolicialStatus.ATIVO,
+        updatedById: actor?.id ?? null,
+        updatedByName: actor?.nome ?? null,
+      },
+      include: { afastamentos: true },
+    });
+
+    await this.audit.record({
+      entity: 'Colaborador',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
   }
 }
 

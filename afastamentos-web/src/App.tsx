@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import bcrypt from 'bcryptjs';
 import { api } from './api.ts';
 import type {
   Afastamento,
@@ -51,6 +50,19 @@ const EQUIPE_OPTIONS: { value: Equipe; label: string }[] = [
   { value: 'C', label: 'Equipe C' },
   { value: 'D', label: 'Equipe D' },
   { value: 'E', label: 'Equipe E' },
+];
+
+const PERGUNTAS_SEGURANCA = [
+  'Qual o nome da sua mãe?',
+  'Qual o nome do seu pai?',
+  'Qual o nome do seu primeiro animal de estimação?',
+  'Qual o nome da cidade onde você nasceu?',
+  'Qual o nome da sua escola primária?',
+  'Qual o nome do seu melhor amigo de infância?',
+  'Qual o nome do seu primeiro professor?',
+  'Qual o apelido que você tinha na infância?',
+  'Qual o nome da sua primeira rua?',
+  'Qual o nome do seu primeiro emprego?',
 ];
 
 const EQUIPE_FONETICA: Record<Equipe, string> = {
@@ -169,7 +181,15 @@ function formatPeriodo(dataInicio: string, dataFim?: string | null): string {
   return `${dataInicioFormatada} — ${dataFimFormatada} (${dias} ${dias === 1 ? 'dia' : 'dias'})`;
 }
 
-function LoginView({ onSuccess }: { onSuccess: (usuario: Usuario) => void }) {
+type AuthView = 'login' | 'forgot-password' | 'reset-password' | 'security-question';
+
+function LoginView({
+  onSuccess,
+  onForgotPassword,
+}: {
+  onSuccess: (usuario: Usuario) => void;
+  onForgotPassword: () => void;
+}) {
   const [form, setForm] = useState<LoginInput>({ matricula: '', senha: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -239,6 +259,400 @@ function LoginView({ onSuccess }: { onSuccess: (usuario: Usuario) => void }) {
           {loading ? 'Validando...' : 'Entrar'}
         </button>
       </form>
+      <div style={{ textAlign: 'center', marginTop: '1rem' }}>
+        <button
+          type="button"
+          className="link-button"
+          onClick={onForgotPassword}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#1d4ed8',
+            cursor: 'pointer',
+            textDecoration: 'underline',
+            fontSize: '0.9rem',
+          }}
+        >
+          Esqueci minha senha
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ForgotPasswordView({
+  onBack,
+  onSecurityQuestionReceived,
+}: {
+  onBack: () => void;
+  onSecurityQuestionReceived: (matricula: string, pergunta: string) => void;
+}) {
+  const [matricula, setMatricula] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [perguntaSeguranca, setPerguntaSeguranca] = useState<string | null>(null);
+
+  const handleChange = (value: string) => {
+    setMatricula(value.replace(/[^0-9xX]/g, '').toUpperCase());
+  };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+    setPerguntaSeguranca(null);
+
+    if (!matricula.trim()) {
+      setError('Informe a matrícula.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await api.forgotPassword(matricula.trim());
+      
+      if (result.perguntaSeguranca) {
+        setPerguntaSeguranca(result.perguntaSeguranca);
+        onSecurityQuestionReceived(matricula.trim(), result.perguntaSeguranca);
+      } else {
+        setSuccess(result.message);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível processar a solicitação. Tente novamente.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="login-card">
+      <h2>Recuperar senha</h2>
+      <p>Informe sua matrícula para receber instruções de recuperação de senha.</p>
+
+      {error && <div className="feedback error">{error}</div>}
+      {success && <div className="feedback success">{success}</div>}
+
+      {perguntaSeguranca && (
+        <div
+          className="feedback"
+          style={{
+            backgroundColor: '#eff6ff',
+            borderColor: '#3b82f6',
+            color: '#1e40af',
+            padding: '1rem',
+            borderRadius: '4px',
+            marginBottom: '1rem',
+          }}
+        >
+          <p style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold' }}>
+            Pergunta de Segurança:
+          </p>
+          <p style={{ margin: '0 0 1rem 0' }}>{perguntaSeguranca}</p>
+          <p style={{ margin: '1rem 0 0', fontSize: '0.9rem' }}>
+            A pergunta foi exibida acima. Clique em "Continuar" para responder.
+          </p>
+        </div>
+      )}
+
+
+      <form onSubmit={handleSubmit}>
+        <label>
+          Matrícula
+          <input
+            value={matricula}
+            onChange={(event) => handleChange(event.target.value)}
+            placeholder="Ex: 23456x"
+            autoComplete="username"
+            required
+          />
+        </label>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={onBack}
+            disabled={loading}
+          >
+            Voltar
+          </button>
+          <button className="primary" type="submit" disabled={loading}>
+            {loading ? 'Enviando...' : 'Enviar'}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ResetPasswordView({
+  token: initialToken,
+  onBack,
+  onSuccess,
+}: {
+  token?: string;
+  onBack: () => void;
+  onSuccess: () => void;
+}) {
+  const [token, setToken] = useState(initialToken || '');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmarSenha, setConfirmarSenha] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    if (!token.trim()) {
+      setError('Token é obrigatório.');
+      return;
+    }
+
+    if (!novaSenha) {
+      setError('Informe a nova senha.');
+      return;
+    }
+
+    if (novaSenha.length < 6) {
+      setError('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    if (novaSenha !== confirmarSenha) {
+      setError('As senhas não coincidem.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await api.resetPassword(token.trim(), novaSenha);
+      setSuccess(result.message);
+      setTimeout(() => {
+        onSuccess();
+      }, 2000);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível redefinir a senha. Verifique o token e tente novamente.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="login-card">
+      <h2>Redefinir senha</h2>
+      <p>Informe o token recebido e defina uma nova senha.</p>
+
+      {error && <div className="feedback error">{error}</div>}
+      {success && <div className="feedback success">{success}</div>}
+
+      <form onSubmit={handleSubmit}>
+        <label>
+          Token
+          <input
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="Cole o token recebido"
+            required
+            disabled={!!initialToken}
+          />
+        </label>
+        <label>
+          Nova senha
+          <input
+            type="password"
+            value={novaSenha}
+            onChange={(event) => setNovaSenha(event.target.value)}
+            placeholder="Mínimo de 6 caracteres"
+            autoComplete="new-password"
+            required
+            minLength={6}
+          />
+        </label>
+        <label>
+          Confirmar senha
+          <input
+            type="password"
+            value={confirmarSenha}
+            onChange={(event) => setConfirmarSenha(event.target.value)}
+            placeholder="Digite a senha novamente"
+            autoComplete="new-password"
+            required
+            minLength={6}
+          />
+        </label>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={onBack}
+            disabled={loading}
+          >
+            Voltar
+          </button>
+          <button className="primary" type="submit" disabled={loading}>
+            {loading ? 'Redefinindo...' : 'Redefinir senha'}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function SecurityQuestionView({
+  matricula: initialMatricula,
+  pergunta: initialPergunta,
+  onBack,
+  onSuccess,
+}: {
+  matricula?: string;
+  pergunta?: string;
+  onBack: () => void;
+  onSuccess: () => void;
+}) {
+  const [matricula] = useState(initialMatricula || '');
+  const [pergunta] = useState(initialPergunta || '');
+  const [respostaSeguranca, setRespostaSeguranca] = useState('');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmarSenha, setConfirmarSenha] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    if (!respostaSeguranca.trim()) {
+      setError('Informe a resposta da pergunta de segurança.');
+      return;
+    }
+
+    if (!novaSenha) {
+      setError('Informe a nova senha.');
+      return;
+    }
+
+    if (novaSenha.length < 6) {
+      setError('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    if (novaSenha !== confirmarSenha) {
+      setError('As senhas não coincidem.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await api.resetPasswordBySecurityQuestion(
+        matricula,
+        respostaSeguranca.trim(),
+        novaSenha,
+      );
+      setSuccess(result.message);
+      setTimeout(() => {
+        onSuccess();
+      }, 2000);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível redefinir a senha. Verifique a resposta e tente novamente.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="login-card">
+      <h2>Responder pergunta de segurança</h2>
+      <p>Responda a pergunta abaixo e defina uma nova senha.</p>
+
+      {error && <div className="feedback error">{error}</div>}
+      {success && <div className="feedback success">{success}</div>}
+
+      {pergunta && (
+        <div
+          className="feedback"
+          style={{
+            backgroundColor: '#eff6ff',
+            borderColor: '#3b82f6',
+            color: '#1e40af',
+            padding: '1rem',
+            borderRadius: '4px',
+            marginBottom: '1rem',
+          }}
+        >
+          <p style={{ margin: '0 0 0.5rem 0', fontWeight: 'bold' }}>
+            Pergunta de Segurança:
+          </p>
+          <p style={{ margin: 0 }}>{pergunta}</p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        <label>
+          Resposta
+          <input
+            type="text"
+            value={respostaSeguranca}
+            onChange={(event) => setRespostaSeguranca(event.target.value)}
+            placeholder="Digite a resposta da pergunta"
+            autoComplete="off"
+            required
+          />
+        </label>
+        <label>
+          Nova senha
+          <input
+            type="password"
+            value={novaSenha}
+            onChange={(event) => setNovaSenha(event.target.value)}
+            placeholder="Mínimo de 6 caracteres"
+            autoComplete="new-password"
+            required
+            minLength={6}
+          />
+        </label>
+        <label>
+          Confirmar senha
+          <input
+            type="password"
+            value={confirmarSenha}
+            onChange={(event) => setConfirmarSenha(event.target.value)}
+            placeholder="Digite a senha novamente"
+            autoComplete="new-password"
+            required
+            minLength={6}
+          />
+        </label>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={onBack}
+            disabled={loading}
+          >
+            Voltar
+          </button>
+          <button className="primary" type="submit" disabled={loading}>
+            {loading ? 'Redefinindo...' : 'Redefinir senha'}
+          </button>
+        </div>
+      </form>
     </section>
   );
 }
@@ -255,6 +669,8 @@ function UsuariosSection({
     matricula: '',
     senha: '',
     confirmarSenha: '',
+    perguntaSeguranca: '',
+    respostaSeguranca: '',
     equipe: 'A' as Equipe,
   };
 
@@ -263,6 +679,8 @@ function UsuariosSection({
     matricula: '',
     senha: '',
     confirmarSenha: '',
+    perguntaSeguranca: '',
+    respostaSeguranca: '',
     equipe: 'A' as Equipe,
   };
 
@@ -279,11 +697,26 @@ function UsuariosSection({
   const [searchTerm, setSearchTerm] = useState('');
   const [matriculaError, setMatriculaError] = useState<string | null>(null);
   const matriculaTimeoutRef = useRef<number | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    usuario: Usuario | null;
+    senha: string;
+    error: string | null;
+    loading: boolean;
+  }>({
+    open: false,
+    usuario: null,
+    senha: '',
+    error: null,
+    loading: false,
+  });
 
   const carregarUsuarios = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.listUsuarios();
+      // Passar o ID do usuário logado para o backend verificar se é admin
+      const userId = currentUser?.id;
+      const data = await api.listUsuarios(userId);
       setUsuarios(data);
       setError(null);
     } catch (err) {
@@ -293,7 +726,7 @@ function UsuariosSection({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser?.id]);
 
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
@@ -420,9 +853,15 @@ function UsuariosSection({
 
     try {
       setSubmitting(true);
-      const senhaHash = await bcrypt.hash(form.senha, 10);
       await api.createUsuario(
-        { nome, matricula, senhaHash, equipe: form.equipe },
+        {
+          nome,
+          matricula,
+          senha: form.senha,
+          perguntaSeguranca: form.perguntaSeguranca.trim() || undefined,
+          respostaSeguranca: form.respostaSeguranca.trim() || undefined,
+          equipe: form.equipe,
+        },
         currentUser.id,
       );
       resetForm();
@@ -457,6 +896,8 @@ function UsuariosSection({
       matricula: usuario.matricula,
       senha: '',
       confirmarSenha: '',
+      perguntaSeguranca: usuario.perguntaSeguranca || '',
+      respostaSeguranca: '',
       equipe: usuario.equipe ?? 'A',
     });
     setEditError(null);
@@ -492,6 +933,8 @@ function UsuariosSection({
     const payloadBase: Partial<CreateUsuarioInput> = {
       nome,
       matricula,
+      perguntaSeguranca: editForm.perguntaSeguranca.trim() || undefined,
+      respostaSeguranca: editForm.respostaSeguranca.trim() || undefined,
       equipe: editForm.equipe,
     };
 
@@ -504,7 +947,7 @@ function UsuariosSection({
           setEditSubmitting(true);
           const payload: Partial<CreateUsuarioInput> = { ...payloadBase };
           if (novaSenha) {
-            payload.senhaHash = await bcrypt.hash(novaSenha, 10);
+            payload.senha = novaSenha;
           }
           await api.updateUsuario(editingUsuario.id, payload, currentUser.id);
           setSuccess('Usuário atualizado com sucesso.');
@@ -544,6 +987,94 @@ function UsuariosSection({
         }
       },
     });
+  };
+
+  const handleActivate = (usuario: Usuario) => {
+    openConfirm({
+      title: 'Ativar usuário',
+      message: `Deseja ativar o usuário ${usuario.nome} (matrícula ${usuario.matricula})?`,
+      confirmLabel: 'Ativar',
+      onConfirm: async () => {
+        try {
+          setError(null);
+          await api.activateUsuario(usuario.id, currentUser.id);
+          if (editingUsuario?.id === usuario.id) {
+            resetEditForm();
+          }
+          setSuccess('Usuário ativado.');
+          await carregarUsuarios();
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Não foi possível ativar o usuário.',
+          );
+        }
+      },
+    });
+  };
+
+  const handleDeletePermanent = (usuario: Usuario) => {
+    setDeleteModal({
+      open: true,
+      usuario,
+      senha: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  const handleCloseDeleteModal = () => {
+    setDeleteModal({
+      open: false,
+      usuario: null,
+      senha: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModal.usuario) {
+      return;
+    }
+
+    if (!deleteModal.senha.trim()) {
+      setDeleteModal((prev) => ({
+        ...prev,
+        error: 'Por favor, informe sua senha para confirmar a exclusão.',
+      }));
+      return;
+    }
+
+    try {
+      setDeleteModal((prev) => ({ ...prev, loading: true, error: null }));
+      await api.deleteUsuario(deleteModal.usuario.id, deleteModal.senha, currentUser.id);
+      
+      if (editingUsuario?.id === deleteModal.usuario.id) {
+        resetEditForm();
+      }
+      
+      setSuccess('Usuário excluído permanentemente.');
+      handleCloseDeleteModal();
+      await carregarUsuarios();
+    } catch (err) {
+      let errorMessage = 'Não foi possível excluir o usuário.';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        // Ajustar mensagens específicas
+        if (errorMessage.includes('Senha de administrador')) {
+          errorMessage = 'Senha de administrador inválida.';
+        } else if (errorMessage.includes('Nenhum administrador encontrado')) {
+          errorMessage = 'Nenhum administrador encontrado no sistema.';
+        }
+      }
+      setDeleteModal((prev) => ({
+        ...prev,
+        error: errorMessage,
+        loading: false,
+      }));
+    }
   };
 
   const normalizedSearch = searchTerm.trim().toUpperCase();
@@ -629,6 +1160,31 @@ function UsuariosSection({
             />
           </label>
         </div>
+        <div className="grid two-columns">
+          <label>
+            Pergunta de Segurança
+            <select
+              value={form.perguntaSeguranca}
+              onChange={(event) => handleChange('perguntaSeguranca', event.target.value)}
+            >
+              <option value="">Selecione uma pergunta</option>
+              {PERGUNTAS_SEGURANCA.map((pergunta) => (
+                <option key={pergunta} value={pergunta}>
+                  {pergunta}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Resposta de Segurança
+            <input
+              type="text"
+              value={form.respostaSeguranca}
+              onChange={(event) => handleChange('respostaSeguranca', event.target.value)}
+              placeholder="Digite a resposta"
+            />
+          </label>
+        </div>
         <div className="form-actions">
           <button className="primary" type="submit" disabled={submitting}>
             {submitting ? 'Salvando...' : 'Cadastrar usuário'}
@@ -658,31 +1214,55 @@ function UsuariosSection({
               <th>Nome</th>
               <th>Matrícula</th>
               <th>Equipe</th>
-              <th>Criado em</th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
             {filteredUsuarios.map((usuario) => (
-              <tr key={usuario.id}>
+              <tr
+                key={usuario.id}
+                style={
+                  usuario.status === 'DESATIVADO'
+                    ? { backgroundColor: '#fee2e2' }
+                    : undefined
+                }
+              >
                 <td>{usuario.nome}</td>
                 <td>{usuario.matricula}</td>
                 <td>{usuario.equipe}</td>
-                <td>{formatDate(usuario.createdAt)}</td>
                 <td className="actions">
+                  {usuario.status === 'ATIVO' && (
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => handleEdit(usuario)}
+                    >
+                      Editar
+                    </button>
+                  )}
+                  {usuario.status === 'ATIVO' ? (
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => handleDelete(usuario)}
+                    >
+                      Desativar
+                    </button>
+                  ) : (
+                    <button
+                      className="primary"
+                      type="button"
+                      onClick={() => handleActivate(usuario)}
+                    >
+                      Ativar
+                    </button>
+                  )}
                   <button
-                    className="secondary"
+                    className="danger-delete"
                     type="button"
-                    onClick={() => handleEdit(usuario)}
+                    onClick={() => handleDeletePermanent(usuario)}
                   >
-                    Editar
-                  </button>
-                  <button
-                    className="danger"
-                    type="button"
-                    onClick={() => handleDelete(usuario)}
-                  >
-                    Desativar
+                    Excluir
                   </button>
                 </td>
               </tr>
@@ -759,6 +1339,35 @@ function UsuariosSection({
                   />
                 </label>
               </div>
+              <div className="grid two-columns">
+                <label>
+                  Pergunta de Segurança
+                  <select
+                    value={editForm.perguntaSeguranca}
+                    onChange={(event) =>
+                      handleEditChange('perguntaSeguranca', event.target.value)
+                    }
+                  >
+                    <option value="">Selecione uma pergunta</option>
+                    {PERGUNTAS_SEGURANCA.map((pergunta) => (
+                      <option key={pergunta} value={pergunta}>
+                        {pergunta}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Resposta de Segurança
+                  <input
+                    type="text"
+                    value={editForm.respostaSeguranca}
+                    onChange={(event) =>
+                      handleEditChange('respostaSeguranca', event.target.value)
+                    }
+                    placeholder="Deixe em branco para não alterar"
+                  />
+                </label>
+              </div>
               <div className="modal-actions">
                 <button
                   type="button"
@@ -770,6 +1379,77 @@ function UsuariosSection({
                 </button>
                 <button className="primary" type="submit" disabled={editSubmitting}>
                   {editSubmitting ? 'Salvando...' : 'Salvar alterações'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Exclusão Permanente com Confirmação de Senha */}
+      {deleteModal.open && deleteModal.usuario && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal" style={{ maxWidth: '500px' }}>
+            <h3>Excluir usuário permanentemente</h3>
+            <div className="feedback error" style={{ marginBottom: '16px' }}>
+              <strong>ATENÇÃO: Esta ação é IRREVERSÍVEL!</strong>
+              <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
+                O usuário <strong>{deleteModal.usuario.nome}</strong> (matrícula{' '}
+                <strong>{deleteModal.usuario.matricula}</strong>) será removido
+                permanentemente do banco de dados.
+              </p>
+              <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
+                Se tem certeza que realmente quer excluir o registro do banco de dados,
+                digite a senha do administrador para confirmar a operação.
+              </p>
+            </div>
+
+            {deleteModal.error && (
+              <div className="feedback error" style={{ marginBottom: '16px' }}>
+                {deleteModal.error}
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleConfirmDelete();
+              }}
+            >
+              <label>
+                Senha do Administrador
+                <input
+                  type="password"
+                  value={deleteModal.senha}
+                  onChange={(event) =>
+                    setDeleteModal((prev) => ({
+                      ...prev,
+                      senha: event.target.value,
+                      error: null,
+                    }))
+                  }
+                  placeholder="Digite a senha do administrador"
+                  autoFocus
+                  disabled={deleteModal.loading}
+                  required
+                />
+              </label>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={handleCloseDeleteModal}
+                  disabled={deleteModal.loading}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="danger"
+                  disabled={deleteModal.loading || !deleteModal.senha.trim()}
+                >
+                  {deleteModal.loading ? 'Excluindo...' : 'Sim, excluir permanentemente'}
                 </button>
               </div>
             </form>
@@ -796,6 +1476,15 @@ function ColaboradoresSection({
   const [form, setForm] = useState(initialForm);
   const [matriculaError, setMatriculaError] = useState<string | null>(null);
   const matriculaTimeoutRef = useRef<number | null>(null);
+  const [reativarModal, setReativarModal] = useState<{
+    open: boolean;
+    colaborador: Colaborador | null;
+    loading: boolean;
+  }>({
+    open: false,
+    colaborador: null,
+    loading: false,
+  });
 
   const carregarColaboradores = useCallback(async () => {
     try {
@@ -897,6 +1586,38 @@ function ColaboradoresSection({
       await carregarColaboradores();
       onChanged?.();
     } catch (err) {
+      // Verificar se é erro de colaborador desativado
+      let errorData: unknown = null;
+      
+      if (err instanceof Error && 'data' in err) {
+        errorData = (err as Error & { data: unknown }).data;
+      } else if (err instanceof Error) {
+        // Tentar fazer parse da mensagem caso o erro venha como string JSON
+        try {
+          errorData = JSON.parse(err.message);
+        } catch {
+          // Não é JSON, usar mensagem direta
+        }
+      }
+
+      if (
+        errorData &&
+        typeof errorData === 'object' &&
+        errorData !== null &&
+        'message' in errorData &&
+        errorData.message === 'COLABORADOR_DESATIVADO' &&
+        'colaborador' in errorData
+      ) {
+        // Mostrar modal de reativação
+        setReativarModal({
+          open: true,
+          colaborador: errorData.colaborador as Colaborador,
+          loading: false,
+        });
+        setSubmitting(false);
+        return;
+      }
+      
       setError(
         err instanceof Error
           ? err.message
@@ -904,6 +1625,57 @@ function ColaboradoresSection({
       );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleCloseReativarModal = () => {
+    setReativarModal({
+      open: false,
+      colaborador: null,
+      loading: false,
+    });
+  };
+
+  const handleConfirmReativar = async () => {
+    if (!reativarModal.colaborador) {
+      return;
+    }
+
+    try {
+      setReativarModal((prev) => ({ ...prev, loading: true }));
+      setError(null);
+      
+      // Reativar o colaborador
+      await api.activateColaborador(reativarModal.colaborador.id, currentUser.id);
+      
+      // Atualizar os dados do colaborador reativado com os novos dados do formulário
+      await api.updateColaborador(
+        reativarModal.colaborador.id,
+        {
+          nome: form.nome.trim(),
+          status: form.status,
+          equipe: currentUser.equipe,
+        },
+        currentUser.id,
+      );
+
+      setSuccess('Policial reativado e atualizado com sucesso.');
+      setForm(initialForm);
+      setMatriculaError(null);
+      if (matriculaTimeoutRef.current) {
+        clearTimeout(matriculaTimeoutRef.current);
+        matriculaTimeoutRef.current = null;
+      }
+      handleCloseReativarModal();
+      await carregarColaboradores();
+      onChanged?.();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível reativar o policial.',
+      );
+      setReativarModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -1003,6 +1775,46 @@ function ColaboradoresSection({
           </button>
         </div>
       </form>
+
+      {/* Modal de Reativação de Colaborador Desativado */}
+      {reativarModal.open && reativarModal.colaborador && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal" style={{ maxWidth: '500px' }}>
+            <h3>Colaborador já cadastrado</h3>
+            <div className="feedback" style={{ marginBottom: '16px', backgroundColor: '#fef3c7', borderColor: '#f59e0b', color: '#92400e' }}>
+              <strong>Este colaborador já existe no sistema, porém está desativado.</strong>
+              <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
+                <strong>Nome:</strong> {reativarModal.colaborador.nome}
+              </p>
+              <p style={{ margin: '4px 0 0', fontSize: '0.9rem' }}>
+                <strong>Matrícula:</strong> {reativarModal.colaborador.matricula}
+              </p>
+              <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
+                Deseja reativar este colaborador com os dados informados?
+              </p>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary"
+                onClick={handleCloseReativarModal}
+                disabled={reativarModal.loading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                onClick={handleConfirmReativar}
+                disabled={reativarModal.loading}
+              >
+                {reativarModal.loading ? 'Reativando...' : 'Sim, reativar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1103,40 +1915,6 @@ function AfastamentosSection({
     void carregarDados();
   }, [carregarDados]);
 
-  // Função para verificar se uma data está dentro do período de um afastamento
-  const isDataNoPeriodo = useCallback((data: string, afastamento: Afastamento): boolean => {
-    const dataVerificada = new Date(data);
-    const dataInicio = new Date(afastamento.dataInicio);
-    const dataFim = afastamento.dataFim ? new Date(afastamento.dataFim) : null;
-
-    // Normalizar para comparar apenas a data (sem hora)
-    dataVerificada.setHours(0, 0, 0, 0);
-    dataInicio.setHours(0, 0, 0, 0);
-    if (dataFim) {
-      dataFim.setHours(0, 0, 0, 0);
-    }
-
-    // Verificar se a data está entre início e fim (ou sem fim)
-    if (dataFim) {
-      return dataVerificada >= dataInicio && dataVerificada <= dataFim;
-    } else {
-      return dataVerificada >= dataInicio;
-    }
-  }, []);
-
-  // Função para buscar afastamentos ativos em uma data específica
-  const buscarAfastamentosNaData = useCallback((data: string): Afastamento[] => {
-    if (!data) {
-      return [];
-    }
-
-    return afastamentos.filter((afastamento) => {
-      // Não incluir o próprio afastamento que está sendo cadastrado
-      // (se já tiver um ID, significa que está editando)
-      return isDataNoPeriodo(data, afastamento);
-    });
-  }, [afastamentos, isDataNoPeriodo]);
-
   // Função para calcular dias entre duas datas
   const calcularDiasEntreDatas = useCallback((dataInicio: string, dataFim?: string): number => {
     if (!dataFim) {
@@ -1177,33 +1955,84 @@ function AfastamentosSection({
     return totalDias;
   }, [afastamentos, calcularDiasEntreDatas]);
 
-  // Função para verificar conflitos e mostrar modal se necessário
-  const verificarConflitos = useCallback((dataInicio: string, dataFim?: string): Afastamento[] => {
-    const conflitos: Afastamento[] = [];
-    const datasParaVerificar: string[] = [];
+  // Função para verificar se dois períodos se sobrepõem
+  const periodosSobrepostos = useCallback((
+    inicio1: string,
+    fim1: string | null | undefined,
+    inicio2: string,
+    fim2: string | null | undefined,
+  ): boolean => {
+    const dataInicio1 = new Date(inicio1);
+    const dataFim1 = fim1 ? new Date(fim1) : null;
+    const dataInicio2 = new Date(inicio2);
+    const dataFim2 = fim2 ? new Date(fim2) : null;
 
-    if (dataInicio) {
-      datasParaVerificar.push(dataInicio);
+    // Normalizar para comparar apenas a data (sem hora)
+    dataInicio1.setHours(0, 0, 0, 0);
+    if (dataFim1) dataFim1.setHours(0, 0, 0, 0);
+    dataInicio2.setHours(0, 0, 0, 0);
+    if (dataFim2) dataFim2.setHours(0, 0, 0, 0);
+
+    // Verificar sobreposição: períodos se sobrepõem se há pelo menos um dia em comum
+    // Período 1: [inicio1, fim1] - o policial está de férias até o dia fim1 (inclusive)
+    // Período 2: [inicio2, fim2] - o policial estaria de férias a partir do dia inicio2 (inclusive)
+    // Sobreposição se: inicio1 < fim2 && inicio2 < fim1
+    // (usar < em vez de <= porque se um termina em X e outro começa em X, não há sobreposição - são adjacentes)
+    if (dataFim1 && dataFim2) {
+      // Ambos têm data fim
+      const condicao1 = dataInicio1.getTime() < dataFim2.getTime();
+      const condicao2 = dataInicio2.getTime() < dataFim1.getTime();
+      const haSobreposicaoBasica = condicao1 && condicao2;
+
+      // Se não há sobreposição básica, verificar se são adjacentes (um termina em X, outro começa em X)
+      // Adjacentes não são considerados sobrepostos
+      if (!haSobreposicaoBasica) {
+        const saoAdjacentes1 = dataInicio2.getTime() === dataFim1.getTime(); // Período 2 começa quando período 1 termina
+        const saoAdjacentes2 = dataInicio1.getTime() === dataFim2.getTime(); // Período 1 começa quando período 2 termina
+        
+        // Se são adjacentes, não há sobreposição
+        return !(saoAdjacentes1 || saoAdjacentes2);
+      }
+
+      // Há sobreposição básica
+      return true;
+    } else if (dataFim1 && !dataFim2) {
+      // Período 1 tem fim, período 2 não tem fim
+      return dataInicio2.getTime() <= dataFim1.getTime();
+    } else if (!dataFim1 && dataFim2) {
+      // Período 1 não tem fim, período 2 tem fim
+      return dataInicio1.getTime() <= dataFim2.getTime();
+    } else {
+      // Ambos não têm fim - sempre há sobreposição
+      return true;
+    }
+  }, []);
+
+  // Função para verificar conflitos em todo o intervalo de dias (excluindo o próprio policial)
+  const verificarConflitos = useCallback((dataInicio: string, dataFim?: string | null, colaboradorIdExcluir?: number): Afastamento[] => {
+    if (!dataInicio) {
+      return [];
     }
 
-    if (dataFim) {
-      datasParaVerificar.push(dataFim);
-    }
+    // Verificar todos os afastamentos ativos que se sobrepõem com o período informado
+    // Excluindo o próprio policial que está sendo cadastrado
+    const conflitos = afastamentos.filter((afastamento) => {
+      // Excluir o próprio policial
+      if (colaboradorIdExcluir && afastamento.colaboradorId === colaboradorIdExcluir) {
+        return false;
+      }
 
-    // Verificar cada data
-    for (const data of datasParaVerificar) {
-      const afastamentosNaData = buscarAfastamentosNaData(data);
-      conflitos.push(...afastamentosNaData);
-    }
+      // Verificar se o período do afastamento existente se sobrepõe com o período informado
+      return periodosSobrepostos(
+        dataInicio,
+        dataFim || null,
+        afastamento.dataInicio,
+        afastamento.dataFim || null,
+      );
+    });
 
-    // Remover duplicatas (mesmo afastamento pode aparecer em ambas as datas)
-    const conflitosUnicos = conflitos.filter(
-      (afastamento, index, self) =>
-        index === self.findIndex((a) => a.id === afastamento.id),
-    );
-
-    return conflitosUnicos;
-  }, [buscarAfastamentosNaData]);
+    return conflitos;
+  }, [afastamentos, periodosSobrepostos]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1225,6 +2054,44 @@ function AfastamentosSection({
 
     if (!form.dataInicio) {
       setError('Informe a data de início.');
+      return;
+    }
+
+    // PRIMEIRO: Verificar se o próprio policial já tem afastamento no período
+    const colaboradorId = Number(form.colaboradorId);
+    const afastamentosDoMesmoPolicial = afastamentos.filter(
+      (afastamento) =>
+        afastamento.colaboradorId === colaboradorId &&
+        afastamento.status === 'ATIVO',
+    );
+
+    // Verificar se algum afastamento do mesmo policial se sobrepõe com o período informado
+    for (const afastamentoExistente of afastamentosDoMesmoPolicial) {
+      const haSobreposicao = periodosSobrepostos(
+        form.dataInicio,
+        form.dataFim || null,
+        afastamentoExistente.dataInicio,
+        afastamentoExistente.dataFim || null,
+      );
+
+      if (haSobreposicao) {
+        setError(
+          `Este policial já possui um afastamento ativo no período selecionado (${afastamentoExistente.motivo} de ${formatDate(afastamentoExistente.dataInicio)} até ${formatDate(afastamentoExistente.dataFim)}). Por favor, altere as datas.`,
+        );
+        return;
+      }
+    }
+
+    // SEGUNDO: Verificar conflitos de afastamentos de OUTROS policiais no intervalo de dias
+    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || null, colaboradorId);
+    
+    if (conflitos.length > 0) {
+      // Mostrar modal de conflitos informando sobre outros policiais afastados
+      setConflitosModal({
+        open: true,
+        conflitos,
+        dataVerificada: form.dataFim ? `${form.dataInicio} e ${form.dataFim}` : form.dataInicio,
+      });
       return;
     }
 
@@ -1381,20 +2248,7 @@ function AfastamentosSection({
       return;
     }
 
-    // Verificar conflitos antes de submeter
-    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || undefined);
-    
-    if (conflitos.length > 0) {
-      // Mostrar modal de conflitos
-      setConflitosModal({
-        open: true,
-        conflitos,
-        dataVerificada: form.dataFim ? `${form.dataInicio} e ${form.dataFim}` : form.dataInicio,
-      });
-      return;
-    }
-
-    // Se não houver conflitos, submeter normalmente
+    // Se não houver conflitos e validações passaram, submeter normalmente
     await submeterAfastamento();
   };
 
@@ -1463,8 +2317,9 @@ function AfastamentosSection({
       ultrapassa: false,
     });
 
-    // Verificar conflitos antes de submeter
-    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || undefined);
+    // Verificar conflitos novamente antes de submeter (caso algo tenha mudado)
+    const colaboradorId = Number(form.colaboradorId);
+    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || null, colaboradorId);
     
     if (conflitos.length > 0) {
       // Mostrar modal de conflitos
@@ -1524,17 +2379,56 @@ function AfastamentosSection({
  
   const normalizedSearch = searchTerm.trim().toUpperCase();
 
+  // Função para verificar se um período de afastamento se sobrepõe com um mês específico
+  const periodoSobrepoeMes = useCallback((
+    dataInicio: string,
+    dataFim: string | null | undefined,
+    year: number,
+    month: number,
+  ): boolean => {
+    // Calcular primeiro e último dia do mês
+    const primeiroDiaMes = new Date(year, month - 1, 1);
+    const ultimoDiaMes = new Date(year, month, 0, 23, 59, 59); // Último dia do mês
+
+    // Normalizar datas
+    primeiroDiaMes.setHours(0, 0, 0, 0);
+    ultimoDiaMes.setHours(23, 59, 59, 999);
+
+    const inicioAfastamento = new Date(dataInicio);
+    inicioAfastamento.setHours(0, 0, 0, 0);
+
+    const fimAfastamento = dataFim ? new Date(dataFim) : null;
+    if (fimAfastamento) {
+      fimAfastamento.setHours(23, 59, 59, 999);
+    }
+
+    // Verificar sobreposição:
+    // O período se sobrepõe se:
+    // - O início do afastamento está dentro do mês, OU
+    // - O fim do afastamento está dentro do mês, OU
+    // - O afastamento engloba todo o mês (início antes e fim depois)
+    if (fimAfastamento) {
+      // Afastamento com data fim: verifica se há sobreposição
+      return (
+        (inicioAfastamento <= ultimoDiaMes && fimAfastamento >= primeiroDiaMes)
+      );
+    } else {
+      // Afastamento sem data fim: verifica se começa antes ou durante o mês
+      return inicioAfastamento <= ultimoDiaMes;
+    }
+  }, []);
+
   const afastamentosFiltrados = useMemo(() => {
     const [year, month] = selectedMonth.split('-').map(Number);
 
     const filtradoPorMes = !selectedMonth || Number.isNaN(year) || Number.isNaN(month)
       ? afastamentos
       : afastamentos.filter((afastamento) => {
-          const inicio = new Date(afastamento.dataInicio);
-          return (
-            !Number.isNaN(inicio.getTime()) &&
-            inicio.getFullYear() === year &&
-            inicio.getMonth() + 1 === month
+          return periodoSobrepoeMes(
+            afastamento.dataInicio,
+            afastamento.dataFim,
+            year,
+            month,
           );
         });
 
@@ -1550,7 +2444,7 @@ function AfastamentosSection({
     return filtradoPorMotivo.filter((afastamento) =>
       afastamento.colaborador.nome.includes(normalizedSearch),
     );
-  }, [afastamentos, motivoFiltro, normalizedSearch, selectedMonth]);
+  }, [afastamentos, motivoFiltro, normalizedSearch, selectedMonth, periodoSobrepoeMes]);
 
   const descricaoPeriodo = useMemo(() => {
     if (!selectedMonth) {
@@ -1779,14 +2673,14 @@ function AfastamentosSection({
           <div className="modal" style={{ maxWidth: '600px' }}>
             <h3>Conflito de Afastamentos</h3>
             <p>
-              Existem {conflitosModal.conflitos.length} policial(is) já afastado(s) na(s) data(s) selecionada(s):
+              Existem {conflitosModal.conflitos.length} policial(is) já afastado(s) no período selecionado:
             </p>
-            <ul style={{ margin: '8px 0 16px 20px', color: '#475569' }}>
-              <li><strong>{formatDate(form.dataInicio)}</strong> (data de início)</li>
-              {form.dataFim && (
-                <li><strong>{formatDate(form.dataFim)}</strong> (data de término)</li>
-              )}
-            </ul>
+            <div style={{ margin: '8px 0 16px', padding: '12px', backgroundColor: '#f1f5f9', borderRadius: '6px', color: '#475569' }}>
+              <strong>Período do novo afastamento:</strong>
+              <div style={{ marginTop: '4px' }}>
+                {formatPeriodo(form.dataInicio, form.dataFim || null)}
+              </div>
+            </div>
             <div style={{ maxHeight: '400px', overflowY: 'auto', marginBottom: '16px' }}>
               <table className="table" style={{ fontSize: '0.85rem' }}>
                 <thead>
@@ -1833,7 +2727,7 @@ function AfastamentosSection({
                 onClick={handleCancelarConflito}
                 disabled={submitting}
               >
-                Cancelar
+                Não
               </button>
               <button
                 type="button"
@@ -1841,7 +2735,7 @@ function AfastamentosSection({
                 onClick={handleConfirmarConflito}
                 disabled={submitting}
               >
-                {submitting ? 'Salvando...' : 'Sim, cadastrar mesmo assim'}
+                {submitting ? 'Salvando...' : 'Sim'}
               </button>
             </div>
           </div>
@@ -1958,6 +2852,45 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
     void carregarAfastamentos();
   }, [carregarAfastamentos]);
 
+  // Função para verificar se um período de afastamento se sobrepõe com um mês específico
+  const periodoSobrepoeMes = useCallback((
+    dataInicio: string,
+    dataFim: string | null | undefined,
+    year: number,
+    month: number,
+  ): boolean => {
+    // Calcular primeiro e último dia do mês
+    const primeiroDiaMes = new Date(year, month - 1, 1);
+    const ultimoDiaMes = new Date(year, month, 0, 23, 59, 59); // Último dia do mês
+
+    // Normalizar datas
+    primeiroDiaMes.setHours(0, 0, 0, 0);
+    ultimoDiaMes.setHours(23, 59, 59, 999);
+
+    const inicioAfastamento = new Date(dataInicio);
+    inicioAfastamento.setHours(0, 0, 0, 0);
+
+    const fimAfastamento = dataFim ? new Date(dataFim) : null;
+    if (fimAfastamento) {
+      fimAfastamento.setHours(23, 59, 59, 999);
+    }
+
+    // Verificar sobreposição:
+    // O período se sobrepõe se:
+    // - O início do afastamento está dentro do mês, OU
+    // - O fim do afastamento está dentro do mês, OU
+    // - O afastamento engloba todo o mês (início antes e fim depois)
+    if (fimAfastamento) {
+      // Afastamento com data fim: verifica se há sobreposição
+      return (
+        (inicioAfastamento <= ultimoDiaMes && fimAfastamento >= primeiroDiaMes)
+      );
+    } else {
+      // Afastamento sem data fim: verifica se começa antes ou durante o mês
+      return inicioAfastamento <= ultimoDiaMes;
+    }
+  }, []);
+
   const afastamentosFiltrados = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toUpperCase();
  
@@ -1967,11 +2900,11 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
       Number.isNaN(year) || Number.isNaN(month)
         ? afastamentos
         : afastamentos.filter((afastamento) => {
-            const inicio = new Date(afastamento.dataInicio);
-            return (
-              !Number.isNaN(inicio.getTime()) &&
-              inicio.getFullYear() === year &&
-              inicio.getMonth() + 1 === month
+            return periodoSobrepoeMes(
+              afastamento.dataInicio,
+              afastamento.dataFim,
+              year,
+              month,
             );
           });
 
@@ -1987,7 +2920,7 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
     return filtradoPorMotivo.filter((afastamento) =>
       afastamento.colaborador.nome.includes(normalizedSearch),
     );
-  }, [afastamentos, searchTerm, motivoFiltro, selectedMonth]);
+  }, [afastamentos, searchTerm, motivoFiltro, selectedMonth, periodoSobrepoeMes]);
 
   const descricaoPeriodo = useMemo(() => {
     const [year, month] = selectedMonth.split('-').map(Number);
@@ -2245,7 +3178,8 @@ function MostrarEquipeSection({
     () =>
       colaboradores.filter(
         (colaborador) =>
-          colaborador.equipe === equipeAtual,
+          colaborador.equipe === equipeAtual &&
+          colaborador.status !== 'DESATIVADO',
       ),
     [colaboradores, equipeAtual],
   );
@@ -2422,6 +3356,12 @@ function MostrarEquipeSection({
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null);
+  const [authView, setAuthView] = useState<AuthView>('login');
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [securityQuestionData, setSecurityQuestionData] = useState<{
+    matricula: string;
+    pergunta: string;
+  } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogConfig>({
     open: false,
     title: '',
@@ -2437,6 +3377,16 @@ export default function App() {
       }
     } catch (error) {
       console.warn('Não foi possível restaurar o usuário da sessão.', error);
+    }
+
+    // Verificar se há token na URL (reset de senha)
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    if (token) {
+      setResetToken(token);
+      setAuthView('reset-password');
+      // Limpar a URL
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
@@ -2481,13 +3431,60 @@ export default function App() {
   }, [confirmDialog, closeConfirm]);
 
   if (!currentUser) {
+    const handleForgotPassword = () => {
+      setAuthView('forgot-password');
+    };
+
+    const handleBackToLogin = () => {
+      setAuthView('login');
+      setResetToken(null);
+      setSecurityQuestionData(null);
+    };
+
+    const handleSecurityQuestionReceived = (matricula: string, pergunta: string) => {
+      setSecurityQuestionData({ matricula, pergunta });
+      setAuthView('security-question');
+    };
+
+    const handleResetSuccess = () => {
+      setAuthView('login');
+      setResetToken(null);
+    };
+
     return (
       <div className="app-container">
         <header>
           <h1>Sistema de Afastamentos</h1>
-          <p>Informe sua matrícula e senha para acessar o painel.</p>
+          <p>
+            {authView === 'login' && 'Informe sua matrícula e senha para acessar o painel.'}
+            {authView === 'forgot-password' && 'Recupere sua senha informando sua matrícula.'}
+            {authView === 'reset-password' && 'Defina uma nova senha para sua conta.'}
+          </p>
         </header>
-        <LoginView onSuccess={handleLoginSuccess} />
+        {authView === 'login' && (
+          <LoginView onSuccess={handleLoginSuccess} onForgotPassword={handleForgotPassword} />
+        )}
+        {authView === 'forgot-password' && (
+          <ForgotPasswordView
+            onBack={handleBackToLogin}
+            onSecurityQuestionReceived={handleSecurityQuestionReceived}
+          />
+        )}
+        {authView === 'security-question' && securityQuestionData && (
+          <SecurityQuestionView
+            matricula={securityQuestionData.matricula}
+            pergunta={securityQuestionData.pergunta}
+            onBack={handleBackToLogin}
+            onSuccess={handleResetSuccess}
+          />
+        )}
+        {authView === 'reset-password' && (
+          <ResetPasswordView
+            token={resetToken || undefined}
+            onBack={handleBackToLogin}
+            onSuccess={handleResetSuccess}
+          />
+        )}
       </div>
     );
   }

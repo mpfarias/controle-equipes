@@ -208,6 +208,30 @@ button.danger {
   border-radius: 8px;
   cursor: pointer;
   font-size: 0.85rem;
+  transition: all 0.2s ease-in-out;
+}
+
+button.danger:hover {
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+button.danger-delete {
+  background: #dc2626;
+  border: 1px solid #dc2626;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s ease-in-out;
+  font-weight: 500;
+}
+
+button.danger-delete:hover {
+  background: #b91c1c;
+  border-color: #991b1b;
 }
 
 button:disabled {
@@ -375,9 +399,9 @@ button.secondary {
   background: transparent;
   border: 1px solid #64748b;
   color: #1e293b;
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease-in-out;
 }
@@ -391,6 +415,7 @@ button.secondary:hover {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .action-button {

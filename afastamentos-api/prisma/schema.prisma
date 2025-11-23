@@ -44,8 +44,11 @@ model Usuario {
   nome       String
   matricula  String   @unique
   senhaHash  String
+  perguntaSeguranca String?
+  respostaSegurancaHash String?
   equipe     Equipe   @default(A)
   status     UsuarioStatus @default(ATIVO)
+  isAdmin    Boolean  @default(false)
   createdById   Int?
   createdByName String?
   updatedById   Int?

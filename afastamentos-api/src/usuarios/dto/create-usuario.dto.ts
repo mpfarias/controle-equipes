@@ -29,9 +29,23 @@ export class CreateUsuarioDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(20)
-  @MaxLength(255)
-  senhaHash: string;
+  @MinLength(6, {
+    message: 'A senha deve ter pelo menos 6 caracteres.',
+  })
+  @MaxLength(100, {
+    message: 'A senha não pode ter mais de 100 caracteres.',
+  })
+  senha: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  perguntaSeguranca?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  respostaSeguranca?: string;
 
   @IsString()
   @IsIn(EQUIPE_VALUES)

@@ -78,5 +78,23 @@ export class ColaboradoresController {
         : actorIdNumber;
     return this.colaboradoresService.remove(id, actorId);
   }
+
+  @Patch(':id/activate')
+  activate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('responsavelId') responsavelId?: number,
+  ) {
+    const actorIdNumber =
+      typeof responsavelId === 'number'
+        ? responsavelId
+        : responsavelId !== undefined
+          ? Number(responsavelId)
+          : undefined;
+    const actorId =
+      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
+        ? undefined
+        : actorIdNumber;
+    return this.colaboradoresService.activate(id, actorId);
+  }
 }
 

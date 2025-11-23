@@ -15,8 +15,10 @@ export interface Usuario {
   id: number;
   nome: string;
   matricula: string;
+  perguntaSeguranca?: string | null;
   equipe: Equipe;
   status: UsuarioStatus;
+  isAdmin?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,7 +26,9 @@ export interface Usuario {
 export interface CreateUsuarioInput {
   nome: string;
   matricula: string;
-  senhaHash: string;
+  senha: string;
+  perguntaSeguranca?: string;
+  respostaSeguranca?: string;
   equipe: Equipe;
 }
 

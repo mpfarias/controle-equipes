@@ -7,10 +7,12 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { UsuariosService } from './usuarios.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
+import { DeleteUsuarioDto } from './dto/delete-usuario.dto';
 
 @Controller('usuarios')
 export class UsuariosController {
@@ -33,8 +35,11 @@ export class UsuariosController {
   }
 
   @Get()
-  findAll() {
-    return this.usuariosService.findAll();
+  findAll(@Query('currentUserId') currentUserId?: string) {
+    const userId = currentUserId ? Number(currentUserId) : undefined;
+    return this.usuariosService.findAll(
+      userId && !Number.isNaN(userId) ? userId : undefined,
+    );
   }
 
   @Get(':id')
@@ -61,6 +66,28 @@ export class UsuariosController {
     return this.usuariosService.update(id, data, actorId);
   }
 
+  @Delete(':id/permanent')
+  delete(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() deleteUsuarioDto: DeleteUsuarioDto,
+  ) {
+    const { responsavelId, ...rest } = deleteUsuarioDto;
+    const actorIdNumber =
+      typeof responsavelId === 'number'
+        ? responsavelId
+        : responsavelId !== undefined
+          ? Number(responsavelId)
+          : undefined;
+    const actorId =
+      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
+        ? undefined
+        : actorIdNumber;
+    return this.usuariosService.delete(id, {
+      ...rest,
+      responsavelId: actorId,
+    });
+  }
+
   @Delete(':id')
   remove(
     @Param('id', ParseIntPipe) id: number,
@@ -77,6 +104,24 @@ export class UsuariosController {
         ? undefined
         : actorIdNumber;
     return this.usuariosService.remove(id, actorId);
+  }
+
+  @Patch(':id/activate')
+  activate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('responsavelId') responsavelId?: number,
+  ) {
+    const actorIdNumber =
+      typeof responsavelId === 'number'
+        ? responsavelId
+        : responsavelId !== undefined
+          ? Number(responsavelId)
+          : undefined;
+    const actorId =
+      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
+        ? undefined
+        : actorIdNumber;
+    return this.usuariosService.activate(id, actorId);
   }
 }
 
