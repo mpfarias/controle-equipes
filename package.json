@@ -7,7 +7,7 @@
     "setup": "node setup.js",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f mysql",
+    "db:logs": "docker compose logs -f postgres",
     "start:api": "cd afastamentos-api && npm run start:dev",
     "start:web": "cd afastamentos-web && npm run dev",
     "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install",

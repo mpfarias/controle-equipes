@@ -6,6 +6,9 @@ import type {
   CreateUsuarioInput,
   LoginInput,
   Usuario,
+  UsuarioNivel,
+  UsuarioNivelOption,
+  FuncaoOption,
 } from './types.ts';
 
 const API_URL =
@@ -98,6 +101,18 @@ export const api = {
     return request(url);
   },
 
+  async getUsuario(id: number): Promise<Usuario> {
+    return request(`/usuarios/${id}`);
+  },
+
+  async listUsuarioNiveis(): Promise<UsuarioNivelOption[]> {
+    return request('/usuarios/niveis');
+  },
+
+  async listFuncoes(): Promise<FuncaoOption[]> {
+    return request('/usuarios/funcoes');
+  },
+
   async createUsuario(
     payload: CreateUsuarioInput,
     responsavelId?: number,
@@ -188,8 +203,8 @@ export const api = {
     senha: string,
     responsavelId?: number,
   ): Promise<void> {
-    await request(`/usuarios/${id}/permanent`, {
-      method: 'DELETE',
+    await request(`/usuarios/${id}/delete-permanent`, {
+      method: 'POST',
       body: JSON.stringify({ senha, responsavelId }),
     });
   },

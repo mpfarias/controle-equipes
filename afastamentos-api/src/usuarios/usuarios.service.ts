@@ -8,16 +8,7 @@ import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { DeleteUsuarioDto } from './dto/delete-usuario.dto';
 
 type UsuarioEntity = Prisma.UsuarioGetPayload<{
-  select: {
-    id: true;
-    nome: true;
-    matricula: true;
-    equipe: true;
-    status: true;
-    isAdmin: true;
-    createdAt: true;
-    updatedAt: true;
-  };
+  select: typeof usuarioSelect;
 }>;
 
 const usuarioSelect = {
@@ -28,6 +19,22 @@ const usuarioSelect = {
   equipe: true,
   status: true,
   isAdmin: true,
+  nivelId: true,
+  nivel: {
+    select: {
+      id: true,
+      nome: true,
+      descricao: true,
+    },
+  },
+  funcaoId: true,
+  funcao: {
+    select: {
+      id: true,
+      nome: true,
+      descricao: true,
+    },
+  },
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UsuarioSelect;
@@ -69,6 +76,8 @@ export class UsuariosService {
         perguntaSeguranca: data.perguntaSeguranca?.trim() || null,
         respostaSegurancaHash,
         equipe: data.equipe ?? 'A',
+        nivel: { connect: { id: data.nivelId } },
+        funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         status: UsuarioStatus.ATIVO,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
@@ -90,25 +99,55 @@ export class UsuariosService {
   }
 
   async findAll(currentUserId?: number): Promise<UsuarioEntity[]> {
+    // Buscar o nível ADMINISTRADOR
+    const nivelAdmin = await this.prisma.usuarioNivel.findUnique({
+      where: { nome: 'ADMINISTRADOR' },
+    });
+
     // Se um currentUserId foi fornecido, verificar se é admin
-    let includeAdmins = false;
+    let includeAdmins: boolean = false;
     if (currentUserId) {
       const currentUser = await this.prisma.usuario.findUnique({
         where: { id: currentUserId },
+        include: { nivel: true },
       });
-      // Verificar se o usuário é admin usando type assertion temporário
-      // até regenerar o Prisma Client
-      includeAdmins = (currentUser as any)?.isAdmin === true;
+      // Verificar se o usuário tem nível ADMINISTRADOR ou isAdmin: true
+      includeAdmins =
+        ((currentUser as any)?.isAdmin === true) ||
+        (nivelAdmin ? (currentUser as any)?.nivelId === nivelAdmin.id : false);
     }
 
     const whereClause = includeAdmins
       ? {} // Se for admin, mostrar todos os usuários
-      : { isAdmin: false }; // Se não for admin, ocultar administradores
+      : nivelAdmin
+        ? {
+            NOT: {
+              OR: [{ isAdmin: true }, { nivelId: nivelAdmin.id }],
+            },
+          } // Se não for admin, ocultar administradores (tanto por isAdmin quanto por nivelId)
+        : { isAdmin: false }; // Fallback se não encontrar o nível
 
     return this.prisma.usuario.findMany({
       where: whereClause,
       orderBy: { nome: 'asc' },
       select: usuarioSelect,
+    });
+  }
+
+  async findNiveis() {
+    return this.prisma.usuarioNivel.findMany({
+      orderBy: { nome: 'asc' },
+    });
+  }
+
+  async listFuncoes(): Promise<{ id: number; nome: string; descricao: string | null }[]> {
+    return this.prisma.funcao.findMany({
+      select: {
+        id: true,
+        nome: true,
+        descricao: true,
+      },
+      orderBy: { id: 'asc' },
     });
   }
 
@@ -168,6 +207,19 @@ export class UsuariosService {
 
     if (data.equipe !== undefined) {
       updateData.equipe = data.equipe;
+    }
+
+    if (data.nivelId !== undefined && data.nivelId !== null && data.nivelId > 0) {
+      // nivelId é obrigatório, então sempre conecta quando fornecido
+      updateData.nivel = { connect: { id: data.nivelId } };
+    }
+
+    if (data.funcaoId !== undefined) {
+      if (data.funcaoId === null || data.funcaoId === 0) {
+        updateData.funcao = { disconnect: true };
+      } else {
+        updateData.funcao = { connect: { id: data.funcaoId } };
+      }
     }
 
     if (data.senha) {

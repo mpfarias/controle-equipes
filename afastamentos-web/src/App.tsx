@@ -9,6 +9,8 @@ import type {
   Usuario,
   CreateUsuarioInput,
   Equipe,
+  UsuarioNivelOption,
+  FuncaoOption,
 } from './types.ts';
 
 type TabKey = 'dashboard' | 'afastamentos' | 'colaboradores' | 'equipe' | 'usuarios';
@@ -256,7 +258,7 @@ function LoginView({
           />
         </label>
         <button className="primary" type="submit" disabled={loading}>
-          {loading ? 'Validando...' : 'Entrar'}
+          {loading ? 'Logando...' : 'Entrar'}
         </button>
       </form>
       <div style={{ textAlign: 'center', marginTop: '1rem' }}>
@@ -660,9 +662,11 @@ function SecurityQuestionView({
 function UsuariosSection({
   currentUser,
   openConfirm,
+  onCurrentUserUpdate,
 }: {
   currentUser: Usuario;
   openConfirm: (config: ConfirmConfig) => void;
+  onCurrentUserUpdate?: (user: Usuario) => void;
 }) {
   const initialCreateForm = {
     nome: '',
@@ -672,6 +676,8 @@ function UsuariosSection({
     perguntaSeguranca: '',
     respostaSeguranca: '',
     equipe: 'A' as Equipe,
+    nivelId: 0 as number, // Será preenchido quando os níveis forem carregados
+    funcaoId: undefined as number | undefined,
   };
 
   const initialEditForm = {
@@ -682,9 +688,13 @@ function UsuariosSection({
     perguntaSeguranca: '',
     respostaSeguranca: '',
     equipe: 'A' as Equipe,
+    nivelId: 0 as number, // Será preenchido quando os níveis forem carregados ou ao editar
+    funcaoId: undefined as number | undefined,
   };
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [usuarioNiveis, setUsuarioNiveis] = useState<UsuarioNivelOption[]>([]);
+  const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -728,6 +738,24 @@ function UsuariosSection({
     }
   }, [currentUser?.id]);
 
+  const carregarNiveis = useCallback(async () => {
+    try {
+      const data = await api.listUsuarioNiveis();
+      setUsuarioNiveis(data);
+    } catch (err) {
+      console.error('Erro ao carregar níveis:', err);
+    }
+  }, []);
+
+  const carregarFuncoes = useCallback(async () => {
+    try {
+      const data = await api.listFuncoes();
+      setFuncoes(data);
+    } catch (err) {
+      console.error('Erro ao carregar funções:', err);
+    }
+  }, []);
+
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
     if (loading || usuarios.length === 0 && !error) {
@@ -753,7 +781,22 @@ function UsuariosSection({
 
   useEffect(() => {
     void carregarUsuarios();
-  }, [carregarUsuarios]);
+    void carregarNiveis();
+    void carregarFuncoes();
+  }, [carregarUsuarios, carregarNiveis, carregarFuncoes]);
+
+  // Quando os níveis forem carregados, definir o primeiro como padrão se não houver seleção
+  useEffect(() => {
+    if (usuarioNiveis.length > 0) {
+      // Se o form ainda não tem um nivelId válido, usar o primeiro nível (geralmente CONSULTAS)
+      if (!form.nivelId || form.nivelId === 0) {
+        const primeiroNivel = usuarioNiveis.find(n => n.nome === 'CONSULTAS') || usuarioNiveis[0];
+        if (primeiroNivel) {
+          setForm(prev => ({ ...prev, nivelId: primeiroNivel.id }));
+        }
+      }
+    }
+  }, [usuarioNiveis]);
 
   // Revalidar matrícula quando a lista de usuários for atualizada
   useEffect(() => {
@@ -762,13 +805,13 @@ function UsuariosSection({
     }
   }, [usuarios, form.matricula, validateMatricula, loading]);
 
-  const handleChange = (field: keyof typeof form, value: string) => {
-    if (field === 'nome') {
+  const handleChange = (field: keyof typeof form, value: string | number | undefined) => {
+    if (field === 'nome' && typeof value === 'string') {
       value = value.toUpperCase();
     }
-    if (field === 'matricula') {
+    if (field === 'matricula' && typeof value === 'string') {
       value = value.replace(/[^0-9xX]/g, '').toUpperCase();
-      setForm((prev) => ({ ...prev, [field]: value }));
+      setForm((prev) => ({ ...prev, [field]: value as string }));
       
       // Limpar timeout anterior
       if (matriculaTimeoutRef.current) {
@@ -783,12 +826,12 @@ function UsuariosSection({
       
       // Validar após 300ms de inatividade (debounce)
       matriculaTimeoutRef.current = setTimeout(() => {
-        validateMatricula(value);
+        validateMatricula(value as string);
       }, 300);
       
       return;
     }
-    if (field === 'equipe') {
+    if (field === 'equipe' && typeof value === 'string') {
       value = value.toUpperCase();
     }
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -851,6 +894,11 @@ function UsuariosSection({
       return;
     }
 
+    if (!form.nivelId || form.nivelId === 0) {
+      setError('Selecione um nível para o usuário.');
+      return;
+    }
+
     try {
       setSubmitting(true);
       await api.createUsuario(
@@ -861,6 +909,8 @@ function UsuariosSection({
           perguntaSeguranca: form.perguntaSeguranca.trim() || undefined,
           respostaSeguranca: form.respostaSeguranca.trim() || undefined,
           equipe: form.equipe,
+          nivelId: form.nivelId,
+          funcaoId: form.funcaoId,
         },
         currentUser.id,
       );
@@ -876,14 +926,17 @@ function UsuariosSection({
     }
   };
 
-  const handleEditChange = (field: keyof typeof editForm, value: string) => {
-    if (field === 'nome') {
+  const handleEditChange = (
+    field: keyof typeof editForm,
+    value: string | number | undefined,
+  ) => {
+    if (field === 'nome' && typeof value === 'string') {
       value = value.toUpperCase();
     }
-    if (field === 'matricula') {
+    if (field === 'matricula' && typeof value === 'string') {
       value = value.replace(/[^0-9xX]/g, '').toUpperCase();
     }
-    if (field === 'equipe') {
+    if (field === 'equipe' && typeof value === 'string') {
       value = value.toUpperCase();
     }
     setEditForm((prev) => ({ ...prev, [field]: value }));
@@ -891,6 +944,12 @@ function UsuariosSection({
 
   const handleEdit = (usuario: Usuario) => {
     setEditingUsuario(usuario);
+    // Se o usuário não tiver nivelId, usar o primeiro nível disponível (geralmente CONSULTAS)
+    let nivelId = usuario.nivelId ?? 0;
+    if (!nivelId && usuarioNiveis.length > 0) {
+      const primeiroNivel = usuarioNiveis.find(n => n.nome === 'CONSULTAS') || usuarioNiveis[0];
+      nivelId = primeiroNivel?.id ?? 0;
+    }
     setEditForm({
       nome: usuario.nome,
       matricula: usuario.matricula,
@@ -899,6 +958,8 @@ function UsuariosSection({
       perguntaSeguranca: usuario.perguntaSeguranca || '',
       respostaSeguranca: '',
       equipe: usuario.equipe ?? 'A',
+      nivelId: nivelId,
+      funcaoId: usuario.funcaoId ?? undefined,
     });
     setEditError(null);
   };
@@ -929,6 +990,11 @@ function UsuariosSection({
       }
     }
 
+    if (!editForm.nivelId || editForm.nivelId === 0) {
+      setEditError('Selecione um nível para o usuário.');
+      return;
+    }
+
     const novaSenha = editForm.senha;
     const payloadBase: Partial<CreateUsuarioInput> = {
       nome,
@@ -936,6 +1002,8 @@ function UsuariosSection({
       perguntaSeguranca: editForm.perguntaSeguranca.trim() || undefined,
       respostaSeguranca: editForm.respostaSeguranca.trim() || undefined,
       equipe: editForm.equipe,
+      nivelId: editForm.nivelId,
+      funcaoId: editForm.funcaoId,
     };
 
     openConfirm({
@@ -953,6 +1021,18 @@ function UsuariosSection({
           setSuccess('Usuário atualizado com sucesso.');
           resetEditForm();
           await carregarUsuarios();
+          
+          // Se o usuário editado for o usuário logado, atualizar currentUser
+          if (editingUsuario.id === currentUser.id && onCurrentUserUpdate) {
+            try {
+              const updatedUser = await api.getUsuario(currentUser.id);
+              if (updatedUser) {
+                onCurrentUserUpdate(updatedUser);
+              }
+            } catch (err) {
+              console.warn('Não foi possível atualizar dados do usuário logado:', err);
+            }
+          }
         } catch (err) {
           setEditError(
             err instanceof Error ? err.message : 'Não foi possível atualizar o usuário.',
@@ -1139,6 +1219,47 @@ function UsuariosSection({
           </label>
         </div>
         <div className="grid two-columns">
+            <label>
+            Nível
+            <select
+              value={form.nivelId || ''}
+              onChange={(event) =>
+                handleChange(
+                  'nivelId',
+                  event.target.value ? Number(event.target.value) : 0,
+                )
+              }
+              required
+            >
+              <option value="">Selecione um nível</option>
+              {usuarioNiveis.map((nivel) => (
+                <option key={nivel.id} value={nivel.id}>
+                  {nivel.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Função
+            <select
+              value={form.funcaoId || ''}
+              onChange={(event) =>
+                handleChange(
+                  'funcaoId',
+                  event.target.value ? Number(event.target.value) : undefined,
+                )
+              }
+            >
+              <option value="">Selecione uma função</option>
+              {funcoes.map((funcao) => (
+                <option key={funcao.id} value={funcao.id}>
+                  {funcao.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="grid two-columns">
           <label>
             Senha
             <input
@@ -1240,30 +1361,34 @@ function UsuariosSection({
                       Editar
                     </button>
                   )}
-                  {usuario.status === 'ATIVO' ? (
-                    <button
-                      className="danger"
-                      type="button"
-                      onClick={() => handleDelete(usuario)}
-                    >
-                      Desativar
-                    </button>
-                  ) : (
-                    <button
-                      className="primary"
-                      type="button"
-                      onClick={() => handleActivate(usuario)}
-                    >
-                      Ativar
-                    </button>
+                  {usuario.id !== currentUser.id && (
+                    <>
+                      {usuario.status === 'ATIVO' ? (
+                        <button
+                          className="danger"
+                          type="button"
+                          onClick={() => handleDelete(usuario)}
+                        >
+                          Desativar
+                        </button>
+                      ) : (
+                        <button
+                          className="primary"
+                          type="button"
+                          onClick={() => handleActivate(usuario)}
+                        >
+                          Ativar
+                        </button>
+                      )}
+                      <button
+                        className="danger-delete"
+                        type="button"
+                        onClick={() => handleDeletePermanent(usuario)}
+                      >
+                        Excluir
+                      </button>
+                    </>
                   )}
-                  <button
-                    className="danger-delete"
-                    type="button"
-                    onClick={() => handleDeletePermanent(usuario)}
-                  >
-                    Excluir
-                  </button>
                 </td>
               </tr>
             ))}
@@ -1310,6 +1435,47 @@ function UsuariosSection({
                     {EQUIPE_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="grid two-columns">
+                <label>
+                  Nível
+                  <select
+                    value={editForm.nivelId || ''}
+                    onChange={(event) =>
+                      handleEditChange(
+                        'nivelId',
+                        event.target.value ? Number(event.target.value) : 0,
+                      )
+                    }
+                    required
+                  >
+                    <option value="">Selecione um nível</option>
+                    {usuarioNiveis.map((nivel) => (
+                      <option key={nivel.id} value={nivel.id}>
+                        {nivel.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Função
+                  <select
+                    value={editForm.funcaoId || ''}
+                    onChange={(event) =>
+                      handleEditChange(
+                        'funcaoId',
+                        event.target.value ? Number(event.target.value) : undefined,
+                      )
+                    }
+                  >
+                    <option value="">Selecione uma função</option>
+                    {funcoes.map((funcao) => (
+                      <option key={funcao.id} value={funcao.id}>
+                        {funcao.nome}
                       </option>
                     ))}
                   </select>
@@ -3354,7 +3520,7 @@ function MostrarEquipeSection({
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabKey>('dashboard'); // Sempre inicia no dashboard (Afastamentos do mês)
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null);
   const [authView, setAuthView] = useState<AuthView>('login');
   const [resetToken, setResetToken] = useState<string | null>(null);
@@ -3370,14 +3536,30 @@ export default function App() {
   const [colaboradoresVersion, setColaboradoresVersion] = useState(0);
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        setCurrentUser(JSON.parse(stored) as Usuario);
+    const loadUser = async () => {
+      try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          const user = JSON.parse(stored) as Usuario;
+          setCurrentUser(user);
+          // Buscar dados atualizados do usuário do backend
+          try {
+            const updatedUser = await api.getUsuario(user.id);
+            if (updatedUser) {
+              setCurrentUser(updatedUser);
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+            }
+          } catch (err) {
+            // Se falhar, usar dados do localStorage mesmo
+            console.warn('Não foi possível atualizar dados do usuário:', err);
+          }
+        }
+      } catch (error) {
+        console.warn('Não foi possível restaurar o usuário da sessão.', error);
       }
-    } catch (error) {
-      console.warn('Não foi possível restaurar o usuário da sessão.', error);
-    }
+    };
+
+    void loadUser();
 
     // Verificar se há token na URL (reset de senha)
     const urlParams = new URLSearchParams(window.location.search);
@@ -3393,6 +3575,7 @@ export default function App() {
   const handleLoginSuccess = (usuario: Usuario) => {
     setCurrentUser(usuario);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(usuario));
+    setActiveTab('dashboard'); // Sempre volta para a tela "Afastamentos do mês" após login
   };
 
   const handleLogout = () => {
@@ -3552,7 +3735,14 @@ export default function App() {
          />
        )}
       {activeTab === 'usuarios' && (
-        <UsuariosSection currentUser={currentUser} openConfirm={openConfirm} />
+        <UsuariosSection
+          currentUser={currentUser}
+          openConfirm={openConfirm}
+          onCurrentUserUpdate={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+          }}
+        />
       )}
 
       <ConfirmDialog

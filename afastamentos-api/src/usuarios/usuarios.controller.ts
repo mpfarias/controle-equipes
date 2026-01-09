@@ -42,6 +42,16 @@ export class UsuariosController {
     );
   }
 
+  @Get('niveis')
+  findNiveis() {
+    return this.usuariosService.findNiveis();
+  }
+
+  @Get('funcoes')
+  listFuncoes() {
+    return this.usuariosService.listFuncoes();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.findOne(id);
@@ -66,7 +76,25 @@ export class UsuariosController {
     return this.usuariosService.update(id, data, actorId);
   }
 
-  @Delete(':id/permanent')
+  @Delete(':id')
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('responsavelId') responsavelId?: number,
+  ) {
+    const actorIdNumber =
+      typeof responsavelId === 'number'
+        ? responsavelId
+        : responsavelId !== undefined
+          ? Number(responsavelId)
+          : undefined;
+    const actorId =
+      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
+        ? undefined
+        : actorIdNumber;
+    return this.usuariosService.remove(id, actorId);
+  }
+
+  @Post(':id/delete-permanent')
   delete(
     @Param('id', ParseIntPipe) id: number,
     @Body() deleteUsuarioDto: DeleteUsuarioDto,
@@ -86,24 +114,6 @@ export class UsuariosController {
       ...rest,
       responsavelId: actorId,
     });
-  }
-
-  @Delete(':id')
-  remove(
-    @Param('id', ParseIntPipe) id: number,
-    @Body('responsavelId') responsavelId?: number,
-  ) {
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.usuariosService.remove(id, actorId);
   }
 
   @Patch(':id/activate')

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -39,6 +39,24 @@ model Afastamento {
   updatedAt      DateTime           @updatedAt
 }
 
+model UsuarioNivel {
+  id          Int       @id @default(autoincrement())
+  nome        String    @unique
+  descricao   String?
+  usuarios    Usuario[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Funcao {
+  id          Int       @id @default(autoincrement())
+  nome        String    @unique
+  descricao   String?
+  usuarios    Usuario[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
 model Usuario {
   id         Int      @id @default(autoincrement())
   nome       String
@@ -49,6 +67,10 @@ model Usuario {
   equipe     Equipe   @default(A)
   status     UsuarioStatus @default(ATIVO)
   isAdmin    Boolean  @default(false)
+  nivelId    Int?
+  nivel      UsuarioNivel? @relation(fields: [nivelId], references: [id])
+  funcaoId   Int?
+  funcao     Funcao?  @relation(fields: [funcaoId], references: [id])
   createdById   Int?
   createdByName String?
   updatedById   Int?

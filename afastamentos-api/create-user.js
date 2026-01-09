@@ -51,7 +51,7 @@ async function createUser() {
       if (error.message.includes('connect')) {
         console.error('\n💡 Dica: Verifique se o banco de dados está rodando!');
         console.error('   - Docker: docker-compose up -d');
-        console.error('   - MySQL: Verifique se o serviço está iniciado\n');
+        console.error('   - PostgreSQL: Verifique se o serviço está iniciado\n');
       }
     }
     process.exit(1);

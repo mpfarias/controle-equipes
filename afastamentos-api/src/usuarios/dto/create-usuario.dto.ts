@@ -51,6 +51,15 @@ export class CreateUsuarioDto {
   @IsIn(EQUIPE_VALUES)
   equipe: EquipeValue;
 
+  @IsInt()
+  @Min(1)
+  nivelId: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  funcaoId?: number;
+
   @IsOptional()
   @IsInt()
   @Min(1)

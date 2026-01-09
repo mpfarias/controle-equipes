@@ -23,6 +23,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "update:matricula": "node update-matricula.js",
+    "fix:nivel": "node fix-nivel-migration.js",
     "db:setup": "npm run prisma:generate && npm run prisma:migrate && npm run prisma:seed",
     "setup": "npm install && npm run db:setup"
   },

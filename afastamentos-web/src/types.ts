@@ -11,6 +11,14 @@ export type UsuarioStatus = 'ATIVO' | 'DESATIVADO';
 
 export type Equipe = 'A' | 'B' | 'C' | 'D' | 'E';
 
+export interface UsuarioNivel {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Usuario {
   id: number;
   nome: string;
@@ -19,6 +27,10 @@ export interface Usuario {
   equipe: Equipe;
   status: UsuarioStatus;
   isAdmin?: boolean;
+  nivelId?: number | null;
+  nivel?: { id: number; nome: string; descricao?: string | null };
+  funcaoId?: number | null;
+  funcao?: { id: number; nome: string; descricao?: string | null };
   createdAt: string;
   updatedAt: string;
 }
@@ -30,6 +42,8 @@ export interface CreateUsuarioInput {
   perguntaSeguranca?: string;
   respostaSeguranca?: string;
   equipe: Equipe;
+  nivelId: number;
+  funcaoId?: number;
 }
 
 export interface LoginInput {
@@ -73,4 +87,16 @@ export interface CreateAfastamentoInput {
   descricao?: string;
   dataInicio: string;
   dataFim?: string;
+}
+
+export interface UsuarioNivelOption {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+}
+
+export interface FuncaoOption {
+  id: number;
+  nome: string;
+  descricao?: string | null;
 }

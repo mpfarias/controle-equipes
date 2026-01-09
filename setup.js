@@ -33,13 +33,13 @@ function wait(ms) {
 }
 
 async function checkDatabase(maxAttempts = 30) {
-  logStep('1/6', 'Aguardando banco de dados ficar pronto...');
+  // Step será atualizado no main
   
   for (let i = 0; i < maxAttempts; i++) {
     try {
       // Verifica se o container está rodando e saudável
       const output = execSync(
-        'docker exec afastamentos-mysql mysqladmin ping -h localhost --silent',
+        'docker exec afastamentos-postgres pg_isready -U postgres',
         { stdio: 'ignore', shell: true }
       );
       log('✅ Banco de dados pronto!', 'green');
@@ -69,13 +69,13 @@ async function main() {
   }
   
   // Verificar se o banco está rodando, se não, iniciar
-  logStep('1/6', 'Verificando se o banco de dados está rodando...');
+  logStep('1/8', 'Verificando se o banco de dados está rodando...');
   try {
-    const output = execSync('docker ps --filter name=afastamentos-mysql --format "{{.Names}}"', { 
+    const output = execSync('docker ps --filter name=afastamentos-postgres --format "{{.Names}}"', { 
       encoding: 'utf-8',
       shell: true 
     });
-    if (!output.trim().includes('afastamentos-mysql')) {
+    if (!output.trim().includes('afastamentos-postgres')) {
       log('   Iniciando banco de dados...', 'yellow');
       execSync('docker compose up -d', { stdio: 'inherit', shell: true });
       await wait(3000);
@@ -97,6 +97,7 @@ async function main() {
   }
   
   // Aguardar banco estar pronto
+  logStep('2/8', 'Aguardando banco de dados ficar pronto...');
   const dbReady = await checkDatabase();
   if (!dbReady) {
     log('\n❌ Setup interrompido. Banco de dados não disponível.', 'red');
@@ -107,75 +108,189 @@ async function main() {
   // Verificar/criar .env
   const apiDir = path.join(__dirname, 'afastamentos-api');
   const envPath = path.join(apiDir, '.env');
+  const expectedEnvContent = 'DATABASE_URL="postgresql://postgres:postgres123@localhost:5432/afastamentos_db"\n';
   
   if (!fs.existsSync(envPath)) {
-    logStep('2/6', 'Criando arquivo .env...');
-    const envContent = 'DATABASE_URL="mysql://root:root123@localhost:3306/afastamentos_db"\n';
-    fs.writeFileSync(envPath, envContent);
-    log('✅ Arquivo .env criado!', 'green');
+    logStep('3/8', 'Criando arquivo .env da API...');
+    fs.writeFileSync(envPath, expectedEnvContent);
+    log('✅ Arquivo .env da API criado!', 'green');
   } else {
-    logStep('2/6', 'Arquivo .env já existe.');
+    // Verificar se o conteúdo está correto (PostgreSQL)
+    const currentContent = fs.readFileSync(envPath, 'utf-8');
+    if (!currentContent.includes('postgresql://') && !currentContent.includes('postgres://')) {
+      logStep('3/8', 'Atualizando arquivo .env da API para PostgreSQL...');
+      fs.writeFileSync(envPath, expectedEnvContent);
+      log('✅ Arquivo .env da API atualizado!', 'green');
+    } else {
+      logStep('3/8', 'Arquivo .env da API já existe e está correto.');
+    }
   }
   
   // Instalar dependências da API
   const nodeModulesApi = path.join(apiDir, 'node_modules');
   if (!fs.existsSync(nodeModulesApi)) {
-    logStep('3/6', 'Instalando dependências da API...');
+    logStep('4/8', 'Instalando dependências da API...');
     process.chdir(apiDir);
     execSync('npm install', { stdio: 'inherit', shell: true });
     log('✅ Dependências da API instaladas!', 'green');
     process.chdir(__dirname);
   } else {
-    logStep('3/6', 'Dependências da API já instaladas.');
+    logStep('4/8', 'Dependências da API já instaladas.');
   }
   
   // Configurar Prisma
-  logStep('4/6', 'Configurando banco de dados (Prisma)...');
+  logStep('5/8', 'Configurando banco de dados (Prisma)...');
   process.chdir(apiDir);
+  
+  // Verificar se as migrations são do MySQL e precisam ser recriadas
+  const migrationsDir = path.join(apiDir, 'prisma', 'migrations');
+  const migrationLockPath = path.join(apiDir, 'prisma', 'migrations', 'migration_lock.toml');
+  let needsMigrationRecreate = false;
+  
+  if (fs.existsSync(migrationLockPath)) {
+    try {
+      const lockContent = fs.readFileSync(migrationLockPath, 'utf-8');
+      if (lockContent.includes('provider = "mysql"')) {
+        log('   ⚠️  Migrations antigas do MySQL detectadas. Recriando para PostgreSQL...', 'yellow');
+        needsMigrationRecreate = true;
+      }
+    } catch (err) {
+      // Se não conseguir ler, assume que precisa recriar
+      needsMigrationRecreate = true;
+    }
+  } else if (fs.existsSync(migrationsDir) && fs.readdirSync(migrationsDir).length > 0) {
+    // Se não tem lock file mas tem migrations, verifica se são do MySQL
+    const firstMigration = fs.readdirSync(migrationsDir)
+      .filter(f => fs.statSync(path.join(migrationsDir, f)).isDirectory())
+      .sort()[0];
+    if (firstMigration) {
+      const migrationFiles = fs.readdirSync(path.join(migrationsDir, firstMigration));
+      const sqlFile = migrationFiles.find(f => f.endsWith('.sql'));
+      if (sqlFile) {
+        const sqlContent = fs.readFileSync(path.join(migrationsDir, firstMigration, sqlFile), 'utf-8');
+        if (sqlContent.includes('AUTO_INCREMENT') || sqlContent.includes('utf8mb4') || sqlContent.includes('`')) {
+          log('   ⚠️  Migrations antigas do MySQL detectadas. Recriando para PostgreSQL...', 'yellow');
+          needsMigrationRecreate = true;
+        }
+      }
+    }
+  }
+  
+  // Se precisar recriar migrations, deletar a pasta
+  if (needsMigrationRecreate && fs.existsSync(migrationsDir)) {
+    log('   Removendo migrations antigas...', 'yellow');
+    try {
+      const migrationDirs = fs.readdirSync(migrationsDir)
+        .filter(f => fs.statSync(path.join(migrationsDir, f)).isDirectory());
+      migrationDirs.forEach(dir => {
+        fs.rmSync(path.join(migrationsDir, dir), { recursive: true, force: true });
+      });
+      if (fs.existsSync(migrationLockPath)) {
+        fs.unlinkSync(migrationLockPath);
+      }
+      log('   ✅ Migrations antigas removidas!', 'green');
+    } catch (err) {
+      log('   ⚠️  Aviso: Não foi possível remover migrations antigas completamente.', 'yellow');
+    }
+  }
+  
   try {
+    // Gerar Prisma Client
     execSync('npx prisma generate', { stdio: 'inherit', shell: true });
     log('✅ Prisma Client gerado!', 'green');
     
-    try {
-      execSync('npx prisma migrate deploy', { stdio: 'inherit', shell: true });
-      log('✅ Migrations aplicadas!', 'green');
-    } catch (error) {
-      log('   Tentando com migrate dev...', 'yellow');
-      execSync('npx prisma migrate dev --name init', { stdio: 'inherit', shell: true });
-      log('✅ Migrations aplicadas!', 'green');
+    // Aplicar ou criar migrations
+    if (needsMigrationRecreate || !fs.existsSync(migrationLockPath)) {
+      log('   Criando novas migrations para PostgreSQL...', 'yellow');
+      try {
+        execSync('npx prisma migrate dev --name init', { stdio: 'inherit', shell: true });
+        log('✅ Migrations criadas e aplicadas!', 'green');
+      } catch (error) {
+        // Se falhar por causa de migrations antigas no banco, resetar o banco
+        if (error.message.includes('failed') || error.message.includes('missing from the local migrations')) {
+          log('   ⚠️  Detectadas migrations antigas no banco. Resetando banco...', 'yellow');
+          log('   (Isso vai apagar todos os dados, mas é necessário para migração)', 'yellow');
+          try {
+            execSync('npx prisma migrate reset --force', { stdio: 'inherit', shell: true });
+            log('   ✅ Banco resetado! Criando migrations novamente...', 'green');
+            execSync('npx prisma migrate dev --name init', { stdio: 'inherit', shell: true });
+            log('✅ Migrations criadas e aplicadas!', 'green');
+          } catch (resetError) {
+            throw resetError;
+          }
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      try {
+        execSync('npx prisma migrate deploy', { stdio: 'inherit', shell: true });
+        log('✅ Migrations aplicadas!', 'green');
+      } catch (error) {
+        log('   Migrations não aplicadas, tentando criar novas...', 'yellow');
+        execSync('npx prisma migrate dev --name init', { stdio: 'inherit', shell: true });
+        log('✅ Migrations criadas e aplicadas!', 'green');
+      }
     }
   } catch (error) {
     log('❌ Erro ao configurar Prisma.', 'red');
+    log(`   Detalhes: ${error.message}`, 'red');
     process.chdir(__dirname);
     process.exit(1);
   }
   
   // Rodar seed
-  logStep('5/6', 'Criando usuário inicial...');
+  logStep('6/8', 'Criando usuário administrador inicial...');
   try {
     execSync('npm run prisma:seed', { stdio: 'inherit', shell: true });
+    log('✅ Usuário administrador criado!', 'green');
   } catch (error) {
-    log('⚠️  Aviso: Erro ao executar seed (usuário pode já existir).', 'yellow');
+    log('⚠️  Aviso: Erro ao executar seed.', 'yellow');
+    log('   O usuário pode já existir ou será criado na primeira execução da API.', 'yellow');
   }
   
   process.chdir(__dirname);
   
-  // Instalar dependências do Frontend
+  // Verificar/criar .env do Frontend
   const webDir = path.join(__dirname, 'afastamentos-web');
+  const webEnvPath = path.join(webDir, '.env');
+  
+  if (!fs.existsSync(webEnvPath)) {
+    logStep('7/8', 'Criando arquivo .env do Frontend...');
+    const webEnvContent = 'VITE_API_URL=http://localhost:3002\n';
+    fs.writeFileSync(webEnvPath, webEnvContent);
+    log('✅ Arquivo .env do Frontend criado!', 'green');
+  } else {
+    logStep('7/8', 'Arquivo .env do Frontend já existe.');
+  }
+  
+  // Instalar dependências do Frontend
   const nodeModulesWeb = path.join(webDir, 'node_modules');
   if (!fs.existsSync(nodeModulesWeb)) {
-    logStep('6/6', 'Instalando dependências do Frontend...');
+    logStep('8/8', 'Instalando dependências do Frontend...');
     process.chdir(webDir);
     execSync('npm install', { stdio: 'inherit', shell: true });
     log('✅ Dependências do Frontend instaladas!', 'green');
     process.chdir(__dirname);
   } else {
-    logStep('6/6', 'Dependências do Frontend já instaladas.');
+    logStep('8/8', 'Dependências do Frontend já instaladas.');
+  }
+  try {
+    const result = execSync('docker exec afastamentos-postgres psql -U postgres -d afastamentos_db -c "\\dt"', {
+      encoding: 'utf-8',
+      shell: true,
+      stdio: 'pipe'
+    });
+    if (result.includes('Colaborador') || result.includes('Usuario') || result.includes('Afastamento')) {
+      log('✅ Tabelas criadas com sucesso!', 'green');
+    }
+  } catch (error) {
+    log('   ⚠️  Não foi possível verificar as tabelas, mas continuando...', 'yellow');
   }
   
   log('\n✅ Setup concluído com sucesso!\n', 'green');
   log('📋 Credenciais do usuário inicial:', 'cyan');
-  log('   Matrícula: ADMIN', 'green');
+  log('   Matrícula: 1966901', 'green');
   log('   Senha: admin123\n', 'green');
   log('🚀 Para iniciar o projeto:', 'cyan');
   log('   1. Terminal 1 - API:  npm run start:api', 'yellow');
