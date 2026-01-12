@@ -22,11 +22,21 @@ model Colaborador {
   updatedAt     DateTime        @updatedAt
 }
 
+model MotivoAfastamento {
+  id          Int          @id @default(autoincrement())
+  nome        String       @unique
+  descricao   String?
+  afastamentos Afastamento[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
 model Afastamento {
   id             Int                @id @default(autoincrement())
   colaboradorId  Int
   colaborador    Colaborador        @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
-  motivo         String
+  motivoId       Int
+  motivo         MotivoAfastamento  @relation(fields: [motivoId], references: [id])
   descricao      String?
   dataInicio     DateTime
   dataFim        DateTime?

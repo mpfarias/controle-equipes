@@ -46,6 +46,11 @@ export class AfastamentosController {
     return this.afastamentosService.findAll();
   }
 
+  @Get('motivos')
+  listMotivos() {
+    return this.afastamentosService.listMotivos();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.afastamentosService.findOne(id);

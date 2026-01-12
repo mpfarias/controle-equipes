@@ -13,10 +13,9 @@ export class CreateAfastamentoDto {
   @Min(1)
   colaboradorId: number;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
-  motivo: string;
+  @IsInt()
+  @Min(1)
+  motivoId: number;
 
   @IsOptional()
   @IsString()

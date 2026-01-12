@@ -72,7 +72,8 @@ export interface Afastamento {
   id: number;
   colaboradorId: number;
   colaborador: Colaborador;
-  motivo: string;
+  motivoId: number;
+  motivo: { id: number; nome: string; descricao?: string | null };
   descricao?: string | null;
   dataInicio: string;
   dataFim?: string | null;
@@ -83,10 +84,16 @@ export interface Afastamento {
 
 export interface CreateAfastamentoInput {
   colaboradorId: number;
-  motivo: string;
+  motivoId: number;
   descricao?: string;
   dataInicio: string;
   dataFim?: string;
+}
+
+export interface MotivoAfastamentoOption {
+  id: number;
+  nome: string;
+  descricao?: string | null;
 }
 
 export interface UsuarioNivelOption {

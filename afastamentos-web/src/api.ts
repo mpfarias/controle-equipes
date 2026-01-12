@@ -5,8 +5,8 @@ import type {
   CreateColaboradorInput,
   CreateUsuarioInput,
   LoginInput,
+  MotivoAfastamentoOption,
   Usuario,
-  UsuarioNivel,
   UsuarioNivelOption,
   FuncaoOption,
 } from './types.ts';
@@ -40,7 +40,8 @@ async function request<T>(
           // Extrair apenas a mensagem do erro, se disponível
           if (typeof errorData === 'object' && errorData !== null) {
             // Priorizar a propriedade 'message' do erro
-            detail = errorData.message ?? errorData.error ?? JSON.stringify(errorData);
+            const errorObj = errorData as { message?: string; error?: string };
+            detail = errorObj.message ?? errorObj.error ?? JSON.stringify(errorData);
           } else {
             detail = String(errorData ?? response.statusText);
           }
@@ -260,6 +261,10 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ responsavelId }),
     });
+  },
+
+  async listMotivos(): Promise<MotivoAfastamentoOption[]> {
+    return request('/afastamentos/motivos');
   },
 
   async listAfastamentos(): Promise<Afastamento[]> {

@@ -57,6 +57,29 @@ async function main() {
   }
   console.log('✅ Funções criadas/verificadas!\n');
 
+  // Criar motivos de afastamento
+  console.log('📋 Criando motivos de afastamento...');
+  const motivos = [
+    { nome: 'Férias', descricao: 'Período de descanso anual' },
+    { nome: 'Abono', descricao: 'Dispensa de serviço remunerada' },
+    { nome: 'Dispensa recompensa', descricao: 'Dispensa por mérito' },
+    { nome: 'LTSP', descricao: 'Licença para Tratamento de Saúde da Pessoa' },
+    { nome: 'Aniversário', descricao: 'Dispensa no dia do aniversário' },
+    { nome: 'Prisão', descricao: 'Afastamento por prisão' },
+    { nome: 'Licença Casamento', descricao: 'Licença por casamento' },
+    { nome: 'Dispensa Luto', descricao: 'Dispensa por falecimento de familiar' },
+    { nome: 'Outro', descricao: 'Outros motivos não listados' },
+  ];
+
+  for (const motivoData of motivos) {
+    await prisma.motivoAfastamento.upsert({
+      where: { nome: motivoData.nome },
+      update: {},
+      create: motivoData,
+    });
+  }
+  console.log('✅ Motivos de afastamento criados/verificados!\n');
+
   // Verificar se já existe um usuário
   const usuarioExistente = await prisma.usuario.findFirst({
     where: {

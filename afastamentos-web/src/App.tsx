@@ -11,6 +11,7 @@ import type {
   Equipe,
   UsuarioNivelOption,
   FuncaoOption,
+  MotivoAfastamentoOption,
 } from './types.ts';
 
 type TabKey = 'dashboard' | 'afastamentos' | 'colaboradores' | 'equipe' | 'usuarios';
@@ -134,14 +135,7 @@ function ConfirmDialog({
   );
 }
 
-const MOTIVO_OPTIONS = [
-  'Férias',
-  'Abono',
-  'Dispensa recompensa',
-  'LTSP',
-  'Aniversário',
-  'Outro',
-] as const;
+// Motivos agora vêm do backend via api.listMotivos()
 
 const STORAGE_KEY = 'afastamentos-web:usuario';
 
@@ -1994,8 +1988,7 @@ function AfastamentosSection({
 }) {
   const initialForm = {
     colaboradorId: '',
-    motivo: 'Férias' as (typeof MOTIVO_OPTIONS)[number],
-    outroMotivo: '',
+    motivoId: 0,
     descricao: '',
     dataInicio: '',
     dataFim: '',
@@ -2003,6 +1996,7 @@ function AfastamentosSection({
 
   const [afastamentos, setAfastamentos] = useState<Afastamento[]>([]);
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [motivos, setMotivos] = useState<MotivoAfastamentoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2041,10 +2035,13 @@ function AfastamentosSection({
   const carregarDados = useCallback(async () => {
     try {
       setLoading(true);
-      const [afastamentosData, colaboradoresData] = await Promise.all([
+      const [afastamentosData, colaboradoresData, motivosData] = await Promise.all([
         api.listAfastamentos(),
         api.listColaboradores(),
+        api.listMotivos(),
       ]);
+      
+      setMotivos(motivosData);
       
       const equipeAtual = currentUser.equipe;
       
@@ -2065,7 +2062,6 @@ function AfastamentosSection({
         : afastamentosData;
       
       setAfastamentos(afastamentosFiltrados);
-      setColaboradores(colaboradoresFiltrados);
       setColaboradores(colaboradoresFiltrados);
       setError(null);
     } catch (err) {
@@ -2098,11 +2094,11 @@ function AfastamentosSection({
   // Função para calcular dias usados no ano para um motivo específico
   const calcularDiasUsadosNoAno = useCallback((
     colaboradorId: number,
-    motivo: string,
+    motivoId: number,
     ano: number,
   ): number => {
     const afastamentosDoAno = afastamentos.filter((afastamento) => {
-      if (afastamento.colaboradorId !== colaboradorId || afastamento.motivo !== motivo) {
+      if (afastamento.colaboradorId !== colaboradorId || afastamento.motivoId !== motivoId) {
         return false;
       }
       const dataInicio = new Date(afastamento.dataInicio);
@@ -2200,23 +2196,64 @@ function AfastamentosSection({
     return conflitos;
   }, [afastamentos, periodosSobrepostos]);
 
+  const submeterAfastamento = useCallback(async () => {
+    try {
+      setSubmitting(true);
+      await api.createAfastamento(
+        {
+          colaboradorId: Number(form.colaboradorId),
+          motivoId: form.motivoId,
+          descricao: form.descricao.trim() || undefined,
+          dataInicio: form.dataInicio,
+          dataFim: form.dataFim || undefined,
+        },
+        currentUser.id,
+      );
+      // Resetar form mantendo motivoId padrão
+      const feriasMotivo = motivos.find((m) => m.nome === 'Férias');
+      const motivoIdPadrao = feriasMotivo?.id || 0;
+      setForm({
+        colaboradorId: '',
+        motivoId: motivoIdPadrao,
+        descricao: '',
+        dataInicio: '',
+        dataFim: '',
+      });
+      setSuccess('Afastamento cadastrado com sucesso.');
+      await carregarDados();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível criar o afastamento.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [form, currentUser.id, motivos, carregarDados]);
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setError(null);
-    setSuccess(null);
+      setError(null);
+      setSuccess(null);
 
     if (!form.colaboradorId) {
       setError('Selecione um policial.');
       return;
     }
 
-    const motivoFinal =
-      form.motivo === 'Outro' ? form.outroMotivo.trim() : form.motivo;
-
-    if (!motivoFinal) {
-      setError('Informe o motivo do afastamento.');
+    if (!form.motivoId || form.motivoId === 0) {
+      setError('Selecione um motivo do afastamento.');
       return;
     }
+
+    // Buscar o motivo selecionado
+    const motivoSelecionado = motivos.find((m) => m.id === form.motivoId);
+    if (!motivoSelecionado) {
+      setError('Motivo selecionado não encontrado.');
+      return;
+    }
+    const motivoNome = motivoSelecionado.nome;
 
     if (!form.dataInicio) {
       setError('Informe a data de início.');
@@ -2242,7 +2279,7 @@ function AfastamentosSection({
 
       if (haSobreposicao) {
         setError(
-          `Este policial já possui um afastamento ativo no período selecionado (${afastamentoExistente.motivo} de ${formatDate(afastamentoExistente.dataInicio)} até ${formatDate(afastamentoExistente.dataFim)}). Por favor, altere as datas.`,
+          `Este policial já possui um afastamento ativo no período selecionado (${afastamentoExistente.motivo.nome} de ${formatDate(afastamentoExistente.dataInicio)} até ${formatDate(afastamentoExistente.dataFim)}). Por favor, altere as datas.`,
         );
         return;
       }
@@ -2262,7 +2299,7 @@ function AfastamentosSection({
     }
 
     // Validar se férias não pode ser antes da data atual
-    if (motivoFinal === 'Férias') {
+    if (motivoNome === 'Férias') {
       const dataInicio = new Date(form.dataInicio);
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
@@ -2275,7 +2312,7 @@ function AfastamentosSection({
     }
 
     // Validar férias e abono
-    if (motivoFinal === 'Férias' || motivoFinal === 'Abono') {
+    if (motivoNome === 'Férias' || motivoNome === 'Abono') {
       const colaboradorId = Number(form.colaboradorId);
       const colaborador = colaboradores.find((c) => c.id === colaboradorId);
       
@@ -2294,13 +2331,15 @@ function AfastamentosSection({
       }
 
       // Validar sobreposição de férias (não pode ter férias sobrepostas)
-      if (motivoFinal === 'Férias') {
-        const fériasExistentes = afastamentos.filter(
-          (afastamento) =>
-            afastamento.colaboradorId === colaboradorId &&
-            afastamento.motivo === 'Férias' &&
-            afastamento.status === 'ATIVO',
-        );
+      if (motivoNome === 'Férias') {
+        const motivoFeriasId = motivos.find((m) => m.nome === 'Férias')?.id;
+        if (motivoFeriasId) {
+          const fériasExistentes = afastamentos.filter(
+            (afastamento) =>
+              afastamento.colaboradorId === colaboradorId &&
+              afastamento.motivoId === motivoFeriasId &&
+              afastamento.status === 'ATIVO',
+          );
 
         for (const feriasExistente of fériasExistentes) {
           // Verificar se há sobreposição: períodos se sobrepõem se há pelo menos um dia em comum
@@ -2379,10 +2418,11 @@ function AfastamentosSection({
             return;
           }
         }
+        }
       }
 
-      const diasUsados = calcularDiasUsadosNoAno(colaboradorId, motivoFinal, ano);
-      const limiteDias = motivoFinal === 'Férias' ? 30 : 5;
+      const diasUsados = calcularDiasUsadosNoAno(colaboradorId, form.motivoId, ano);
+      const limiteDias = motivoNome === 'Férias' ? 30 : 5;
       const diasRestantes = limiteDias - diasUsados;
       const totalAposCadastro = diasUsados + diasSolicitados;
       const ultrapassa = totalAposCadastro > limiteDias;
@@ -2391,7 +2431,7 @@ function AfastamentosSection({
       if (diasSolicitados > limiteDias) {
         setValidacaoDiasModal({
           open: true,
-          tipo: motivoFinal === 'Férias' ? 'ferias' : 'abono',
+          tipo: motivoNome === 'Férias' ? 'ferias' : 'abono',
           diasUsados,
           diasRestantes,
           diasSolicitados,
@@ -2404,7 +2444,7 @@ function AfastamentosSection({
       // Mostrar modal informativo mesmo se não ultrapassar
       setValidacaoDiasModal({
         open: true,
-        tipo: motivoFinal === 'Férias' ? 'ferias' : 'abono',
+          tipo: motivoNome === 'Férias' ? 'ferias' : 'abono',
         diasUsados,
         diasRestantes,
         diasSolicitados,
@@ -2416,36 +2456,6 @@ function AfastamentosSection({
 
     // Se não houver conflitos e validações passaram, submeter normalmente
     await submeterAfastamento();
-  };
-
-  const submeterAfastamento = async () => {
-    const motivoFinal =
-      form.motivo === 'Outro' ? form.outroMotivo.trim() : form.motivo;
-
-    try {
-      setSubmitting(true);
-      await api.createAfastamento(
-        {
-          colaboradorId: Number(form.colaboradorId),
-          motivo: motivoFinal,
-          descricao: form.descricao.trim() || undefined,
-          dataInicio: form.dataInicio,
-          dataFim: form.dataFim || undefined,
-        },
-        currentUser.id,
-      );
-      setForm(initialForm);
-      setSuccess('Afastamento cadastrado com sucesso.');
-      await carregarDados();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível criar o afastamento.',
-      );
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   const handleConfirmarConflito = async () => {
@@ -2516,7 +2526,7 @@ function AfastamentosSection({
   const handleDelete = (afastamento: Afastamento) => {
     openConfirm({
       title: 'Remover afastamento',
-      message: `Deseja remover o afastamento "${afastamento.motivo}" do policial ${afastamento.colaborador.nome}?`,
+      message: `Deseja remover o afastamento "${afastamento.motivo.nome}" do policial ${afastamento.colaborador.nome}?`,
       confirmLabel: 'Remover',
       onConfirm: async () => {
         try {
@@ -2600,7 +2610,7 @@ function AfastamentosSection({
 
     const filtradoPorMotivo =
       motivoFiltro
-        ? filtradoPorMes.filter((afastamento) => afastamento.motivo === motivoFiltro)
+        ? filtradoPorMes.filter((afastamento) => afastamento.motivo.nome === motivoFiltro)
         : filtradoPorMes;
 
     if (!normalizedSearch) {
@@ -2673,38 +2683,24 @@ function AfastamentosSection({
           <label>
             Motivo
             <select
-              value={form.motivo}
+              value={form.motivoId || ''}
               onChange={(event) =>
                 setForm((prev) => ({
                   ...prev,
-                  motivo: event.target.value as (typeof MOTIVO_OPTIONS)[number],
+                  motivoId: Number(event.target.value),
                 }))
               }
+              required
             >
-              {MOTIVO_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
+              <option value="">Selecione</option>
+              {motivos.map((motivo) => (
+                <option key={motivo.id} value={motivo.id}>
+                  {motivo.nome}
                 </option>
               ))}
             </select>
           </label>
         </div>
-        {form.motivo === 'Outro' && (
-          <label>
-            Outro motivo
-            <input
-              value={form.outroMotivo}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  outroMotivo: event.target.value.toUpperCase(),
-                }))
-              }
-              placeholder="Informe o motivo"
-              required
-            />
-          </label>
-        )}
         <label>
           Descrição (opcional)
           <textarea
@@ -2763,9 +2759,9 @@ function AfastamentosSection({
             onChange={(event) => setMotivoFiltro(event.target.value)}
           >
             <option value="">Todos os motivos</option>
-            {MOTIVO_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
+            {motivos.map((motivo) => (
+              <option key={motivo.id} value={motivo.nome}>
+                {motivo.nome}
               </option>
             ))}
           </select>
@@ -2804,7 +2800,7 @@ function AfastamentosSection({
                     <small>{afastamento.colaborador.matricula}</small>
                   </td>
                   <td>
-                    <div>{afastamento.motivo}</div>
+                    <div>{afastamento.motivo.nome}</div>
                     {afastamento.descricao && (
                       <small>{afastamento.descricao}</small>
                     )}
@@ -2865,7 +2861,7 @@ function AfastamentosSection({
                         <small>{afastamento.colaborador.matricula}</small>
                       </td>
                       <td>
-                        <div>{afastamento.motivo}</div>
+                        <div>{afastamento.motivo.nome}</div>
                         {afastamento.descricao && (
                           <small>{afastamento.descricao}</small>
                         )}
@@ -2977,6 +2973,7 @@ function AfastamentosSection({
 
 function DashboardSection({ currentUser }: { currentUser: Usuario }) {
   const [afastamentos, setAfastamentos] = useState<Afastamento[]>([]);
+  const [motivos, setMotivos] = useState<MotivoAfastamentoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -3012,10 +3009,18 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
     } finally {
       setLoading(false);
     }
-  }, [currentUser.equipe]);
+    }, [currentUser.equipe]);
 
   useEffect(() => {
     void carregarAfastamentos();
+    void (async () => {
+      try {
+        const motivosData = await api.listMotivos();
+        setMotivos(motivosData);
+      } catch (err) {
+        // Silenciosamente falha
+      }
+    })();
   }, [carregarAfastamentos]);
 
   // Função para verificar se um período de afastamento se sobrepõe com um mês específico
@@ -3076,7 +3081,7 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
 
     const filtradoPorMotivo =
       motivoFiltro
-        ? filtradoPorMes.filter((afastamento) => afastamento.motivo === motivoFiltro)
+        ? filtradoPorMes.filter((afastamento) => afastamento.motivo.nome === motivoFiltro)
         : filtradoPorMes;
 
     if (!normalizedSearch) {
@@ -3136,9 +3141,9 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
           onChange={(event) => setMotivoFiltro(event.target.value)}
         >
           <option value="">Todos os motivos</option>
-          {MOTIVO_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
+          {motivos.map((motivo) => (
+            <option key={motivo.id} value={motivo.nome}>
+              {motivo.nome}
             </option>
           ))}
         </select>
@@ -3177,7 +3182,7 @@ function DashboardSection({ currentUser }: { currentUser: Usuario }) {
                   <small>{afastamento.colaborador.matricula}</small>
                 </td>
                 <td>
-                  <div>{afastamento.motivo}</div>
+                  <div>{afastamento.motivo.nome}</div>
                   {afastamento.descricao && <small>{afastamento.descricao}</small>}
                 </td>
                 <td>

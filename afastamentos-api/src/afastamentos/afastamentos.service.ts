@@ -10,7 +10,7 @@ import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
 
 type AfastamentoWithColaborador = Prisma.AfastamentoGetPayload<{
-  include: { colaborador: true };
+  include: { colaborador: true; motivo: true };
 }>;
 
 @Injectable()
@@ -100,7 +100,7 @@ export class AfastamentosService {
    */
   private async calcularDiasUsadosNoAno(
     colaboradorId: number,
-    motivo: string,
+    motivoId: number,
     ano: number,
     excluirAfastamentoId?: number,
   ): Promise<number> {
@@ -110,7 +110,7 @@ export class AfastamentosService {
     const afastamentosDoAno = await this.prisma.afastamento.findMany({
       where: {
         colaboradorId,
-        motivo,
+        motivoId,
         dataInicio: {
           gte: inicioAno,
           lte: fimAno,
@@ -137,20 +137,30 @@ export class AfastamentosService {
    */
   private async validarLimitesDias(
     colaboradorId: number,
-    motivo: string,
+    motivoId: number,
     dataInicio: Date,
     dataFim: Date | null,
     excluirAfastamentoId?: number,
   ): Promise<void> {
-    const motivoNormalizado = motivo.trim();
+    // Buscar o motivo para obter o nome
+    const motivo = await this.prisma.motivoAfastamento.findUnique({
+      where: { id: motivoId },
+      select: { nome: true },
+    });
+
+    if (!motivo) {
+      throw new NotFoundException(`Motivo ${motivoId} não encontrado.`);
+    }
+
+    const motivoNome = motivo.nome;
 
     // Apenas validar para Férias e Abono
-    if (motivoNormalizado !== 'Férias' && motivoNormalizado !== 'Abono') {
+    if (motivoNome !== 'Férias' && motivoNome !== 'Abono') {
       return;
     }
 
     // Validar se férias não pode ser antes da data atual
-    if (motivoNormalizado === 'Férias') {
+    if (motivoNome === 'Férias') {
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
       const dataInicioNormalizada = new Date(dataInicio);
@@ -166,43 +176,50 @@ export class AfastamentosService {
     // Para férias e abono, data fim é obrigatória
     if (!dataFim) {
       throw new BadRequestException(
-        `Para ${motivoNormalizado}, é necessário informar a data de término.`,
+        `Para ${motivoNome}, é necessário informar a data de término.`,
       );
     }
 
-    // Validar sobreposição de férias (não pode ter férias sobrepostas)
-    if (motivoNormalizado === 'Férias') {
-      const feriasExistentes = await this.prisma.afastamento.findMany({
-        where: {
-          colaboradorId,
-          motivo: 'Férias',
-          status: AfastamentoStatus.ATIVO,
-          ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
-        },
+    // Buscar o ID do motivo "Férias" para validar sobreposição
+    if (motivoNome === 'Férias') {
+      const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
+        where: { nome: 'Férias' },
+        select: { id: true },
       });
 
-      for (const feriasExistente of feriasExistentes) {
-        if (
-          this.periodosSobrepostos(
-            dataInicio,
-            dataFim,
-            feriasExistente.dataInicio,
-            feriasExistente.dataFim,
-          )
-        ) {
-          throw new BadRequestException(
-            'Policial já em usufruto de férias no período selecionado. Alterar a data.',
-          );
+      if (motivoFerias) {
+        const feriasExistentes = await this.prisma.afastamento.findMany({
+          where: {
+            colaboradorId,
+            motivoId: motivoFerias.id,
+            status: AfastamentoStatus.ATIVO,
+            ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
+          },
+        });
+
+        for (const feriasExistente of feriasExistentes) {
+          if (
+            this.periodosSobrepostos(
+              dataInicio,
+              dataFim,
+              feriasExistente.dataInicio,
+              feriasExistente.dataFim,
+            )
+          ) {
+            throw new BadRequestException(
+              'Policial já em usufruto de férias no período selecionado. Alterar a data.',
+            );
+          }
         }
       }
     }
 
     const ano = dataInicio.getFullYear();
     const diasSolicitados = this.calcularDiasEntreDatas(dataInicio, dataFim);
-    const limiteDias = motivoNormalizado === 'Férias' ? 30 : 5;
+    const limiteDias = motivoNome === 'Férias' ? 30 : 5;
     const diasUsados = await this.calcularDiasUsadosNoAno(
       colaboradorId,
-      motivoNormalizado,
+      motivoId,
       ano,
       excluirAfastamentoId,
     );
@@ -211,7 +228,7 @@ export class AfastamentosService {
     // Validar se o período solicitado ultrapassa o limite individual
     if (diasSolicitados > limiteDias) {
       throw new BadRequestException(
-        `O período de ${motivoNormalizado} não pode ser superior a ${limiteDias} dias. Período informado: ${diasSolicitados} dias.`,
+        `O período de ${motivoNome} não pode ser superior a ${limiteDias} dias. Período informado: ${diasSolicitados} dias.`,
       );
     }
 
@@ -219,7 +236,7 @@ export class AfastamentosService {
     if (totalAposCadastro > limiteDias) {
       const diasRestantes = limiteDias - diasUsados;
       throw new BadRequestException(
-        `O colaborador já usufruiu ${diasUsados} dias de ${motivoNormalizado} no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
+        `O colaborador já usufruiu ${diasUsados} dias de ${motivoNome} no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
       );
     }
   }
@@ -239,7 +256,7 @@ export class AfastamentosService {
     // Validar limites de dias para férias e abono
     await this.validarLimitesDias(
       data.colaboradorId,
-      data.motivo,
+      data.motivoId,
       dataInicio,
       dataFim,
     );
@@ -247,7 +264,7 @@ export class AfastamentosService {
     const created = await this.prisma.afastamento.create({
       data: {
         colaborador: { connect: { id: data.colaboradorId } },
-        motivo: this.sanitizeTexto(data.motivo),
+        motivo: { connect: { id: data.motivoId } },
         descricao: data.descricao ? data.descricao.trim() : null,
         dataInicio,
         dataFim,
@@ -257,7 +274,7 @@ export class AfastamentosService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
     });
 
     await this.audit.record({
@@ -276,7 +293,7 @@ export class AfastamentosService {
 
     return this.prisma.afastamento.findMany({
       where: { status: AfastamentoStatus.ATIVO },
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
       orderBy: { dataInicio: 'desc' },
     });
   }
@@ -286,7 +303,7 @@ export class AfastamentosService {
 
     const afastamento = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
     });
 
     if (!afastamento) {
@@ -305,7 +322,7 @@ export class AfastamentosService {
 
     return this.prisma.afastamento.findMany({
       where: { colaboradorId, status: AfastamentoStatus.ATIVO },
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
       orderBy: { dataInicio: 'desc' },
     });
   }
@@ -317,7 +334,7 @@ export class AfastamentosService {
   ): Promise<AfastamentoWithColaborador> {
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
     });
 
     if (!before) {
@@ -327,7 +344,7 @@ export class AfastamentosService {
     const actor = await this.audit.resolveActor(responsavelId);
 
     // Determinar os valores finais após a atualização
-    const motivoFinal = data.motivo !== undefined ? data.motivo.trim() : before.motivo;
+    const motivoIdFinal = data.motivoId !== undefined ? data.motivoId : before.motivoId;
     const dataInicioFinal = data.dataInicio !== undefined 
       ? new Date(data.dataInicio) 
       : before.dataInicio;
@@ -341,7 +358,7 @@ export class AfastamentosService {
     // Validar limites de dias para férias e abono (excluindo o próprio afastamento)
     await this.validarLimitesDias(
       colaboradorIdFinal,
-      motivoFinal,
+      motivoIdFinal,
       dataInicioFinal,
       dataFimFinal,
       id, // Excluir este afastamento do cálculo
@@ -352,8 +369,8 @@ export class AfastamentosService {
       updatedByName: actor?.nome ?? null,
     };
 
-    if (data.motivo !== undefined) {
-      updateData.motivo = this.sanitizeTexto(data.motivo);
+    if (data.motivoId !== undefined) {
+      updateData.motivo = { connect: { id: data.motivoId } };
     }
 
     if (data.descricao !== undefined) {
@@ -375,7 +392,7 @@ export class AfastamentosService {
     const updated = await this.prisma.afastamento.update({
       where: { id },
       data: updateData,
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
     });
 
     await this.markExpiredAfastamentos();
@@ -395,7 +412,7 @@ export class AfastamentosService {
   async remove(id: number, responsavelId?: number): Promise<void> {
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { colaborador: true },
+      include: { colaborador: true, motivo: true },
     });
 
     if (!before) {
@@ -456,6 +473,17 @@ export class AfastamentosService {
     if (!exists) {
       throw new NotFoundException(`Colaborador ${id} não encontrado.`);
     }
+  }
+
+  async listMotivos(): Promise<{ id: number; nome: string; descricao: string | null }[]> {
+    return this.prisma.motivoAfastamento.findMany({
+      select: {
+        id: true,
+        nome: true,
+        descricao: true,
+      },
+      orderBy: { id: 'asc' },
+    });
   }
 }
 
