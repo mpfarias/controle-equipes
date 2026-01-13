@@ -329,7 +329,19 @@ function ForgotPasswordView({
       <p>Informe sua matrícula para receber instruções de recuperação de senha.</p>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {perguntaSeguranca && (
         <div
@@ -448,7 +460,19 @@ function ResetPasswordView({
       <p>Informe o token recebido e defina uma nova senha.</p>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <label>
@@ -576,7 +600,19 @@ function SecurityQuestionView({
       <p>Responda a pergunta abaixo e defina uma nova senha.</p>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {pergunta && (
         <div
@@ -1167,7 +1203,19 @@ function UsuariosSection({
       </div>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div className="grid three-columns">
@@ -1850,7 +1898,19 @@ function ColaboradoresSection({
       </div>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div className="grid two-columns">
@@ -2654,7 +2714,19 @@ function AfastamentosSection({
       </div>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div className="grid two-columns">
@@ -3375,7 +3447,19 @@ function MostrarEquipeSection({
       </div>
 
       {error && <div className="feedback error">{error}</div>}
-      {success && <div className="feedback success">{success}</div>}
+      {success && (
+        <div className="feedback success">
+          {success}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div className="list-controls">
         <input
