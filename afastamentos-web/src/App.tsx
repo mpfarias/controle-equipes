@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api.ts';
+import { api, getToken, removeToken } from './api.ts';
 import type {
   Afastamento,
   AfastamentoStatus,
@@ -137,8 +137,6 @@ function ConfirmDialog({
 
 // Motivos agora vêm do backend via api.listMotivos()
 
-const STORAGE_KEY = 'afastamentos-web:usuario';
-
 function formatDate(value?: string | null) {
   if (!value) {
     return '—';
@@ -183,7 +181,7 @@ function LoginView({
   onSuccess,
   onForgotPassword,
 }: {
-  onSuccess: (usuario: Usuario) => void;
+  onSuccess: (loginResponse: { accessToken: string; usuario: Usuario }) => void;
   onForgotPassword: () => void;
 }) {
   const [form, setForm] = useState<LoginInput>({ matricula: '', senha: '' });
@@ -208,11 +206,11 @@ function LoginView({
 
     try {
       setLoading(true);
-      const usuario = await api.login({
+      const loginResponse = await api.login({
         matricula: form.matricula.trim(),
         senha: form.senha,
       });
-      onSuccess(usuario);
+      onSuccess(loginResponse);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Credenciais inválidas. Tente novamente.',
@@ -3543,24 +3541,28 @@ export default function App() {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          const user = JSON.parse(stored) as Usuario;
-          setCurrentUser(user);
-          // Buscar dados atualizados do usuário do backend
+        // Verificar se há token armazenado
+        const token = getToken();
+        if (token) {
+          // Decodificar o JWT para obter o ID do usuário
           try {
-            const updatedUser = await api.getUsuario(user.id);
-            if (updatedUser) {
-              setCurrentUser(updatedUser);
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const userId = payload.sub;
+            if (userId) {
+              // Buscar dados do usuário do backend
+              // O token será enviado automaticamente pelo api.ts no header Authorization
+              const usuario = await api.getUsuario(userId);
+              setCurrentUser(usuario);
             }
-          } catch (err) {
-            // Se falhar, usar dados do localStorage mesmo
-            console.warn('Não foi possível atualizar dados do usuário:', err);
+          } catch (decodeError) {
+            // Token inválido, remover
+            console.warn('Token inválido:', decodeError);
+            removeToken();
           }
         }
       } catch (error) {
         console.warn('Não foi possível restaurar o usuário da sessão.', error);
+        removeToken();
       }
     };
 
@@ -3577,15 +3579,15 @@ export default function App() {
     }
   }, []);
 
-  const handleLoginSuccess = (usuario: Usuario) => {
-    setCurrentUser(usuario);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(usuario));
+  const handleLoginSuccess = (loginResponse: { accessToken: string; usuario: Usuario }) => {
+    setCurrentUser(loginResponse.usuario);
     setActiveTab('dashboard'); // Sempre volta para a tela "Afastamentos do mês" após login
+    // O token já foi armazenado pelo api.login()
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem(STORAGE_KEY);
+    removeToken();
   };
 
   const openConfirm = useCallback((config: ConfirmConfig) => {
@@ -3745,7 +3747,6 @@ export default function App() {
           openConfirm={openConfirm}
           onCurrentUserUpdate={(updatedUser) => {
             setCurrentUser(updatedUser);
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
           }}
         />
       )}

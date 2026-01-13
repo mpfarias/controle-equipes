@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsNotEmpty, IsString, MinLength, MaxLength, Matches } from 'class-validator';
 
 export class ValidateSecurityQuestionDto {
   @IsString()
@@ -13,11 +13,14 @@ export class ValidateSecurityQuestionDto {
 
   @IsString()
   @IsNotEmpty()
-  @MinLength(6, {
-    message: 'A senha deve ter pelo menos 6 caracteres.',
+  @MinLength(8, {
+    message: 'A senha deve ter pelo menos 8 caracteres.',
   })
   @MaxLength(100, {
     message: 'A senha não pode ter mais de 100 caracteres.',
+  })
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
+    message: 'A senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número.',
   })
   novaSenha: string;
 }

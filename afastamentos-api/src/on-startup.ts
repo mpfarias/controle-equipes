@@ -15,10 +15,14 @@ export async function ensureInitialUser() {
       },
     });
 
-    // Verificar se já existe um usuário
+    // Obter credenciais do admin inicial de variáveis de ambiente
+    const adminMatricula = process.env.ADMIN_MATRICULA || '1966901';
+    const adminSenha = process.env.ADMIN_SENHA || 'admin123';
+
+    // Verificar se já existe um usuário com a matrícula configurada
     const usuarioExistente = await prisma.usuario.findFirst({
       where: {
-        matricula: '1966901',
+        matricula: adminMatricula,
       },
     });
 
@@ -27,12 +31,12 @@ export async function ensureInitialUser() {
     }
 
     // Criar usuário inicial
-    const senhaHash = await bcrypt.hash('admin123', 10);
+    const senhaHash = await bcrypt.hash(adminSenha, 10);
 
     await prisma.usuario.create({
       data: {
         nome: 'ADMINISTRADOR',
-        matricula: '1966901',
+        matricula: adminMatricula,
         senhaHash,
         equipe: 'A',
         status: UsuarioStatus.ATIVO,
@@ -42,9 +46,13 @@ export async function ensureInitialUser() {
     });
 
     console.log('✅ Usuário inicial criado automaticamente!');
-    console.log('   Matrícula: 1966901');
-    console.log('   Senha: admin123');
-    console.log('   ⚠️  Altere a senha após o primeiro login!\n');
+    console.log(`   Matrícula: ${adminMatricula}`);
+    console.log('   ⚠️  Altere a senha após o primeiro login!');
+    if (!process.env.ADMIN_SENHA) {
+      console.log('   ⚠️  Configure ADMIN_SENHA no .env para produção!\n');
+    } else {
+      console.log('');
+    }
   } catch (error) {
     // Silenciosamente ignora erros (usuário pode já existir)
     console.log('ℹ️  Verificação de usuário inicial concluída.\n');

@@ -14,6 +14,20 @@ import type {
 const API_URL =
   import.meta.env.VITE_API_URL ?? 'http://10.95.91.53:3002';
 
+const TOKEN_STORAGE_KEY = 'afastamentos-web:token';
+
+export function getToken(): string | null {
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setToken(token: string): void {
+  sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+}
+
+export function removeToken(): void {
+  sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -21,6 +35,12 @@ async function request<T>(
   const headers = new Headers(options.headers ?? {});
   if (!(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
+  }
+
+  // Adicionar token JWT no header Authorization se disponível
+  const token = getToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -143,11 +163,14 @@ export const api = {
     });
   },
 
-  async login(payload: LoginInput): Promise<Usuario> {
-    return request('/auth/login', {
+  async login(payload: LoginInput): Promise<{ accessToken: string; usuario: Usuario }> {
+    const response = await request<{ accessToken: string; usuario: Usuario }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    // Armazenar token automaticamente após login
+    setToken(response.accessToken);
+    return response;
   },
 
   async forgotPassword(matricula: string): Promise<{

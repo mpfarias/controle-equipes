@@ -1,17 +1,26 @@
 import { Controller, Get } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { Public } from '../auth/public.decorator';
 
 @Controller('health')
 export class HealthController {
   constructor(private prisma: PrismaService) {}
 
+  @Public()
   @Get('db')
   async checkDatabase() {
     try {
-      await this.prisma.$queryRaw`SELECT 1`;
+      // Usar query Prisma simples ao invés de queryRaw
+      await this.prisma.usuario.count();
       return { ok: true, db: 'connected' };
     } catch (err) {
-      return { ok: false, db: 'error', error: String(err) };
+      // Não expor detalhes de erro em produção
+      const isDevelopment = process.env.NODE_ENV !== 'production';
+      return {
+        ok: false,
+        db: 'error',
+        ...(isDevelopment && { error: String(err) }),
+      };
     }
   }
 }
