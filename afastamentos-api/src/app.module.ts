@@ -7,6 +7,8 @@ import { ColaboradoresModule } from './colaboradores/colaboradores.module';
 import { AfastamentosModule } from './afastamentos/afastamentos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { AuthModule } from './auth/auth.module';
+import { AuditModule } from './audit/audit.module';
+import { RelatoriosModule } from './relatorios/relatorios.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 
 @Module({
@@ -23,6 +25,8 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
     AfastamentosModule,
     UsuariosModule,
     AuthModule,
+    AuditModule,
+    RelatoriosModule,
   ],
   providers: [
     {

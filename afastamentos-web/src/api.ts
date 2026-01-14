@@ -12,6 +12,8 @@ import type {
   FuncaoOption,
   ProcessFileResponse,
   BulkCreateResponse,
+  AuditLogsResponse,
+  RelatorioLogsResponse,
 } from './types.ts';
 
 const API_URL =
@@ -297,5 +299,32 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  async listAuditLogs(limit?: number, offset?: number, dataInicio?: string, dataFim?: string): Promise<AuditLogsResponse> {
+    const params = new URLSearchParams();
+    if (limit) params.append('limit', limit.toString());
+    if (offset) params.append('offset', offset.toString());
+    if (dataInicio) params.append('dataInicio', dataInicio);
+    if (dataFim) params.append('dataFim', dataFim);
+    const query = params.toString();
+    return request(`/audit/logs${query ? `?${query}` : ''}`);
+  },
+
+  async registrarGeracaoRelatorio(tipoRelatorio: string): Promise<void> {
+    await request('/relatorios/registrar', {
+      method: 'POST',
+      body: JSON.stringify({ tipoRelatorio }),
+    });
+  },
+
+  async listRelatorioLogs(page?: number, pageSize?: number, dataInicio?: string, dataFim?: string): Promise<RelatorioLogsResponse> {
+    const params = new URLSearchParams();
+    if (page) params.append('page', page.toString());
+    if (pageSize) params.append('pageSize', pageSize.toString());
+    if (dataInicio) params.append('dataInicio', dataInicio);
+    if (dataFim) params.append('dataFim', dataFim);
+    const query = params.toString();
+    return request(`/relatorios/logs${query ? `?${query}` : ''}`);
   },
 };

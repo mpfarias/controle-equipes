@@ -31,6 +31,8 @@ export interface Usuario {
   nivel?: { id: number; nome: string; descricao?: string | null };
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null };
+  createdById?: number | null;
+  createdByName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -138,4 +140,42 @@ export interface CreateColaboradoresBulkInput {
 export interface BulkCreateResponse {
   criados: number;
   erros: Array<{ matricula: string; erro: string }>;
+}
+
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE';
+
+export interface AuditLog {
+  id: number;
+  entity: string;
+  entityId?: number | null;
+  action: AuditAction;
+  userId?: number | null;
+  userName?: string | null;
+  before?: unknown;
+  after?: unknown;
+  createdAt: string;
+}
+
+export interface AuditLogsResponse {
+  logs: AuditLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface RelatorioLog {
+  id: number;
+  userId?: number | null;
+  userName?: string | null;
+  matricula?: string | null;
+  tipoRelatorio: string;
+  createdAt: string;
+}
+
+export interface RelatorioLogsResponse {
+  logs: RelatorioLog[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 }

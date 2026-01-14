@@ -35,6 +35,8 @@ const usuarioSelect = {
       descricao: true,
     },
   },
+  createdById: true,
+  createdByName: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.UsuarioSelect;

@@ -136,3 +136,12 @@ model AuditLog {
   after     Json?
   createdAt DateTime    @default(now())
 }
+
+model RelatorioLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  userName  String?
+  matricula String?
+  tipoRelatorio String
+  createdAt DateTime @default(now())
+}

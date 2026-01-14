@@ -60,4 +60,40 @@ export class AuditService {
 
     await this.prisma.auditLog.create({ data });
   }
+
+  async findAll(options?: { limit?: number; offset?: number; dataInicio?: Date; dataFim?: Date }) {
+    const { limit, offset, dataInicio, dataFim } = options || {};
+    
+    const where: Prisma.AuditLogWhereInput = {};
+    
+    if (dataInicio || dataFim) {
+      where.createdAt = {};
+      if (dataInicio) {
+        where.createdAt.gte = dataInicio;
+      }
+      if (dataFim) {
+        // Adicionar 23:59:59.999 ao final do dia
+        const fimDoDia = new Date(dataFim);
+        fimDoDia.setHours(23, 59, 59, 999);
+        where.createdAt.lte = fimDoDia;
+      }
+    }
+    
+    const [logs, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+
+    return {
+      logs,
+      total,
+      limit: limit || total,
+      offset: offset || 0,
+    };
+  }
 }
