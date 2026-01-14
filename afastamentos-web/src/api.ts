@@ -3,12 +3,15 @@ import type {
   Colaborador,
   CreateAfastamentoInput,
   CreateColaboradorInput,
+  CreateColaboradoresBulkInput,
   CreateUsuarioInput,
   LoginInput,
   MotivoAfastamentoOption,
   Usuario,
   UsuarioNivelOption,
   FuncaoOption,
+  ProcessFileResponse,
+  BulkCreateResponse,
 } from './types.ts';
 
 const API_URL =
@@ -134,32 +137,20 @@ export const api = {
     return request('/usuarios/funcoes');
   },
 
-  async createUsuario(
-    payload: CreateUsuarioInput,
-    responsavelId?: number,
-  ): Promise<Usuario> {
+  async createUsuario(payload: CreateUsuarioInput): Promise<Usuario> {
     return request('/usuarios', {
       method: 'POST',
-      body: JSON.stringify({
-        ...payload,
-        responsavelId,
-      }),
+      body: JSON.stringify(payload),
     });
   },
 
   async updateUsuario(
     id: number,
     payload: Partial<CreateUsuarioInput>,
-    responsavelId?: number,
   ): Promise<Usuario> {
-    const body: Record<string, unknown> = { ...payload };
-    if (responsavelId) {
-      body.responsavelId = responsavelId;
-    }
-
     return request(`/usuarios/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
   },
 
@@ -208,28 +199,22 @@ export const api = {
     });
   },
 
-  async removeUsuario(id: number, responsavelId?: number): Promise<void> {
+  async removeUsuario(id: number): Promise<void> {
     await request(`/usuarios/${id}`, {
       method: 'DELETE',
-      body: JSON.stringify({ responsavelId }),
     });
   },
 
-  async activateUsuario(id: number, responsavelId?: number): Promise<Usuario> {
+  async activateUsuario(id: number): Promise<Usuario> {
     return request(`/usuarios/${id}/activate`, {
       method: 'PATCH',
-      body: JSON.stringify({ responsavelId }),
     });
   },
 
-  async deleteUsuario(
-    id: number,
-    senha: string,
-    responsavelId?: number,
-  ): Promise<void> {
+  async deleteUsuario(id: number, senha: string): Promise<void> {
     await request(`/usuarios/${id}/delete-permanent`, {
       method: 'POST',
-      body: JSON.stringify({ senha, responsavelId }),
+      body: JSON.stringify({ senha }),
     });
   },
 
@@ -237,52 +222,32 @@ export const api = {
     return request('/colaboradores');
   },
 
-  async createColaborador(
-    payload: CreateColaboradorInput,
-    responsavelId?: number,
-  ): Promise<Colaborador> {
+  async createColaborador(payload: CreateColaboradorInput): Promise<Colaborador> {
     return request('/colaboradores', {
       method: 'POST',
-      body: JSON.stringify({
-        ...payload,
-        responsavelId,
-      }),
+      body: JSON.stringify(payload),
     });
   },
 
   async updateColaborador(
     id: number,
     payload: Partial<CreateColaboradorInput>,
-    responsavelId?: number,
   ): Promise<Colaborador> {
-    const body: Record<string, unknown> = { ...payload };
-    if (responsavelId) {
-      body.responsavelId = responsavelId;
-    }
-
     return request(`/colaboradores/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
   },
 
-  async removeColaborador(
-    id: number,
-    responsavelId?: number,
-  ): Promise<void> {
+  async removeColaborador(id: number): Promise<void> {
     await request(`/colaboradores/${id}`, {
       method: 'DELETE',
-      body: JSON.stringify({ responsavelId }),
     });
   },
 
-  async activateColaborador(
-    id: number,
-    responsavelId?: number,
-  ): Promise<Colaborador> {
+  async activateColaborador(id: number): Promise<Colaborador> {
     return request(`/colaboradores/${id}/activate`, {
       method: 'PATCH',
-      body: JSON.stringify({ responsavelId }),
     });
   },
 
@@ -294,42 +259,43 @@ export const api = {
     return request('/afastamentos');
   },
 
-  async createAfastamento(
-    payload: CreateAfastamentoInput,
-    responsavelId?: number,
-  ): Promise<Afastamento> {
+  async createAfastamento(payload: CreateAfastamentoInput): Promise<Afastamento> {
     return request('/afastamentos', {
       method: 'POST',
-      body: JSON.stringify({
-        ...payload,
-        responsavelId,
-      }),
+      body: JSON.stringify(payload),
     });
   },
 
   async updateAfastamento(
     id: number,
     payload: Partial<CreateAfastamentoInput>,
-    responsavelId?: number,
   ): Promise<Afastamento> {
-    const body: Record<string, unknown> = { ...payload };
-    if (responsavelId) {
-      body.responsavelId = responsavelId;
-    }
-
     return request(`/afastamentos/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
   },
 
-  async removeAfastamento(
-    id: number,
-    responsavelId?: number,
-  ): Promise<void> {
+  async removeAfastamento(id: number): Promise<void> {
     await request(`/afastamentos/${id}`, {
       method: 'DELETE',
-      body: JSON.stringify({ responsavelId }),
+    });
+  },
+
+  async uploadFile(file: File): Promise<ProcessFileResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    return request('/colaboradores/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  async createColaboradoresBulk(payload: CreateColaboradoresBulkInput): Promise<BulkCreateResponse> {
+    return request('/colaboradores/bulk', {
+      method: 'POST',
+      body: JSON.stringify(payload),
     });
   },
 };

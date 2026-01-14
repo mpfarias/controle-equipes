@@ -33,7 +33,6 @@ export class CreateColaboradorDto {
 
   @IsOptional()
   @IsInt()
-  @Min(1)
-  responsavelId?: number;
+  funcaoId?: number;
 }
 

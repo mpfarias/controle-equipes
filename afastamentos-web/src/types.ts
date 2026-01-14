@@ -57,6 +57,8 @@ export interface Colaborador {
   matricula: string;
   equipe: Equipe;
   status: PolicialStatus;
+  funcaoId?: number | null;
+  funcao?: { id: number; nome: string; descricao?: string | null } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +68,7 @@ export interface CreateColaboradorInput {
   matricula: string;
   status: PolicialStatus;
   equipe?: Equipe;
+  funcaoId?: number;
 }
 
 export interface Afastamento {
@@ -106,4 +109,33 @@ export interface FuncaoOption {
   id: number;
   nome: string;
   descricao?: string | null;
+}
+
+export interface ColaboradorExtraido {
+  matricula: string;
+  nome: string;
+  funcaoNome: string;
+  funcaoId?: number;
+}
+
+export interface ProcessFileResponse {
+  colaboradores: ColaboradorExtraido[];
+  funcoesCriadas: string[];
+}
+
+export interface ColaboradorBulkItem {
+  matricula: string;
+  nome: string;
+  status: PolicialStatus;
+  funcaoId?: number;
+  equipe?: Equipe;
+}
+
+export interface CreateColaboradoresBulkInput {
+  colaboradores: ColaboradorBulkItem[];
+}
+
+export interface BulkCreateResponse {
+  criados: number;
+  erros: Array<{ matricula: string; erro: string }>;
 }

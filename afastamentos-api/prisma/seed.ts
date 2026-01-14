@@ -17,45 +17,40 @@ async function main() {
     },
   });
 
-  const nivelGestor = await prisma.usuarioNivel.upsert({
-    where: { nome: 'GESTOR' },
+  const nivelSad = await prisma.usuarioNivel.upsert({
+    where: { nome: 'SAD' },
     update: {},
     create: {
-      nome: 'GESTOR',
-      descricao: 'Acesso para gestão de dados',
+      nome: 'SAD',
+      descricao: 'Acesso ao Sistema de Apoio à Decisão',
     },
   });
 
-  const nivelConsultas = await prisma.usuarioNivel.upsert({
-    where: { nome: 'CONSULTAS' },
+  const nivelComando = await prisma.usuarioNivel.upsert({
+    where: { nome: 'COMANDO' },
     update: {},
     create: {
-      nome: 'CONSULTAS',
-      descricao: 'Acesso apenas para consultas',
+      nome: 'COMANDO',
+      descricao: 'Acesso de comando',
+    },
+  });
+
+  const nivelOperacoes = await prisma.usuarioNivel.upsert({
+    where: { nome: 'OPERAÇÕES' },
+    update: {},
+    create: {
+      nome: 'OPERAÇÕES',
+      descricao: 'Acesso de operações',
     },
   });
 
   console.log('✅ Níveis de usuário criados/verificados!\n');
 
-  // Criar funções
+  // Criar funções (apenas funções em UPPERCASE)
   console.log('📋 Criando funções...');
-  const funcoes = [
-    { nome: 'Oficial de Operações', descricao: null },
-    { nome: 'Atendente', descricao: null },
-    { nome: 'Despachante', descricao: null },
-    { nome: 'Supervisor de Atendimento', descricao: null },
-    { nome: 'Copom Mulher', descricao: null },
-    { nome: 'Adjunto do Oficial de Operações', descricao: null },
-  ];
-
-  for (const funcaoData of funcoes) {
-    await prisma.funcao.upsert({
-      where: { nome: funcaoData.nome },
-      update: {},
-      create: funcaoData,
-    });
-  }
-  console.log('✅ Funções criadas/verificadas!\n');
+  // Nota: Funções em lowercase foram removidas. Apenas funções em UPPERCASE são mantidas.
+  // As funções são criadas dinamicamente durante o processamento de arquivos ou manualmente no banco.
+  console.log('✅ Funções verificadas (funções em UPPERCASE são mantidas).\n');
 
   // Criar motivos de afastamento
   console.log('📋 Criando motivos de afastamento...');

@@ -23,6 +23,8 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "remove:niveis": "ts-node scripts/remove-niveis-gestor-consultas.ts",
+    "remove:funcoes-lowercase": "ts-node scripts/remove-funcoes-lowercase.ts",
     "update:matricula": "node update-matricula.js",
     "fix:nivel": "node fix-nivel-migration.js",
     "db:setup": "npm run prisma:generate && npm run prisma:migrate && npm run prisma:seed",
@@ -41,14 +43,18 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/throttler": "^6.5.0",
     "@prisma/client": "^6.19.0",
+    "@types/multer": "^2.0.0",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "helmet": "^8.1.0",
+    "multer": "^2.0.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

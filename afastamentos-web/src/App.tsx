@@ -12,6 +12,9 @@ import type {
   UsuarioNivelOption,
   FuncaoOption,
   MotivoAfastamentoOption,
+  ColaboradorExtraido,
+  ProcessFileResponse,
+  ColaboradorBulkItem,
 } from './types.ts';
 
 type TabKey = 'dashboard' | 'afastamentos' | 'colaboradores' | 'equipe' | 'usuarios';
@@ -784,6 +787,106 @@ function UsuariosSection({
     }
   }, []);
 
+  // Função helper para filtrar funções baseado no nível
+  const filtrarFuncoesPorNivel = useCallback((nivelId: number | undefined | null): FuncaoOption[] => {
+    if (!nivelId) {
+      return [];
+    }
+    
+    const nivelSelecionado = usuarioNiveis.find(n => n.id === nivelId);
+    if (!nivelSelecionado) {
+      return [];
+    }
+    
+    let funcoesFiltradas: FuncaoOption[] = [];
+    
+    switch (nivelSelecionado.nome) {
+      case 'ADMINISTRADOR':
+        // ADMINISTRADOR: todas as funções
+        funcoesFiltradas = funcoes;
+        break;
+      case 'COMANDO':
+        // COMANDO: CMT UPM e SUBCMT UPM
+        funcoesFiltradas = funcoes.filter(f => 
+          f.nome === 'CMT UPM' || f.nome === 'SUBCMT UPM'
+        );
+        break;
+      case 'SAD':
+        // SAD: EXPEDIENTE ADM
+        funcoesFiltradas = funcoes.filter(f => 
+          f.nome === 'EXPEDIENTE ADM'
+        );
+        break;
+      case 'OPERAÇÕES':
+        // OPERAÇÕES: OFICIAL DE OPERAÇÕES COPOM, OFICIAL DE OPERAÇÕES COPOM - AUXILIAR, DESPACHANTE 190, 
+        // TELEFONISTA 190, TELEFONISTA 190 - AUXILIAR, ANALISTA, SUPERVISOR ATENDIMENTO 190, SUPERVISOR DESPACHO 190
+        funcoesFiltradas = funcoes.filter(f => 
+          f.nome === 'OFICIAL DE OPERAÇÕES COPOM' ||
+          f.nome === 'OFICIAL DE OPERAÇÕES COPOM - AUXILIAR' ||
+          f.nome === 'DESPACHANTE 190' ||
+          f.nome === 'TELEFONISTA 190' ||
+          f.nome === 'TELEFONISTA 190 - AUXILIAR' ||
+          f.nome === 'ANALISTA' ||
+          f.nome === 'SUPERVISOR ATENDIMENTO 190' ||
+          f.nome === 'SUPERVISOR DESPACHO 190'
+        );
+        break;
+      default:
+        funcoesFiltradas = [];
+    }
+    
+    // Ordenar alfabeticamente
+    return funcoesFiltradas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoes, usuarioNiveis]);
+
+  // Filtrar e ordenar funções de acordo com o nível selecionado no formulário de criação
+  const funcoesDisponiveis = useMemo(() => {
+    return filtrarFuncoesPorNivel(form.nivelId);
+  }, [form.nivelId, filtrarFuncoesPorNivel]);
+
+  // Filtrar e ordenar funções de acordo com o nível selecionado no formulário de edição
+  const funcoesDisponiveisEdit = useMemo(() => {
+    return filtrarFuncoesPorNivel(editForm.nivelId);
+  }, [editForm.nivelId, filtrarFuncoesPorNivel]);
+
+  // Função helper para verificar se o usuário é administrador
+  const isUsuarioAdministrador = useCallback((usuario: Usuario): boolean => {
+    // Verificar se tem isAdmin = true
+    if (usuario.isAdmin === true) {
+      return true;
+    }
+    // Verificar se o nível é ADMINISTRADOR
+    if (usuario.nivel?.nome === 'ADMINISTRADOR') {
+      return true;
+    }
+    // Verificar se o nivelId corresponde ao nível ADMINISTRADOR
+    const nivelAdmin = usuarioNiveis.find((n: UsuarioNivelOption) => n.nome === 'ADMINISTRADOR');
+    if (nivelAdmin && usuario.nivelId === nivelAdmin.id) {
+      return true;
+    }
+    return false;
+  }, [usuarioNiveis]);
+
+  // Verificar se o usuário logado é administrador
+  const currentUserIsAdmin = useMemo(() => {
+    return isUsuarioAdministrador(currentUser);
+  }, [currentUser, isUsuarioAdministrador]);
+
+  // Filtrar níveis disponíveis: remover ADMINISTRADOR se o usuário não for admin
+  const niveisDisponiveis = useMemo(() => {
+    if (currentUserIsAdmin) {
+      return usuarioNiveis;
+    }
+    return usuarioNiveis.filter((nivel: UsuarioNivelOption) => nivel.nome !== 'ADMINISTRADOR');
+  }, [usuarioNiveis, currentUserIsAdmin]);
+
+  // Verificar se o nível selecionado é OPERAÇÕES
+  const isNivelOperacoes = useCallback((nivelId: number | undefined | null): boolean => {
+    if (!nivelId) return false;
+    const nivel = usuarioNiveis.find(n => n.id === nivelId);
+    return nivel?.nome === 'OPERAÇÕES';
+  }, [usuarioNiveis]);
+
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
     if (loading || usuarios.length === 0 && !error) {
@@ -815,16 +918,24 @@ function UsuariosSection({
 
   // Quando os níveis forem carregados, definir o primeiro como padrão se não houver seleção
   useEffect(() => {
-    if (usuarioNiveis.length > 0) {
-      // Se o form ainda não tem um nivelId válido, usar o primeiro nível (geralmente CONSULTAS)
+    if (niveisDisponiveis.length > 0) {
+      // Se o form ainda não tem um nivelId válido, usar o primeiro nível disponível (geralmente OPERAÇÕES)
       if (!form.nivelId || form.nivelId === 0) {
-        const primeiroNivel = usuarioNiveis.find(n => n.nome === 'CONSULTAS') || usuarioNiveis[0];
+        const primeiroNivel = niveisDisponiveis.find(n => n.nome === 'OPERAÇÕES') || niveisDisponiveis[0];
+        if (primeiroNivel) {
+          setForm(prev => ({ ...prev, nivelId: primeiroNivel.id }));
+        }
+      }
+      // Se o nível selecionado não está mais disponível (ex: era ADMINISTRADOR e usuário não é admin), resetar
+      const nivelSelecionado = niveisDisponiveis.find(n => n.id === form.nivelId);
+      if (!nivelSelecionado && form.nivelId !== 0) {
+        const primeiroNivel = niveisDisponiveis.find(n => n.nome === 'OPERAÇÕES') || niveisDisponiveis[0];
         if (primeiroNivel) {
           setForm(prev => ({ ...prev, nivelId: primeiroNivel.id }));
         }
       }
     }
-  }, [usuarioNiveis]);
+  }, [niveisDisponiveis, form.nivelId]);
 
   // Revalidar matrícula quando a lista de usuários for atualizada
   useEffect(() => {
@@ -861,6 +972,29 @@ function UsuariosSection({
     }
     if (field === 'equipe' && typeof value === 'string') {
       value = value.toUpperCase();
+    }
+    // Se o campo alterado for nivelId, verificar se precisa limpar a equipe e função
+    if (field === 'nivelId') {
+      setForm((prev) => {
+        const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
+        const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
+        
+        // Verificar se a função atual ainda está disponível para o novo nível
+        const funcoesDisponiveisNovoNivel = filtrarFuncoesPorNivel(value as number);
+        const funcaoAindaDisponivel = prev.funcaoId 
+          ? funcoesDisponiveisNovoNivel.some(f => f.id === prev.funcaoId)
+          : true;
+        
+        return {
+          ...prev,
+          nivelId: (value as number) || 0,
+          // Se não for OPERAÇÕES, manter 'A' como padrão (mas não será enviado)
+          equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
+          // Se a função não estiver mais disponível, limpar
+          funcaoId: funcaoAindaDisponivel ? prev.funcaoId : undefined,
+        };
+      });
+      return;
     }
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -927,21 +1061,31 @@ function UsuariosSection({
       return;
     }
 
+    // Validar se está tentando criar usuário como ADMINISTRADOR sem permissão
+    const nivelSelecionado = usuarioNiveis.find(n => n.id === form.nivelId);
+    if (nivelSelecionado?.nome === 'ADMINISTRADOR' && !currentUserIsAdmin) {
+      setError('Apenas administradores podem cadastrar outros usuários como administradores.');
+      return;
+    }
+
     try {
       setSubmitting(true);
-      await api.createUsuario(
-        {
-          nome,
-          matricula,
-          senha: form.senha,
-          perguntaSeguranca: form.perguntaSeguranca.trim() || undefined,
-          respostaSeguranca: form.respostaSeguranca.trim() || undefined,
-          equipe: form.equipe,
-          nivelId: form.nivelId,
-          funcaoId: form.funcaoId,
-        },
-        currentUser.id,
-      );
+      const nivelSelecionado = usuarioNiveis.find(n => n.id === form.nivelId);
+      const payload: CreateUsuarioInput = {
+        nome,
+        matricula,
+        senha: form.senha,
+        perguntaSeguranca: form.perguntaSeguranca.trim() || undefined,
+        respostaSeguranca: form.respostaSeguranca.trim() || undefined,
+        equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : 'A' as Equipe,
+        nivelId: form.nivelId,
+        funcaoId: form.funcaoId,
+      };
+      // Se não for OPERAÇÕES, remover equipe do payload
+      if (nivelSelecionado?.nome !== 'OPERAÇÕES') {
+        delete (payload as any).equipe;
+      }
+      await api.createUsuario(payload);
       resetForm();
       setSuccess('Usuário cadastrado com sucesso.');
       await carregarUsuarios();
@@ -967,17 +1111,57 @@ function UsuariosSection({
     if (field === 'equipe' && typeof value === 'string') {
       value = value.toUpperCase();
     }
+    // Se o campo alterado for nivelId, verificar se precisa limpar a equipe e função
+    if (field === 'nivelId') {
+      setEditForm((prev) => {
+        const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
+        const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
+        
+        // Verificar se a função atual ainda está disponível para o novo nível
+        const funcoesDisponiveisNovoNivel = filtrarFuncoesPorNivel(value as number);
+        const funcaoAindaDisponivel = prev.funcaoId 
+          ? funcoesDisponiveisNovoNivel.some(f => f.id === prev.funcaoId)
+          : true;
+        
+        return {
+          ...prev,
+          nivelId: (value as number) || 0,
+          // Se não for OPERAÇÕES, limpar a equipe
+          equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
+          // Se a função não estiver mais disponível, limpar
+          funcaoId: funcaoAindaDisponivel ? prev.funcaoId : undefined,
+        };
+      });
+      return;
+    }
     setEditForm((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleEdit = (usuario: Usuario) => {
     setEditingUsuario(usuario);
-    // Se o usuário não tiver nivelId, usar o primeiro nível disponível (geralmente CONSULTAS)
+    // Se o usuário não tiver nivelId, usar o primeiro nível disponível (geralmente OPERAÇÕES)
     let nivelId = usuario.nivelId ?? 0;
-    if (!nivelId && usuarioNiveis.length > 0) {
-      const primeiroNivel = usuarioNiveis.find(n => n.nome === 'CONSULTAS') || usuarioNiveis[0];
+    
+    // Se o usuário sendo editado é administrador e o usuário logado não é admin,
+    // manter o nível ADMINISTRADOR (não permitir alteração)
+    const usuarioEditadoIsAdmin = isUsuarioAdministrador(usuario);
+    if (usuarioEditadoIsAdmin && !currentUserIsAdmin) {
+      // Manter o nível atual do usuário sendo editado
+      nivelId = usuario.nivelId ?? 0;
+    } else if (!nivelId && niveisDisponiveis.length > 0) {
+      const primeiroNivel = niveisDisponiveis.find(n => n.nome === 'OPERAÇÕES') || niveisDisponiveis[0];
       nivelId = primeiroNivel?.id ?? 0;
     }
+    
+    // Verificar se a função do usuário está disponível para o nível dele
+    const funcoesDisponiveisParaNivel = filtrarFuncoesPorNivel(nivelId);
+    const funcaoDisponivel = usuario.funcaoId 
+      ? funcoesDisponiveisParaNivel.some(f => f.id === usuario.funcaoId)
+      : true;
+    
+    const nivelDoUsuario = usuarioNiveis.find(n => n.id === nivelId);
+    const isOperacoes = nivelDoUsuario?.nome === 'OPERAÇÕES';
+    
     setEditForm({
       nome: usuario.nome,
       matricula: usuario.matricula,
@@ -985,9 +1169,9 @@ function UsuariosSection({
       confirmarSenha: '',
       perguntaSeguranca: usuario.perguntaSeguranca || '',
       respostaSeguranca: '',
-      equipe: usuario.equipe ?? 'A',
+      equipe: isOperacoes ? (usuario.equipe ?? 'A') : 'A',
       nivelId: nivelId,
-      funcaoId: usuario.funcaoId ?? undefined,
+      funcaoId: funcaoDisponivel ? (usuario.funcaoId ?? undefined) : undefined,
     });
     setEditError(null);
   };
@@ -1023,13 +1207,20 @@ function UsuariosSection({
       return;
     }
 
+    // Validar se está tentando editar usuário para ADMINISTRADOR sem permissão
+    const nivelSelecionadoEdit = usuarioNiveis.find(n => n.id === editForm.nivelId);
+    if (nivelSelecionadoEdit?.nome === 'ADMINISTRADOR' && !currentUserIsAdmin) {
+      setEditError('Apenas administradores podem definir outros usuários como administradores.');
+      return;
+    }
+
     const novaSenha = editForm.senha;
     const payloadBase: Partial<CreateUsuarioInput> = {
       nome,
       matricula,
       perguntaSeguranca: editForm.perguntaSeguranca.trim() || undefined,
       respostaSeguranca: editForm.respostaSeguranca.trim() || undefined,
-      equipe: editForm.equipe,
+      equipe: nivelSelecionadoEdit?.nome === 'OPERAÇÕES' ? editForm.equipe : undefined,
       nivelId: editForm.nivelId,
       funcaoId: editForm.funcaoId,
     };
@@ -1045,7 +1236,7 @@ function UsuariosSection({
           if (novaSenha) {
             payload.senha = novaSenha;
           }
-          await api.updateUsuario(editingUsuario.id, payload, currentUser.id);
+          await api.updateUsuario(editingUsuario.id, payload);
           setSuccess('Usuário atualizado com sucesso.');
           resetEditForm();
           await carregarUsuarios();
@@ -1080,7 +1271,7 @@ function UsuariosSection({
       onConfirm: async () => {
         try {
           setError(null);
-          await api.removeUsuario(usuario.id, currentUser.id);
+          await api.removeUsuario(usuario.id);
           if (editingUsuario?.id === usuario.id) {
             resetEditForm();
           }
@@ -1105,7 +1296,7 @@ function UsuariosSection({
       onConfirm: async () => {
         try {
           setError(null);
-          await api.activateUsuario(usuario.id, currentUser.id);
+          await api.activateUsuario(usuario.id);
           if (editingUsuario?.id === usuario.id) {
             resetEditForm();
           }
@@ -1157,7 +1348,7 @@ function UsuariosSection({
 
     try {
       setDeleteModal((prev) => ({ ...prev, loading: true, error: null }));
-      await api.deleteUsuario(deleteModal.usuario.id, deleteModal.senha, currentUser.id);
+      await api.deleteUsuario(deleteModal.usuario.id, deleteModal.senha);
       
       if (editingUsuario?.id === deleteModal.usuario.id) {
         resetEditForm();
@@ -1187,13 +1378,23 @@ function UsuariosSection({
 
   const normalizedSearch = searchTerm.trim().toUpperCase();
   const filteredUsuarios = useMemo(() => {
-    if (!normalizedSearch) {
-      return usuarios;
+    // Primeiro, filtrar por busca se houver
+    let usuariosFiltrados = usuarios;
+    if (normalizedSearch) {
+      usuariosFiltrados = usuarios.filter((usuario) =>
+        usuario.nome.includes(normalizedSearch),
+      );
     }
-    return usuarios.filter((usuario) =>
-      usuario.nome.includes(normalizedSearch),
-    );
-  }, [usuarios, normalizedSearch]);
+    
+    // Se o usuário logado não é administrador, remover administradores da lista
+    if (!currentUserIsAdmin) {
+      usuariosFiltrados = usuariosFiltrados.filter((usuario) => 
+        !isUsuarioAdministrador(usuario)
+      );
+    }
+    
+    return usuariosFiltrados;
+  }, [usuarios, normalizedSearch, currentUserIsAdmin, isUsuarioAdministrador]);
 
   return (
     <section>
@@ -1244,22 +1445,6 @@ function UsuariosSection({
             )}
           </label>
           <label>
-            Equipe
-            <select
-              value={form.equipe}
-              onChange={(event) => handleChange('equipe', event.target.value)}
-              required
-            >
-              {EQUIPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        <div className="grid two-columns">
-            <label>
             Nível
             <select
               value={form.nivelId || ''}
@@ -1272,13 +1457,31 @@ function UsuariosSection({
               required
             >
               <option value="">Selecione um nível</option>
-              {usuarioNiveis.map((nivel) => (
+              {niveisDisponiveis.map((nivel) => (
                 <option key={nivel.id} value={nivel.id}>
                   {nivel.nome}
                 </option>
               ))}
             </select>
           </label>
+        </div>
+        <div className={isNivelOperacoes(form.nivelId) ? 'grid two-columns' : 'grid one-column'}>
+          {isNivelOperacoes(form.nivelId) && (
+            <label>
+              Equipe
+              <select
+                value={form.equipe}
+                onChange={(event) => handleChange('equipe', event.target.value)}
+                required
+              >
+                {EQUIPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label>
             Função
             <select
@@ -1291,7 +1494,7 @@ function UsuariosSection({
               }
             >
               <option value="">Selecione uma função</option>
-              {funcoes.map((funcao) => (
+              {funcoesDisponiveis.map((funcao) => (
                 <option key={funcao.id} value={funcao.id}>
                   {funcao.nome}
                 </option>
@@ -1375,6 +1578,7 @@ function UsuariosSection({
               <th>Nome</th>
               <th>Matrícula</th>
               <th>Equipe</th>
+              <th>Nível</th>
               <th>Ações</th>
             </tr>
           </thead>
@@ -1391,6 +1595,7 @@ function UsuariosSection({
                 <td>{usuario.nome}</td>
                 <td>{usuario.matricula}</td>
                 <td>{usuario.equipe}</td>
+                <td>{usuario.nivel?.nome || '-'}</td>
                 <td className="actions">
                   {usuario.status === 'ATIVO' && (
                     <button
@@ -1464,24 +1669,6 @@ function UsuariosSection({
                   />
                 </label>
                 <label>
-                  Equipe
-                  <select
-                    value={editForm.equipe}
-                    onChange={(event) =>
-                      handleEditChange('equipe', event.target.value)
-                    }
-                    required
-                  >
-                    {EQUIPE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="grid two-columns">
-                <label>
                   Nível
                   <select
                     value={editForm.nivelId || ''}
@@ -1492,15 +1679,41 @@ function UsuariosSection({
                       )
                     }
                     required
+                    disabled={editingUsuario ? isUsuarioAdministrador(editingUsuario) && !currentUserIsAdmin : false}
                   >
                     <option value="">Selecione um nível</option>
-                    {usuarioNiveis.map((nivel) => (
+                    {niveisDisponiveis.map((nivel) => (
                       <option key={nivel.id} value={nivel.id}>
                         {nivel.nome}
                       </option>
                     ))}
                   </select>
+                  {editingUsuario && isUsuarioAdministrador(editingUsuario) && !currentUserIsAdmin && (
+                    <span style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                      Apenas administradores podem alterar o nível de outros administradores.
+                    </span>
+                  )}
                 </label>
+              </div>
+              <div className={isNivelOperacoes(editForm.nivelId) ? 'grid two-columns' : 'grid one-column'}>
+                {isNivelOperacoes(editForm.nivelId) && (
+                  <label>
+                    Equipe
+                    <select
+                      value={editForm.equipe}
+                      onChange={(event) =>
+                        handleEditChange('equipe', event.target.value)
+                      }
+                      required
+                    >
+                      {EQUIPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label>
                   Função
                   <select
@@ -1513,7 +1726,7 @@ function UsuariosSection({
                     }
                   >
                     <option value="">Selecione uma função</option>
-                    {funcoes.map((funcao) => (
+                    {funcoesDisponiveisEdit.map((funcao) => (
                       <option key={funcao.id} value={funcao.id}>
                         {funcao.nome}
                       </option>
@@ -1673,8 +1886,9 @@ function ColaboradoresSection({
   currentUser: Usuario;
   onChanged?: () => void;
 }) {
-  const initialForm = { nome: '', matricula: '', status: 'ATIVO' as PolicialStatus };
+  const initialForm = { nome: '', matricula: '', status: 'ATIVO' as PolicialStatus, funcaoId: undefined as number | undefined };
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1682,6 +1896,7 @@ function ColaboradoresSection({
   const [form, setForm] = useState(initialForm);
   const [matriculaError, setMatriculaError] = useState<string | null>(null);
   const matriculaTimeoutRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reativarModal, setReativarModal] = useState<{
     open: boolean;
     colaborador: Colaborador | null;
@@ -1690,6 +1905,17 @@ function ColaboradoresSection({
     open: false,
     colaborador: null,
     loading: false,
+  });
+  const [validacaoModal, setValidacaoModal] = useState<{
+    open: boolean;
+    colaboradores: Array<ColaboradorExtraido & { status: PolicialStatus; equipe?: Equipe }>;
+    loading: boolean;
+    funcoesCriadas: string[];
+  }>({
+    open: false,
+    colaboradores: [],
+    loading: false,
+    funcoesCriadas: [],
   });
 
   const carregarColaboradores = useCallback(async () => {
@@ -1703,6 +1929,20 @@ function ColaboradoresSection({
       setLoading(false);
     }
   }, []);
+
+  const carregarFuncoes = useCallback(async () => {
+    try {
+      const data = await api.listFuncoes();
+      setFuncoes(data);
+    } catch (err) {
+      console.error('Erro ao carregar funções:', err);
+    }
+  }, []);
+
+  // Ordenar funções alfabeticamente
+  const funcoesOrdenadas = useMemo(() => {
+    return [...funcoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoes]);
 
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
@@ -1729,7 +1969,8 @@ function ColaboradoresSection({
 
   useEffect(() => {
     void carregarColaboradores();
-  }, [carregarColaboradores]);
+    void carregarFuncoes();
+  }, [carregarColaboradores, carregarFuncoes]);
 
   // Revalidar matrícula quando a lista de colaboradores for atualizada
   useEffect(() => {
@@ -1746,6 +1987,61 @@ function ColaboradoresSection({
       }
     };
   }, []);
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const fileName = file.name.toLowerCase();
+      // Validar se é um arquivo XLSX ou PDF
+      if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.pdf')) {
+        setError('Por favor, selecione um arquivo Excel (.xlsx) ou PDF (.pdf).');
+        // Limpar o input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        return;
+      }
+      
+      try {
+        setError(null);
+        setSubmitting(true);
+        
+        // Enviar arquivo para o backend
+        const response: ProcessFileResponse = await api.uploadFile(file);
+        
+        // Preparar dados para validação (adicionar status padrão)
+        const colaboradoresComStatus = response.colaboradores.map((colab) => ({
+          ...colab,
+          status: 'ATIVO' as PolicialStatus,
+          equipe: undefined as Equipe | undefined,
+        }));
+        
+        // Abrir modal de validação
+        setValidacaoModal({
+          open: true,
+          colaboradores: colaboradoresComStatus,
+          loading: false,
+          funcoesCriadas: response.funcoesCriadas || [],
+        });
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Não foi possível processar o arquivo. Verifique se o formato está correto.',
+        );
+      } finally {
+        setSubmitting(false);
+        // Limpar o input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    }
+  };
+
+  const handleFileButtonClick = () => {
+    fileInputRef.current?.click();
+  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1772,15 +2068,12 @@ function ColaboradoresSection({
 
     try {
       setSubmitting(true);
-      await api.createColaborador(
-        { 
-          nome, 
-          matricula, 
-          status: form.status,
-          equipe: currentUser.equipe,
-        },
-        currentUser.id,
-      );
+      await api.createColaborador({ 
+        nome, 
+        matricula, 
+        status: form.status,
+        equipe: currentUser.equipe,
+      });
       setSuccess('Policial cadastrado com sucesso.');
 
       setForm(initialForm);
@@ -1842,6 +2135,58 @@ function ColaboradoresSection({
     });
   };
 
+  const handleCloseValidacaoModal = () => {
+    setValidacaoModal({
+      open: false,
+      colaboradores: [],
+      loading: false,
+      funcoesCriadas: [],
+    });
+  };
+
+  const handleConfirmValidacao = async () => {
+    if (validacaoModal.colaboradores.length === 0 || validacaoModal.loading) {
+      return;
+    }
+
+    try {
+      setValidacaoModal((prev) => ({ ...prev, loading: true }));
+      setError(null);
+      setSuccess(null);
+
+      // Preparar dados para envio
+      const colaboradoresBulk: ColaboradorBulkItem[] = validacaoModal.colaboradores.map((colab) => ({
+        matricula: colab.matricula,
+        nome: colab.nome,
+        status: colab.status,
+        funcaoId: colab.funcaoId,
+        equipe: colab.equipe,
+      }));
+
+      // Enviar para o backend
+      const response = await api.createColaboradoresBulk({ colaboradores: colaboradoresBulk });
+
+      // Mostrar resultado
+      if (response.erros.length > 0) {
+        const errosMsg = response.erros.map((e) => `Matrícula ${e.matricula}: ${e.erro}`).join('\n');
+        setError(`${response.criados} colaborador(es) criado(s). Erros:\n${errosMsg}`);
+      } else {
+        setSuccess(`${response.criados} colaborador(es) criado(s) com sucesso.`);
+      }
+
+      handleCloseValidacaoModal();
+      await carregarColaboradores();
+      onChanged?.();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível salvar os colaboradores.',
+      );
+      setValidacaoModal((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
   const handleConfirmReativar = async () => {
     if (!reativarModal.colaborador) {
       return;
@@ -1852,18 +2197,14 @@ function ColaboradoresSection({
       setError(null);
       
       // Reativar o colaborador
-      await api.activateColaborador(reativarModal.colaborador.id, currentUser.id);
+      await api.activateColaborador(reativarModal.colaborador.id);
       
       // Atualizar os dados do colaborador reativado com os novos dados do formulário
-      await api.updateColaborador(
-        reativarModal.colaborador.id,
-        {
-          nome: form.nome.trim(),
-          status: form.status,
-          equipe: currentUser.equipe,
-        },
-        currentUser.id,
-      );
+      await api.updateColaborador(reativarModal.colaborador.id, {
+        nome: form.nome.trim(),
+        status: form.status,
+        equipe: currentUser.equipe,
+      });
 
       setSuccess('Policial reativado e atualizado com sucesso.');
       setForm(initialForm);
@@ -1895,6 +2236,19 @@ function ColaboradoresSection({
               : 'Equipe'
           }`}
         </h2>
+      </div>
+
+      <div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/pdf"
+          onChange={handleFileSelect}
+          style={{ display: 'none' }}
+        />
+        <button className="success" type="button" onClick={handleFileButtonClick}>
+          Inserir manualmente
+        </button>
       </div>
 
       {error && <div className="feedback error">{error}</div>}
@@ -1968,31 +2322,245 @@ function ColaboradoresSection({
             )}
           </label>
         </div>
-        <label>
-          Status
-          <select
-            value={form.status}
-            onChange={(event) =>
-              setForm((prev) => ({
-                ...prev,
-                status: event.target.value as PolicialStatus,
-              }))
-            }
-            required
-          >
-            {POLICIAL_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="grid two-columns">
+          <label>
+            Função
+            <select
+              value={form.funcaoId || ''}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  funcaoId: event.target.value ? Number(event.target.value) : undefined,
+                }))
+              }
+            >
+              <option value="">Selecione uma função</option>
+              {funcoesOrdenadas.map((funcao) => (
+                <option key={funcao.id} value={funcao.id}>
+                  {funcao.nome}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Status
+            <select
+              value={form.status}
+              onChange={(event) =>
+                setForm((prev) => ({
+                  ...prev,
+                  status: event.target.value as PolicialStatus,
+                }))
+              }
+              required
+            >
+              {POLICIAL_STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="form-actions">
           <button className="primary" type="submit" disabled={submitting}>
             {submitting ? 'Salvando...' : 'Cadastrar policial'}
           </button>
         </div>
       </form>
+
+      {/* Modal de Validação de Colaboradores Extraídos */}
+      {validacaoModal.open && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true">
+          <div className="modal modal-large" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ flexShrink: 0 }}>Validar Dados Extraídos</h3>
+            
+            {validacaoModal.funcoesCriadas.length > 0 && (
+              <div className="feedback" style={{ marginBottom: '16px', backgroundColor: '#dbeafe', borderColor: '#3b82f6', color: '#1e40af', flexShrink: 0 }}>
+                <strong>Funções criadas automaticamente:</strong>
+                <ul style={{ margin: '8px 0 0', paddingLeft: '20px' }}>
+                  {validacaoModal.funcoesCriadas.map((funcao, idx) => (
+                    <li key={idx}>{funcao}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {validacaoModal.colaboradores.length === 0 ? (
+              <div style={{ flex: '1 1 auto', minHeight: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
+                <div className="feedback" style={{ backgroundColor: '#f0f9ff', borderColor: '#3b82f6', color: '#1e40af', textAlign: 'center' }}>
+                  <strong>Todos os policiais da lista estão cadastrados</strong>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: '16px', flexShrink: 0 }}>
+                  <label className="switch" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      onChange={(event) => {
+                        if (event.target.checked) {
+                          // Atualizar todos os colaboradores que têm equipe disponível
+                          const novosColaboradores = validacaoModal.colaboradores.map((colab) => {
+                            const funcaoUpper = colab.funcaoNome?.toUpperCase() || '';
+                            const naoMostraEquipe = 
+                              funcaoUpper.includes('EXPEDIENTE') || 
+                              funcaoUpper.includes('CMT UPM') || 
+                              funcaoUpper.includes('SUBCMT UPM');
+                            
+                            if (!naoMostraEquipe) {
+                              return {
+                                ...colab,
+                                equipe: currentUser.equipe,
+                              };
+                            }
+                            return colab;
+                          });
+                          
+                          setValidacaoModal((prev) => ({
+                            ...prev,
+                            colaboradores: novosColaboradores,
+                          }));
+                        }
+                      }}
+                    />
+                    <span>Definir todos os policiais para a equipe atual</span>
+                  </label>
+                </div>
+                <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', marginBottom: '16px' }}>
+                  <table className="table">
+                <thead>
+                  <tr>
+                    <th>Matrícula</th>
+                    <th>Nome</th>
+                    <th>Função</th>
+                    <th>Status</th>
+                    <th>Equipe</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {validacaoModal.colaboradores.map((colab, idx) => {
+                    // Funções que não devem mostrar equipe: EXPEDIENTE ADM, CMT UPM, SUBCMT UPM
+                    const funcaoUpper = colab.funcaoNome?.toUpperCase() || '';
+                    const naoMostraEquipe = 
+                      funcaoUpper.includes('EXPEDIENTE') || 
+                      funcaoUpper.includes('CMT UPM') || 
+                      funcaoUpper.includes('SUBCMT UPM');
+                    return (
+                      <tr key={idx}>
+                        <td>{colab.matricula}</td>
+                        <td>{colab.nome}</td>
+                        <td>
+                          <select
+                            value={colab.funcaoId || ''}
+                            onChange={(event) => {
+                              const novosColaboradores = [...validacaoModal.colaboradores];
+                              const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
+                              const funcaoSelecionada = funcoes.find(f => f.id === novoFuncaoId);
+                              novosColaboradores[idx] = {
+                                ...novosColaboradores[idx],
+                                funcaoId: novoFuncaoId,
+                                funcaoNome: funcaoSelecionada?.nome || novosColaboradores[idx].funcaoNome,
+                              };
+                              setValidacaoModal((prev) => ({
+                                ...prev,
+                                colaboradores: novosColaboradores,
+                              }));
+                            }}
+                            style={{ width: '100%', padding: '4px' }}
+                          >
+                            <option value="">Selecione uma função</option>
+                            {funcoesOrdenadas.map((funcao) => (
+                              <option key={funcao.id} value={funcao.id}>
+                                {funcao.nome}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            value={colab.status}
+                            onChange={(event) => {
+                              const novosColaboradores = [...validacaoModal.colaboradores];
+                              novosColaboradores[idx] = {
+                                ...novosColaboradores[idx],
+                                status: event.target.value as PolicialStatus,
+                              };
+                              setValidacaoModal((prev) => ({
+                                ...prev,
+                                colaboradores: novosColaboradores,
+                              }));
+                            }}
+                            style={{ width: '100%', padding: '4px' }}
+                          >
+                            {POLICIAL_STATUS_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          {!naoMostraEquipe ? (
+                            <select
+                              value={colab.equipe || ''}
+                              onChange={(event) => {
+                                const novosColaboradores = [...validacaoModal.colaboradores];
+                                novosColaboradores[idx] = {
+                                  ...novosColaboradores[idx],
+                                  equipe: event.target.value ? (event.target.value as Equipe) : undefined,
+                                };
+                                setValidacaoModal((prev) => ({
+                                  ...prev,
+                                  colaboradores: novosColaboradores,
+                                }));
+                              }}
+                              style={{ width: '100%', padding: '4px' }}
+                              required
+                            >
+                              <option value="">Selecione uma equipe</option>
+                              {EQUIPE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {EQUIPE_FONETICA[option.value]} ({option.value})
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span style={{ color: '#64748b', fontSize: '0.9rem' }}>-</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              </div>
+              </>
+            )}
+
+            <div className="modal-actions" style={{ flexShrink: 0 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={handleCloseValidacaoModal}
+                disabled={validacaoModal.loading}
+              >
+                Cancelar
+              </button>
+              {validacaoModal.colaboradores.length > 0 && (
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={handleConfirmValidacao}
+                  disabled={validacaoModal.loading}
+                >
+                  {validacaoModal.loading ? 'Salvando...' : `Salvar ${validacaoModal.colaboradores.length} policiais`}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal de Reativação de Colaborador Desativado */}
       {reativarModal.open && reativarModal.colaborador && (
@@ -2257,16 +2825,13 @@ function AfastamentosSection({
   const submeterAfastamento = useCallback(async () => {
     try {
       setSubmitting(true);
-      await api.createAfastamento(
-        {
-          colaboradorId: Number(form.colaboradorId),
-          motivoId: form.motivoId,
-          descricao: form.descricao.trim() || undefined,
-          dataInicio: form.dataInicio,
-          dataFim: form.dataFim || undefined,
-        },
-        currentUser.id,
-      );
+      await api.createAfastamento({
+        colaboradorId: Number(form.colaboradorId),
+        motivoId: form.motivoId,
+        descricao: form.descricao.trim() || undefined,
+        dataInicio: form.dataInicio,
+        dataFim: form.dataFim || undefined,
+      });
       // Resetar form mantendo motivoId padrão
       const feriasMotivo = motivos.find((m) => m.nome === 'Férias');
       const motivoIdPadrao = feriasMotivo?.id || 0;
@@ -2589,7 +3154,7 @@ function AfastamentosSection({
       onConfirm: async () => {
         try {
           setError(null);
-          await api.removeAfastamento(afastamento.id, currentUser.id);
+          await api.removeAfastamento(afastamento.id);
           setSuccess('Afastamento removido.');
           await carregarDados();
         } catch (err) {
@@ -3293,7 +3858,10 @@ function MostrarEquipeSection({
     nome: '',
     matricula: '',
     status: 'ATIVO' as PolicialStatus,
+    equipe: 'A' as Equipe,
+    funcaoId: undefined as number | undefined,
   });
+  const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
  
@@ -3313,17 +3881,39 @@ function MostrarEquipeSection({
       setLoading(false);
     }
   }, []);
+
+  const carregarFuncoes = useCallback(async () => {
+    try {
+      const data = await api.listFuncoes();
+      setFuncoes(data);
+    } catch (err) {
+      console.error('Erro ao carregar funções:', err);
+    }
+  }, []);
+
+  // Ordenar funções alfabeticamente
+  const funcoesOrdenadas = useMemo(() => {
+    return [...funcoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoes]);
  
   useEffect(() => {
     void carregarColaboradores();
-  }, [carregarColaboradores, refreshKey]);
+    void carregarFuncoes();
+  }, [carregarColaboradores, carregarFuncoes, refreshKey]);
 
   const openEditModal = (colaborador: Colaborador) => {
     setEditingColaborador(colaborador);
+    // O Prisma retorna funcaoId diretamente quando usa include
+    // Precisamos tratar null explicitamente, pois null ?? undefined retorna undefined
+    const funcaoId = colaborador.funcaoId !== null && colaborador.funcaoId !== undefined
+      ? colaborador.funcaoId
+      : colaborador.funcao?.id ?? undefined;
     setEditForm({
       nome: colaborador.nome,
       matricula: colaborador.matricula,
       status: colaborador.status,
+      equipe: colaborador.equipe,
+      funcaoId: funcaoId,
     });
     setEditError(null);
   };
@@ -3351,6 +3941,8 @@ function MostrarEquipeSection({
       nome,
       matricula,
       status: editForm.status,
+      equipe: editForm.equipe,
+      funcaoId: editForm.funcaoId,
     };
 
     openConfirm({
@@ -3361,7 +3953,7 @@ function MostrarEquipeSection({
         try {
           setEditSubmitting(true);
           setEditError(null);
-          await api.updateColaborador(editingColaborador.id, payload, currentUser.id);
+          await api.updateColaborador(editingColaborador.id, payload);
           setSuccess('Policial atualizado com sucesso.');
           closeEditModal();
           await carregarColaboradores();
@@ -3397,7 +3989,7 @@ function MostrarEquipeSection({
       confirmLabel: 'Desativar',
       onConfirm: async () => {
         try {
-          await api.removeColaborador(colaborador.id, currentUser.id);
+          await api.removeColaborador(colaborador.id);
           setSuccess('Policial desativado.');
           await carregarColaboradores();
           onChanged?.();
@@ -3566,21 +4158,76 @@ function MostrarEquipeSection({
                   required
                 />
               </label>
+              <div className="grid two-columns">
+                <label>
+                  Status
+                  <select
+                    value={editForm.status}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        status: event.target.value as PolicialStatus,
+                      }))
+                    }
+                    required
+                  >
+                    {POLICIAL_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {(() => {
+                  // Funções que não devem mostrar equipe: EXPEDIENTE ADM, CMT UPM, SUBCMT UPM
+                  const funcaoNome = editingColaborador.funcao?.nome?.toUpperCase() || '';
+                  const naoMostraEquipe = 
+                    funcaoNome.includes('EXPEDIENTE') || 
+                    funcaoNome.includes('CMT UPM') || 
+                    funcaoNome.includes('SUBCMT UPM');
+                  
+                  if (naoMostraEquipe) {
+                    return null;
+                  }
+                  
+                  return (
+                    <label>
+                      Equipe
+                      <select
+                        value={editForm.equipe}
+                        onChange={(event) =>
+                          setEditForm((prev) => ({
+                            ...prev,
+                            equipe: event.target.value as Equipe,
+                          }))
+                        }
+                        required
+                      >
+                        {EQUIPE_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {EQUIPE_FONETICA[option.value]} ({option.value})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })()}
+              </div>
               <label>
-                Status
+                Função
                 <select
-                  value={editForm.status}
+                  value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
                   onChange={(event) =>
                     setEditForm((prev) => ({
                       ...prev,
-                      status: event.target.value as PolicialStatus,
+                      funcaoId: event.target.value ? Number(event.target.value) : undefined,
                     }))
                   }
-                  required
                 >
-                  {POLICIAL_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  <option value="">Selecione uma função</option>
+                  {funcoesOrdenadas.map((funcao) => (
+                    <option key={funcao.id} value={funcao.id}>
+                      {funcao.nome}
                     </option>
                   ))}
                 </select>

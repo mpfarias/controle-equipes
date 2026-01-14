@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,29 +8,28 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ColaboradoresService } from './colaboradores.service';
+import { ArquivoProcessorService } from './arquivo-processor.service';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
 import { UpdateColaboradorDto } from './dto/update-colaborador.dto';
+import { CreateColaboradoresBulkDto } from './dto/create-colaboradores-bulk.dto';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { Usuario } from '@prisma/client';
 
 @Controller('colaboradores')
 export class ColaboradoresController {
-  constructor(private readonly colaboradoresService: ColaboradoresService) {}
+  constructor(
+    private readonly colaboradoresService: ColaboradoresService,
+    private readonly arquivoProcessorService: ArquivoProcessorService,
+  ) {}
 
   @Post()
-  create(@Body() createColaboradorDto: CreateColaboradorDto) {
-    const { responsavelId, ...data } = createColaboradorDto;
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.colaboradoresService.create(data, actorId);
+  create(@Body() createColaboradorDto: CreateColaboradorDto, @CurrentUser() user: Usuario) {
+    return this.colaboradoresService.create(createColaboradorDto, user.id);
   }
 
   @Get()
@@ -46,55 +46,33 @@ export class ColaboradoresController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateColaboradorDto: UpdateColaboradorDto,
+    @CurrentUser() user: Usuario,
   ) {
-    const { responsavelId, ...data } = updateColaboradorDto;
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.colaboradoresService.update(id, data, actorId);
+    return this.colaboradoresService.update(id, updateColaboradorDto, user.id);
   }
 
   @Delete(':id')
-  remove(
-    @Param('id', ParseIntPipe) id: number,
-    @Body('responsavelId') responsavelId?: number,
-  ) {
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.colaboradoresService.remove(id, actorId);
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.colaboradoresService.remove(id, user.id);
   }
 
   @Patch(':id/activate')
-  activate(
-    @Param('id', ParseIntPipe) id: number,
-    @Body('responsavelId') responsavelId?: number,
-  ) {
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.colaboradoresService.activate(id, actorId);
+  activate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.colaboradoresService.activate(id, user.id);
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Arquivo não fornecido');
+    }
+    return this.arquivoProcessorService.processarArquivo(file);
+  }
+
+  @Post('bulk')
+  async createBulk(@Body() createBulkDto: CreateColaboradoresBulkDto, @CurrentUser() user: Usuario) {
+    return this.colaboradoresService.createBulk(createBulkDto, user.id);
   }
 }
 

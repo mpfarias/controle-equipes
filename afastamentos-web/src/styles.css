@@ -200,6 +200,23 @@ button.primary {
   cursor: pointer;
 }
 
+button.success {
+  align-self: flex-start;
+  background: #16a34a;
+  border: 1px solid #16a34a;
+  color: white;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+button.success:hover {
+  background: #15803d;
+  border-color: #15803d;
+}
+
 button.danger {
   background: transparent;
   border: 1px solid #ef4444;
@@ -489,8 +506,8 @@ button.secondary:hover {
 }
 
 .modal.modal-large {
-  max-width: 720px;
-  width: min(720px, 100%);
+  max-width: 1193px;
+  width: min(1193px, 100%);
 }
 
 .modal h3 {

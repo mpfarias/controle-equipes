@@ -8,85 +8,88 @@ datasource db {
 }
 
 model Colaborador {
-  id            Int             @id @default(autoincrement())
+  id            Int            @id @default(autoincrement())
   nome          String
-  matricula     String          @unique
-  equipe        Equipe          @default(A)
-  status        PolicialStatus  @default(ATIVO)
+  matricula     String         @unique
+  equipe        Equipe         @default(A)
+  status        PolicialStatus @default(ATIVO)
+  funcaoId      Int?
+  funcao        Funcao?        @relation(fields: [funcaoId], references: [id])
   afastamentos  Afastamento[]
   createdById   Int?
   createdByName String?
   updatedById   Int?
   updatedByName String?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 model MotivoAfastamento {
-  id          Int          @id @default(autoincrement())
-  nome        String       @unique
-  descricao   String?
+  id           Int           @id @default(autoincrement())
+  nome         String        @unique
+  descricao    String?
   afastamentos Afastamento[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
 model Afastamento {
-  id             Int                @id @default(autoincrement())
-  colaboradorId  Int
-  colaborador    Colaborador        @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
-  motivoId       Int
-  motivo         MotivoAfastamento  @relation(fields: [motivoId], references: [id])
-  descricao      String?
-  dataInicio     DateTime
-  dataFim        DateTime?
-  status         AfastamentoStatus  @default(ATIVO)
-  createdById    Int?
-  createdByName  String?
-  updatedById    Int?
-  updatedByName  String?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
-}
-
-model UsuarioNivel {
-  id          Int       @id @default(autoincrement())
-  nome        String    @unique
-  descricao   String?
-  usuarios    Usuario[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-}
-
-model Funcao {
-  id          Int       @id @default(autoincrement())
-  nome        String    @unique
-  descricao   String?
-  usuarios    Usuario[]
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-}
-
-model Usuario {
-  id         Int      @id @default(autoincrement())
-  nome       String
-  matricula  String   @unique
-  senhaHash  String
-  perguntaSeguranca String?
-  respostaSegurancaHash String?
-  equipe     Equipe   @default(A)
-  status     UsuarioStatus @default(ATIVO)
-  isAdmin    Boolean  @default(false)
-  nivelId    Int?
-  nivel      UsuarioNivel? @relation(fields: [nivelId], references: [id])
-  funcaoId   Int?
-  funcao     Funcao?  @relation(fields: [funcaoId], references: [id])
+  id            Int               @id @default(autoincrement())
+  colaboradorId Int
+  colaborador   Colaborador       @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  motivoId      Int
+  motivo        MotivoAfastamento @relation(fields: [motivoId], references: [id])
+  descricao     String?
+  dataInicio    DateTime
+  dataFim       DateTime?
+  status        AfastamentoStatus @default(ATIVO)
   createdById   Int?
   createdByName String?
   updatedById   Int?
   updatedByName String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model UsuarioNivel {
+  id        Int       @id @default(autoincrement())
+  nome      String    @unique
+  descricao String?
+  usuarios  Usuario[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Funcao {
+  id            Int           @id @default(autoincrement())
+  nome          String        @unique
+  descricao     String?
+  usuarios      Usuario[]
+  colaboradores Colaborador[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Usuario {
+  id                    Int           @id @default(autoincrement())
+  nome                  String
+  matricula             String        @unique
+  senhaHash             String
+  perguntaSeguranca     String?
+  respostaSegurancaHash String?
+  equipe                Equipe        @default(A)
+  status                UsuarioStatus @default(ATIVO)
+  isAdmin               Boolean       @default(false)
+  nivelId               Int?
+  nivel                 UsuarioNivel? @relation(fields: [nivelId], references: [id])
+  funcaoId              Int?
+  funcao                Funcao?       @relation(fields: [funcaoId], references: [id])
+  createdById           Int?
+  createdByName         String?
+  updatedById           Int?
+  updatedByName         String?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
 }
 
 enum AfastamentoStatus {
@@ -122,7 +125,7 @@ enum AuditAction {
 }
 
 model AuditLog {
-  id        Int          @id @default(autoincrement())
+  id        Int         @id @default(autoincrement())
   entity    String
   entityId  Int?
   action    AuditAction
@@ -130,6 +133,5 @@ model AuditLog {
   userName  String?
   before    Json?
   after     Json?
-  createdAt DateTime     @default(now())
+  createdAt DateTime    @default(now())
 }
-

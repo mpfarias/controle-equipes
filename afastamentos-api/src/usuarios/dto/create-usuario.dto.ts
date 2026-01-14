@@ -62,10 +62,5 @@ export class CreateUsuarioDto {
   @IsInt()
   @Min(1)
   funcaoId?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  responsavelId?: number;
 }
 

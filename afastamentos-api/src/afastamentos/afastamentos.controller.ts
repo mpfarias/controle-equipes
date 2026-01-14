@@ -13,25 +13,16 @@ import {
 import { AfastamentosService } from './afastamentos.service';
 import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
+import { CurrentUser } from '../auth/current-user.decorator';
+import type { Usuario } from '@prisma/client';
 
 @Controller('afastamentos')
 export class AfastamentosController {
   constructor(private readonly afastamentosService: AfastamentosService) {}
 
   @Post()
-  create(@Body() createAfastamentoDto: CreateAfastamentoDto) {
-    const { responsavelId, ...data } = createAfastamentoDto;
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.afastamentosService.create(data, actorId);
+  create(@Body() createAfastamentoDto: CreateAfastamentoDto, @CurrentUser() user: Usuario) {
+    return this.afastamentosService.create(createAfastamentoDto, user.id);
   }
 
   @Get()
@@ -60,37 +51,14 @@ export class AfastamentosController {
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updateAfastamentoDto: UpdateAfastamentoDto,
+    @CurrentUser() user: Usuario,
   ) {
-    const { responsavelId, ...data } = updateAfastamentoDto;
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.afastamentosService.update(id, data, actorId);
+    return this.afastamentosService.update(id, updateAfastamentoDto, user.id);
   }
 
   @Delete(':id')
-  remove(
-    @Param('id', ParseIntPipe) id: number,
-    @Body('responsavelId') responsavelId?: number,
-  ) {
-    const actorIdNumber =
-      typeof responsavelId === 'number'
-        ? responsavelId
-        : responsavelId !== undefined
-          ? Number(responsavelId)
-          : undefined;
-    const actorId =
-      actorIdNumber !== undefined && Number.isNaN(actorIdNumber)
-        ? undefined
-        : actorIdNumber;
-    return this.afastamentosService.remove(id, actorId);
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.afastamentosService.remove(id, user.id);
   }
 }
 

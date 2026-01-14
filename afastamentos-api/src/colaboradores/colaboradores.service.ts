@@ -1,12 +1,13 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { AuditAction, Equipe, PolicialStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
 import { UpdateColaboradorDto } from './dto/update-colaborador.dto';
+import { CreateColaboradoresBulkDto } from './dto/create-colaboradores-bulk.dto';
 
 type ColaboradorWithRelations = Prisma.ColaboradorGetPayload<{
-  include: { afastamentos: true };
+  include: { afastamentos: true; funcao: true };
 }>;
 
 @Injectable()
@@ -65,12 +66,13 @@ export class ColaboradoresService {
         matricula: matriculaNormalizada,
         status: data.status ?? PolicialStatus.ATIVO,
         equipe: data.equipe ?? actor?.equipe ?? Equipe.A,
+        funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     await this.audit.record({
@@ -88,14 +90,14 @@ export class ColaboradoresService {
     return this.prisma.colaborador.findMany({
       where: { status: { not: PolicialStatus.DESATIVADO } },
       orderBy: { nome: 'asc' },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
   }
 
   async findOne(id: number): Promise<ColaboradorWithRelations> {
     const colaborador = await this.prisma.colaborador.findUnique({
       where: { id },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     if (!colaborador) {
@@ -142,10 +144,18 @@ export class ColaboradoresService {
       updateData.equipe = data.equipe;
     }
 
+    if (data.funcaoId !== undefined) {
+      if (data.funcaoId === null || data.funcaoId === 0) {
+        updateData.funcao = { disconnect: true };
+      } else {
+        updateData.funcao = { connect: { id: data.funcaoId } };
+      }
+    }
+
     const updated = await this.prisma.colaborador.update({
       where: { id },
       data: updateData,
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     await this.audit.record({
@@ -163,7 +173,7 @@ export class ColaboradoresService {
   async remove(id: number, responsavelId?: number): Promise<void> {
     const before = await this.prisma.colaborador.findUnique({
       where: { id },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     if (!before) {
@@ -179,7 +189,7 @@ export class ColaboradoresService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     await this.audit.record({
@@ -195,7 +205,7 @@ export class ColaboradoresService {
   async activate(id: number, responsavelId?: number): Promise<ColaboradorWithRelations> {
     const before = await this.prisma.colaborador.findUnique({
       where: { id },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     if (!before) {
@@ -211,7 +221,7 @@ export class ColaboradoresService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true },
+      include: { afastamentos: true, funcao: true },
     });
 
     await this.audit.record({
@@ -224,6 +234,62 @@ export class ColaboradoresService {
     });
 
     return updated;
+  }
+
+  async createBulk(
+    data: CreateColaboradoresBulkDto,
+    responsavelId?: number,
+  ): Promise<{ criados: number; erros: Array<{ matricula: string; erro: string }> }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+    const erros: Array<{ matricula: string; erro: string }> = [];
+    let criados = 0;
+
+    for (const colaboradorData of data.colaboradores) {
+      try {
+        const matriculaNormalizada = this.sanitizeMatricula(colaboradorData.matricula);
+        
+        // Verificar se já existe
+        const existe = await this.prisma.colaborador.findUnique({
+          where: { matricula: matriculaNormalizada },
+        });
+
+        if (existe) {
+          erros.push({
+            matricula: colaboradorData.matricula,
+            erro: 'Matrícula já existe no banco de dados',
+          });
+          continue;
+        }
+
+        const createData: Prisma.ColaboradorCreateInput = {
+          nome: this.sanitizeNome(colaboradorData.nome),
+          matricula: matriculaNormalizada,
+          status: colaboradorData.status,
+          equipe: colaboradorData.equipe ?? actor?.equipe ?? Equipe.A,
+          createdById: actor?.id ?? null,
+          createdByName: actor?.nome ?? null,
+          updatedById: actor?.id ?? null,
+          updatedByName: actor?.nome ?? null,
+        };
+
+        if (colaboradorData.funcaoId) {
+          createData.funcao = { connect: { id: colaboradorData.funcaoId } };
+        }
+
+        await this.prisma.colaborador.create({
+          data: createData,
+        });
+
+        criados++;
+      } catch (error) {
+        erros.push({
+          matricula: colaboradorData.matricula,
+          erro: error instanceof Error ? error.message : 'Erro desconhecido',
+        });
+      }
+    }
+
+    return { criados, erros };
   }
 }
 

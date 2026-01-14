@@ -28,10 +28,5 @@ export class CreateAfastamentoDto {
   @IsOptional()
   @IsDateString()
   dataFim?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  responsavelId?: number;
 }
 
