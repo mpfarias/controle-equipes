@@ -10,7 +10,7 @@ import {
   IsIn,
 } from 'class-validator';
 
-export const EQUIPE_VALUES = ['A', 'B', 'C', 'D', 'E'] as const;
+export const EQUIPE_VALUES = ['A', 'B', 'C', 'D', 'E', 'SEM_EQUIPE'] as const;
 export type EquipeValue = (typeof EQUIPE_VALUES)[number];
 
 export class CreateUsuarioDto {
@@ -50,9 +50,10 @@ export class CreateUsuarioDto {
   @MaxLength(200)
   respostaSeguranca?: string;
 
+  @IsOptional()
   @IsString()
   @IsIn(EQUIPE_VALUES)
-  equipe: EquipeValue;
+  equipe?: EquipeValue;
 
   @IsInt()
   @Min(1)

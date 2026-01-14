@@ -77,6 +77,7 @@ const EQUIPE_FONETICA: Record<Equipe, string> = {
   C: 'Charlie',
   D: 'Delta',
   E: 'Echo',
+  SEM_EQUIPE: 'Sem Equipe',
 };
 
 function ConfirmDialog({
@@ -190,6 +191,7 @@ function LoginView({
   const [form, setForm] = useState<LoginInput>({ matricula: '', senha: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (field: keyof LoginInput, value: string) => {
     if (field === 'matricula') {
@@ -243,14 +245,34 @@ function LoginView({
         </label>
         <label>
           Senha
-          <input
-            type="password"
-            value={form.senha}
-            onChange={(event) => handleChange('senha', event.target.value)}
-            placeholder="Digite a senha"
-            autoComplete="current-password"
-            required
-          />
+          <div className="password-input-wrapper">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={form.senha}
+              onChange={(event) => handleChange('senha', event.target.value)}
+              placeholder="Digite a senha"
+              autoComplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="password-toggle"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              )}
+            </button>
+          </div>
         </label>
         <button className="primary" type="submit" disabled={loading}>
           {loading ? 'Logando...' : 'Entrar'}
@@ -413,6 +435,8 @@ function ResetPasswordView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -490,27 +514,67 @@ function ResetPasswordView({
         </label>
         <label>
           Nova senha
-          <input
-            type="password"
-            value={novaSenha}
-            onChange={(event) => setNovaSenha(event.target.value)}
-            placeholder="Mínimo de 6 caracteres"
-            autoComplete="new-password"
-            required
-            minLength={6}
-          />
+          <div className="password-input-wrapper">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={novaSenha}
+              onChange={(event) => setNovaSenha(event.target.value)}
+              placeholder="Mínimo de 6 caracteres"
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="password-toggle"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              )}
+            </button>
+          </div>
         </label>
         <label>
           Confirmar senha
-          <input
-            type="password"
-            value={confirmarSenha}
-            onChange={(event) => setConfirmarSenha(event.target.value)}
-            placeholder="Digite a senha novamente"
-            autoComplete="new-password"
-            required
-            minLength={6}
-          />
+          <div className="password-input-wrapper">
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              value={confirmarSenha}
+              onChange={(event) => setConfirmarSenha(event.target.value)}
+              placeholder="Digite a senha novamente"
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="password-toggle"
+              tabIndex={-1}
+            >
+              {showConfirmPassword ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              )}
+            </button>
+          </div>
         </label>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
@@ -549,6 +613,8 @@ function SecurityQuestionView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -650,27 +716,67 @@ function SecurityQuestionView({
         </label>
         <label>
           Nova senha
-          <input
-            type="password"
-            value={novaSenha}
-            onChange={(event) => setNovaSenha(event.target.value)}
-            placeholder="Mínimo de 6 caracteres"
-            autoComplete="new-password"
-            required
-            minLength={6}
-          />
+          <div className="password-input-wrapper">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={novaSenha}
+              onChange={(event) => setNovaSenha(event.target.value)}
+              placeholder="Mínimo de 6 caracteres"
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="password-toggle"
+              tabIndex={-1}
+            >
+              {showPassword ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              )}
+            </button>
+          </div>
         </label>
         <label>
           Confirmar senha
-          <input
-            type="password"
-            value={confirmarSenha}
-            onChange={(event) => setConfirmarSenha(event.target.value)}
-            placeholder="Digite a senha novamente"
-            autoComplete="new-password"
-            required
-            minLength={6}
-          />
+          <div className="password-input-wrapper">
+            <input
+              type={showConfirmPassword ? 'text' : 'password'}
+              value={confirmarSenha}
+              onChange={(event) => setConfirmarSenha(event.target.value)}
+              placeholder="Digite a senha novamente"
+              autoComplete="new-password"
+              required
+              minLength={6}
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              className="password-toggle"
+              tabIndex={-1}
+            >
+              {showConfirmPassword ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                  <line x1="1" y1="1" x2="23" y2="23"></line>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                  <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+              )}
+            </button>
+          </div>
         </label>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
           <button
@@ -731,6 +837,10 @@ function UsuariosSection({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(initialCreateForm);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [showEditConfirmPassword, setShowEditConfirmPassword] = useState(false);
   const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null);
   const [editForm, setEditForm] = useState(initialEditForm);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -886,6 +996,38 @@ function UsuariosSection({
     const nivel = usuarioNiveis.find(n => n.id === nivelId);
     return nivel?.nome === 'OPERAÇÕES';
   }, [usuarioNiveis]);
+
+  // Verificar se já existe um usuário com a função CMT UPM ou SUBCMT UPM
+  const verificarFuncaoUnica = useCallback((funcaoId: number | undefined, excluirUsuarioId?: number): { existe: boolean; nomeFuncao: string | null } => {
+    if (!funcaoId) {
+      return { existe: false, nomeFuncao: null };
+    }
+
+    const funcao = funcoes.find(f => f.id === funcaoId);
+    if (!funcao) {
+      return { existe: false, nomeFuncao: null };
+    }
+
+    const nomeFuncao = funcao.nome;
+    // Verificar apenas para CMT UPM e SUBCMT UPM
+    if (nomeFuncao !== 'CMT UPM' && nomeFuncao !== 'SUBCMT UPM') {
+      return { existe: false, nomeFuncao: null };
+    }
+
+    // Verificar se já existe outro usuário com essa função
+    const usuarioExistente = usuarios.find(u => {
+      // Excluir o próprio usuário sendo editado
+      if (excluirUsuarioId && u.id === excluirUsuarioId) {
+        return false;
+      }
+      return u.funcao?.nome === nomeFuncao;
+    });
+
+    return {
+      existe: !!usuarioExistente,
+      nomeFuncao: usuarioExistente ? nomeFuncao : null,
+    };
+  }, [usuarios, funcoes]);
 
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
@@ -1068,6 +1210,15 @@ function UsuariosSection({
       return;
     }
 
+    // Validar se já existe um usuário com CMT UPM ou SUBCMT UPM
+    if (form.funcaoId) {
+      const validacaoFuncao = verificarFuncaoUnica(form.funcaoId);
+      if (validacaoFuncao.existe && validacaoFuncao.nomeFuncao) {
+        setError(`Já existe um usuário cadastrado com a função ${validacaoFuncao.nomeFuncao}. Apenas um usuário pode ter essa função.`);
+        return;
+      }
+    }
+
     try {
       setSubmitting(true);
       const nivelSelecionado = usuarioNiveis.find(n => n.id === form.nivelId);
@@ -1077,14 +1228,11 @@ function UsuariosSection({
         senha: form.senha,
         perguntaSeguranca: form.perguntaSeguranca.trim() || undefined,
         respostaSeguranca: form.respostaSeguranca.trim() || undefined,
-        equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : 'A' as Equipe,
         nivelId: form.nivelId,
         funcaoId: form.funcaoId,
+        // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar "SEM_EQUIPE"
+        equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : 'SEM_EQUIPE' as Equipe,
       };
-      // Se não for OPERAÇÕES, remover equipe do payload
-      if (nivelSelecionado?.nome !== 'OPERAÇÕES') {
-        delete (payload as any).equipe;
-      }
       await api.createUsuario(payload);
       resetForm();
       setSuccess('Usuário cadastrado com sucesso.');
@@ -1126,8 +1274,8 @@ function UsuariosSection({
         return {
           ...prev,
           nivelId: (value as number) || 0,
-          // Se não for OPERAÇÕES, limpar a equipe
-          equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
+          // Se não for OPERAÇÕES, definir equipe como SEM_EQUIPE
+          equipe: isOperacoes ? prev.equipe : 'SEM_EQUIPE' as Equipe,
           // Se a função não estiver mais disponível, limpar
           funcaoId: funcaoAindaDisponivel ? prev.funcaoId : undefined,
         };
@@ -1169,7 +1317,8 @@ function UsuariosSection({
       confirmarSenha: '',
       perguntaSeguranca: usuario.perguntaSeguranca || '',
       respostaSeguranca: '',
-      equipe: isOperacoes ? (usuario.equipe ?? 'A') : 'A',
+      // Se for OPERAÇÕES, usar a equipe do usuário (ou 'A' como padrão); caso contrário, usar 'SEM_EQUIPE'
+      equipe: isOperacoes ? (usuario.equipe ?? 'A') : 'SEM_EQUIPE' as Equipe,
       nivelId: nivelId,
       funcaoId: funcaoDisponivel ? (usuario.funcaoId ?? undefined) : undefined,
     });
@@ -1214,13 +1363,23 @@ function UsuariosSection({
       return;
     }
 
+    // Validar se já existe um usuário com CMT UPM ou SUBCMT UPM (excluindo o próprio usuário sendo editado)
+    if (editForm.funcaoId) {
+      const validacaoFuncao = verificarFuncaoUnica(editForm.funcaoId, editingUsuario.id);
+      if (validacaoFuncao.existe && validacaoFuncao.nomeFuncao) {
+        setEditError(`Já existe um usuário cadastrado com a função ${validacaoFuncao.nomeFuncao}. Apenas um usuário pode ter essa função.`);
+        return;
+      }
+    }
+
     const novaSenha = editForm.senha;
     const payloadBase: Partial<CreateUsuarioInput> = {
       nome,
       matricula,
       perguntaSeguranca: editForm.perguntaSeguranca.trim() || undefined,
       respostaSeguranca: editForm.respostaSeguranca.trim() || undefined,
-      equipe: nivelSelecionadoEdit?.nome === 'OPERAÇÕES' ? editForm.equipe : undefined,
+      // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar "SEM_EQUIPE"
+      equipe: nivelSelecionadoEdit?.nome === 'OPERAÇÕES' ? editForm.equipe : 'SEM_EQUIPE' as Equipe,
       nivelId: editForm.nivelId,
       funcaoId: editForm.funcaoId,
     };
@@ -1505,23 +1664,63 @@ function UsuariosSection({
         <div className="grid two-columns">
           <label>
             Senha
-            <input
-              type="password"
-              value={form.senha}
-              onChange={(event) => handleChange('senha', event.target.value)}
-              placeholder="Informe uma senha forte"
-              required
-            />
+            <div className="password-input-wrapper">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={form.senha}
+                onChange={(event) => handleChange('senha', event.target.value)}
+                placeholder="Informe uma senha forte"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="password-toggle"
+                tabIndex={-1}
+              >
+                {showPassword ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                  </svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                )}
+              </button>
+            </div>
           </label>
           <label>
             Confirmar senha
-            <input
-              type="password"
-              value={form.confirmarSenha}
-              onChange={(event) => handleChange('confirmarSenha', event.target.value)}
-              placeholder="Repita a senha"
-              required
-            />
+            <div className="password-input-wrapper">
+              <input
+                type={showConfirmPassword ? 'text' : 'password'}
+                value={form.confirmarSenha}
+                onChange={(event) => handleChange('confirmarSenha', event.target.value)}
+                placeholder="Repita a senha"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="password-toggle"
+                tabIndex={-1}
+              >
+                {showConfirmPassword ? (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                  </svg>
+                ) : (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                  </svg>
+                )}
+              </button>
+            </div>
           </label>
         </div>
         <div className="grid two-columns">
@@ -1594,7 +1793,7 @@ function UsuariosSection({
               >
                 <td>{usuario.nome}</td>
                 <td>{usuario.matricula}</td>
-                <td>{usuario.equipe}</td>
+                <td>{usuario.equipe === 'SEM_EQUIPE' ? 'Sem Equipe' : usuario.equipe}</td>
                 <td>{usuario.nivel?.nome || '-'}</td>
                 <td className="actions">
                   {usuario.status === 'ATIVO' && (
@@ -1737,25 +1936,65 @@ function UsuariosSection({
               <div className="grid two-columns">
                 <label>
                   Nova senha
-                  <input
-                    type="password"
-                    value={editForm.senha}
-                    onChange={(event) =>
-                      handleEditChange('senha', event.target.value)
-                    }
-                    placeholder="Informe uma nova senha (opcional)"
-                  />
+                  <div className="password-input-wrapper">
+                    <input
+                      type={showEditPassword ? 'text' : 'password'}
+                      value={editForm.senha}
+                      onChange={(event) =>
+                        handleEditChange('senha', event.target.value)
+                      }
+                      placeholder="Informe uma nova senha (opcional)"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditPassword(!showEditPassword)}
+                      className="password-toggle"
+                      tabIndex={-1}
+                    >
+                      {showEditPassword ? (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                          <line x1="1" y1="1" x2="23" y2="23"></line>
+                        </svg>
+                      ) : (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </label>
                 <label>
                   Confirmar nova senha
-                  <input
-                    type="password"
-                    value={editForm.confirmarSenha}
-                    onChange={(event) =>
-                      handleEditChange('confirmarSenha', event.target.value)
-                    }
-                    placeholder="Repita a nova senha"
-                  />
+                  <div className="password-input-wrapper">
+                    <input
+                      type={showEditConfirmPassword ? 'text' : 'password'}
+                      value={editForm.confirmarSenha}
+                      onChange={(event) =>
+                        handleEditChange('confirmarSenha', event.target.value)
+                      }
+                      placeholder="Repita a nova senha"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowEditConfirmPassword(!showEditConfirmPassword)}
+                      className="password-toggle"
+                      tabIndex={-1}
+                    >
+                      {showEditConfirmPassword ? (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                          <line x1="1" y1="1" x2="23" y2="23"></line>
+                        </svg>
+                      ) : (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                      )}
+                    </button>
+                  </div>
                 </label>
               </div>
               <div className="grid two-columns">
@@ -4351,6 +4590,43 @@ export default function App() {
     }
   }, [confirmDialog, closeConfirm]);
 
+  // Verificar se o usuário tem acesso à tela de usuários (apenas SAD e ADMINISTRADOR)
+  const usuarioTemAcessoUsuarios = useMemo(() => {
+    if (!currentUser) return false;
+    
+    // Verificar pelo nome do nível (prioritário)
+    const nivelNome = currentUser.nivel?.nome;
+    if (nivelNome === 'SAD' || nivelNome === 'ADMINISTRADOR') {
+      return true;
+    }
+    
+    // Verificar pelo isAdmin
+    if (currentUser.isAdmin === true) {
+      return true;
+    }
+    
+    return false;
+  }, [currentUser]);
+
+  // Filtrar tabs baseado no nível do usuário
+  const tabsDisponiveis = useMemo(() => {
+    return TABS.filter((tab) => {
+      // A aba de usuários só está disponível para SAD e ADMINISTRADOR
+      if (tab.key === 'usuarios') {
+        return usuarioTemAcessoUsuarios;
+      }
+      // Todas as outras abas estão disponíveis para todos
+      return true;
+    });
+  }, [usuarioTemAcessoUsuarios]);
+
+  // Se o usuário não tem acesso à aba de usuários e está tentando acessá-la, redirecionar
+  useEffect(() => {
+    if (currentUser && activeTab === 'usuarios' && !usuarioTemAcessoUsuarios) {
+      setActiveTab('dashboard');
+    }
+  }, [currentUser, activeTab, usuarioTemAcessoUsuarios]);
+
   if (!currentUser) {
     const handleForgotPassword = () => {
       setAuthView('forgot-password');
@@ -4436,7 +4712,7 @@ export default function App() {
       </header>
 
       <ul className="tabs" role="tablist">
-        {TABS.map((tab) => (
+        {tabsDisponiveis.map((tab) => (
           <li key={tab.key} role="presentation">
             <button
               role="tab"

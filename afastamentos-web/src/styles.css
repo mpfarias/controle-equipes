@@ -558,3 +558,40 @@ button.secondary:hover {
   border-color: #1d4ed8;
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
 }
+
+.password-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrapper input {
+  width: 100%;
+  padding-right: 40px;
+}
+
+.password-input-wrapper .password-toggle {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  transition: color 0.2s ease-in-out;
+  z-index: 1;
+}
+
+.password-input-wrapper .password-toggle:hover {
+  color: #1d4ed8;
+}
+
+.password-input-wrapper .password-toggle:focus {
+  outline: none;
+  color: #1d4ed8;
+}

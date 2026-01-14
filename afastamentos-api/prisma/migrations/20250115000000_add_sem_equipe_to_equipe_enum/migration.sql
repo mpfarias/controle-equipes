@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "Equipe" ADD VALUE 'SEM_EQUIPE';

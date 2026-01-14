@@ -22,6 +22,22 @@ export class AuthService {
 
     const usuario = await this.prisma.usuario.findUnique({
       where: { matricula: matriculaNormalizada },
+      include: {
+        nivel: {
+          select: {
+            id: true,
+            nome: true,
+            descricao: true,
+          },
+        },
+        funcao: {
+          select: {
+            id: true,
+            nome: true,
+            descricao: true,
+          },
+        },
+      },
     });
 
     if (!usuario) {

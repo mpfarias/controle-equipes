@@ -9,7 +9,7 @@ export type PolicialStatus =
 
 export type UsuarioStatus = 'ATIVO' | 'DESATIVADO';
 
-export type Equipe = 'A' | 'B' | 'C' | 'D' | 'E';
+export type Equipe = 'A' | 'B' | 'C' | 'D' | 'E' | 'SEM_EQUIPE';
 
 export interface UsuarioNivel {
   id: number;
@@ -41,7 +41,7 @@ export interface CreateUsuarioInput {
   senha: string;
   perguntaSeguranca?: string;
   respostaSeguranca?: string;
-  equipe: Equipe;
+  equipe?: Equipe;
   nivelId: number;
   funcaoId?: number;
 }
