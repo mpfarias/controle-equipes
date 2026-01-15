@@ -8,6 +8,7 @@ import {
   Matches,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateColaboradorDto {
@@ -28,8 +29,9 @@ export class CreateColaboradorDto {
   status: PolicialStatus;
 
   @IsOptional()
+  @ValidateIf((o) => o.equipe !== null)
   @IsEnum(Equipe)
-  equipe?: Equipe;
+  equipe?: Equipe | null;
 
   @IsOptional()
   @IsInt()

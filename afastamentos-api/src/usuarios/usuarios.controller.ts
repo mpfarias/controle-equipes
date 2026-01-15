@@ -26,10 +26,18 @@ export class UsuariosController {
   }
 
   @Get()
-  findAll(@Query('currentUserId') currentUserId?: string) {
+  findAll(
+    @Query('currentUserId') currentUserId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     const userId = currentUserId ? Number(currentUserId) : undefined;
     return this.usuariosService.findAll(
       userId && !Number.isNaN(userId) ? userId : undefined,
+      {
+        page: page ? parseInt(page, 10) : undefined,
+        pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      },
     );
   }
 

@@ -57,7 +57,19 @@ export function ForgotPasswordView({
       <h2>Recuperar senha</h2>
       <p>Informe sua matrícula para receber instruções de recuperação de senha.</p>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {success && (
         <div className="feedback success">
           {success}

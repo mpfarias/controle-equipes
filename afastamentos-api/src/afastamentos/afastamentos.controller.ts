@@ -26,7 +26,11 @@ export class AfastamentosController {
   }
 
   @Get()
-  findAll(@Query('colaboradorId') colaboradorId?: string) {
+  findAll(
+    @Query('colaboradorId') colaboradorId?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
     if (colaboradorId) {
       const id = Number.parseInt(colaboradorId, 10);
       if (Number.isNaN(id)) {
@@ -34,7 +38,10 @@ export class AfastamentosController {
       }
       return this.afastamentosService.findByColaborador(id);
     }
-    return this.afastamentosService.findAll();
+    return this.afastamentosService.findAll({
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
   }
 
   @Get('motivos')

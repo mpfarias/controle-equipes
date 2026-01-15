@@ -11,10 +11,11 @@ model Colaborador {
   id            Int            @id @default(autoincrement())
   nome          String
   matricula     String         @unique
-  equipe        Equipe         @default(A)
+  equipe        Equipe?
   status        PolicialStatus @default(ATIVO)
   funcaoId      Int?
   funcao        Funcao?        @relation(fields: [funcaoId], references: [id])
+  fotoUrl       String?
   afastamentos  Afastamento[]
   createdById   Int?
   createdByName String?

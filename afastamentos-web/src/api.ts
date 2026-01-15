@@ -257,8 +257,9 @@ export const api = {
     return request('/afastamentos/motivos');
   },
 
-  async listAfastamentos(): Promise<Afastamento[]> {
-    return request('/afastamentos');
+  async listAfastamentos(colaboradorId?: number): Promise<Afastamento[]> {
+    const url = colaboradorId ? `/afastamentos?colaboradorId=${colaboradorId}` : '/afastamentos';
+    return request(url);
   },
 
   async createAfastamento(payload: CreateAfastamentoInput): Promise<Afastamento> {

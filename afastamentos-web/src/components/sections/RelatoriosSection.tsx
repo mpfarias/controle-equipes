@@ -599,7 +599,19 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
         <h2>Relatórios</h2>
       </div>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <div
         style={{

@@ -76,7 +76,19 @@ export function SecurityQuestionView({
       <h2>Responder pergunta de segurança</h2>
       <p>Responda a pergunta abaixo e defina uma nova senha.</p>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {success && (
         <div className="feedback success">
           {success}

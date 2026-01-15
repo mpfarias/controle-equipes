@@ -50,7 +50,19 @@ export function LoginView({ onSuccess, onForgotPassword }: LoginViewProps) {
       <h2>Acessar o sistema</h2>
       <p>Entre com a matrícula e a senha cadastrada.</p>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <label>

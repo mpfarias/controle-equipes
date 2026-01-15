@@ -6,7 +6,7 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Afastamentos do mês' },
   { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'colaboradores', label: 'Cadastrar Policial' },
-  { key: 'equipe', label: 'Mostrar Equipe' },
+  { key: 'equipe', label: 'Mostrar Efetivo do COPOM' },
   { key: 'usuarios', label: 'Cadastrar usuários' },
   { key: 'relatorios', label: 'Relatórios' },
 ];

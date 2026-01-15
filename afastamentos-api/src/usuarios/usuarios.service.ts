@@ -100,7 +100,19 @@ export class UsuariosService {
     return created;
   }
 
-  async findAll(currentUserId?: number): Promise<UsuarioEntity[]> {
+  async findAll(
+    currentUserId?: number,
+    options?: { page?: number; pageSize?: number },
+  ): Promise<
+    | UsuarioEntity[]
+    | {
+        usuarios: UsuarioEntity[];
+        total: number;
+        page: number;
+        pageSize: number;
+        totalPages: number;
+      }
+  > {
     // Buscar o nível ADMINISTRADOR
     const nivelAdmin = await this.prisma.usuarioNivel.findUnique({
       where: { nome: 'ADMINISTRADOR' },
@@ -129,11 +141,41 @@ export class UsuariosService {
           } // Se não for admin, ocultar administradores (tanto por isAdmin quanto por nivelId)
         : { isAdmin: false }; // Fallback se não encontrar o nível
 
-    return this.prisma.usuario.findMany({
-      where: whereClause,
-      orderBy: { nome: 'asc' },
-      select: usuarioSelect,
-    });
+    const { page, pageSize } = options || {};
+
+    // Se não fornecer paginação, retornar todos (compatibilidade com código existente)
+    if (page === undefined && pageSize === undefined) {
+      return this.prisma.usuario.findMany({
+        where: whereClause,
+        orderBy: { nome: 'asc' },
+        select: usuarioSelect,
+      });
+    }
+
+    // Implementar paginação
+    const currentPage = page || 1;
+    const currentPageSize = pageSize || 10;
+    const skip = (currentPage - 1) * currentPageSize;
+    const take = currentPageSize;
+
+    const [usuarios, total] = await this.prisma.$transaction([
+      this.prisma.usuario.findMany({
+        where: whereClause,
+        orderBy: { nome: 'asc' },
+        select: usuarioSelect,
+        skip,
+        take,
+      }),
+      this.prisma.usuario.count({ where: whereClause }),
+    ]);
+
+    return {
+      usuarios,
+      total,
+      page: currentPage,
+      pageSize: currentPageSize,
+      totalPages: Math.ceil(total / currentPageSize),
+    };
   }
 
   async findNiveis() {

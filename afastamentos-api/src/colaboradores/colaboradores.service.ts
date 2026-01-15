@@ -32,6 +32,32 @@ export class ColaboradoresService {
     const actor = await this.audit.resolveActor(responsavelId);
     const matriculaNormalizada = this.sanitizeMatricula(data.matricula);
 
+    // Validar que não pode haver mais de um CMT UPM ou SUBCMT UPM
+    if (data.funcaoId) {
+      const funcao = await this.prisma.funcao.findUnique({
+        where: { id: data.funcaoId },
+      });
+
+      if (funcao) {
+        const funcaoUpper = funcao.nome.toUpperCase();
+        if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
+          // Verificar se já existe alguém com essa função (ativo)
+          const jaExiste = await this.prisma.colaborador.findFirst({
+            where: {
+              funcaoId: data.funcaoId,
+              status: { not: PolicialStatus.DESATIVADO },
+            },
+          });
+
+          if (jaExiste) {
+            throw new BadRequestException(
+              `Já existe um policial cadastrado com a função "${funcao.nome}". Não pode haver mais de um.`,
+            );
+          }
+        }
+      }
+    }
+
     // Verificar se já existe um colaborador (ativo ou desativado) com a mesma matrícula
     const colaboradorExistente = await this.prisma.colaborador.findUnique({
       where: { matricula: matriculaNormalizada },
@@ -55,8 +81,8 @@ export class ColaboradoresService {
         };
         throw new ConflictException(errorResponse);
       } else {
-        // Colaborador ativo já existe
-        throw new ConflictException('Já existe um colaborador ativo com esta matrícula.');
+        // Colaborador ativo já existe - bloquear cadastro
+        throw new ConflictException(`Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um colaborador com a mesma matrícula.`);
       }
     }
 
@@ -65,7 +91,7 @@ export class ColaboradoresService {
         nome: this.sanitizeNome(data.nome),
         matricula: matriculaNormalizada,
         status: data.status ?? PolicialStatus.ATIVO,
-        equipe: data.equipe ?? actor?.equipe ?? Equipe.A,
+        equipe: data.equipe !== undefined ? data.equipe : (actor?.equipe ?? null),
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
@@ -86,12 +112,53 @@ export class ColaboradoresService {
     return created;
   }
 
-  async findAll(): Promise<ColaboradorWithRelations[]> {
-    return this.prisma.colaborador.findMany({
-      where: { status: { not: PolicialStatus.DESATIVADO } },
-      orderBy: { nome: 'asc' },
-      include: { afastamentos: true, funcao: true },
-    });
+  async findAll(options?: { page?: number; pageSize?: number }): Promise<
+    | ColaboradorWithRelations[]
+    | {
+        colaboradores: ColaboradorWithRelations[];
+        total: number;
+        page: number;
+        pageSize: number;
+        totalPages: number;
+      }
+  > {
+    const { page, pageSize } = options || {};
+
+    // Se não fornecer paginação, retornar todos (compatibilidade com código existente)
+    if (page === undefined && pageSize === undefined) {
+      return this.prisma.colaborador.findMany({
+        where: { status: { not: PolicialStatus.DESATIVADO } },
+        orderBy: { nome: 'asc' },
+        include: { afastamentos: true, funcao: true },
+      });
+    }
+
+    // Implementar paginação
+    const currentPage = page || 1;
+    const currentPageSize = pageSize || 10;
+    const skip = (currentPage - 1) * currentPageSize;
+    const take = currentPageSize;
+
+    const where = { status: { not: PolicialStatus.DESATIVADO } };
+
+    const [colaboradores, total] = await this.prisma.$transaction([
+      this.prisma.colaborador.findMany({
+        where,
+        orderBy: { nome: 'asc' },
+        include: { afastamentos: true, funcao: true },
+        skip,
+        take,
+      }),
+      this.prisma.colaborador.count({ where }),
+    ]);
+
+    return {
+      colaboradores,
+      total,
+      page: currentPage,
+      pageSize: currentPageSize,
+      totalPages: Math.ceil(total / currentPageSize),
+    };
   }
 
   async findOne(id: number): Promise<ColaboradorWithRelations> {
@@ -112,6 +179,32 @@ export class ColaboradoresService {
     data: UpdateColaboradorDto,
     responsavelId?: number,
   ): Promise<ColaboradorWithRelations> {
+    // Validar que não pode haver mais de um CMT UPM ou SUBCMT UPM (apenas se a função estiver sendo alterada)
+    if (data.funcaoId !== undefined && data.funcaoId !== null) {
+      const funcao = await this.prisma.funcao.findUnique({
+        where: { id: data.funcaoId },
+      });
+
+      if (funcao) {
+        const funcaoUpper = funcao.nome.toUpperCase();
+        if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
+          // Verificar se já existe alguém com essa função (ativo), excluindo o próprio registro sendo atualizado
+          const jaExiste = await this.prisma.colaborador.findFirst({
+            where: {
+              funcaoId: data.funcaoId,
+              status: { not: PolicialStatus.DESATIVADO },
+              id: { not: id },
+            },
+          });
+
+          if (jaExiste) {
+            throw new BadRequestException(
+              `Já existe um policial cadastrado com a função "${funcao.nome}". Não pode haver mais de um.`,
+            );
+          }
+        }
+      }
+    }
     const before = await this.prisma.colaborador.findUnique({
       where: { id },
       include: { afastamentos: true },
@@ -142,6 +235,10 @@ export class ColaboradoresService {
 
     if (data.equipe !== undefined) {
       updateData.equipe = data.equipe;
+    }
+
+    if (data.fotoUrl !== undefined) {
+      updateData.fotoUrl = data.fotoUrl;
     }
 
     if (data.funcaoId !== undefined) {
@@ -265,7 +362,7 @@ export class ColaboradoresService {
           nome: this.sanitizeNome(colaboradorData.nome),
           matricula: matriculaNormalizada,
           status: colaboradorData.status,
-          equipe: colaboradorData.equipe ?? actor?.equipe ?? Equipe.A,
+          equipe: colaboradorData.equipe !== undefined ? colaboradorData.equipe : (actor?.equipe ?? null),
           createdById: actor?.id ?? null,
           createdByName: actor?.nome ?? null,
           updatedById: actor?.id ?? null,

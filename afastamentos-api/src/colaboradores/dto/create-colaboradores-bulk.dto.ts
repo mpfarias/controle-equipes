@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested, ValidateIf } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Equipe, PolicialStatus } from '@prisma/client';
 
@@ -18,8 +18,9 @@ export class ColaboradorBulkItemDto {
   funcaoId?: number;
 
   @IsOptional()
+  @ValidateIf((o) => o.equipe !== null)
   @IsEnum(Equipe)
-  equipe?: Equipe;
+  equipe?: Equipe | null;
 }
 
 export class CreateColaboradoresBulkDto {

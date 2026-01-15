@@ -20,20 +20,31 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  // Verificar se o usuário pode ver todos os afastamentos (ADMINISTRADOR, COMANDO, SAD)
+  const usuarioPodeVerTodos = useMemo(() => {
+    const nivelNome = currentUser.nivel?.nome;
+    return nivelNome === 'ADMINISTRADOR' || nivelNome === 'COMANDO' || nivelNome === 'SAD' || currentUser.isAdmin === true;
+  }, [currentUser]);
+
   const carregarAfastamentos = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.listAfastamentos();
-      const equipeAtual = currentUser.equipe;
       
-      // Filtrar afastamentos apenas da equipe do usuário logado
-      const filtrados = equipeAtual
-        ? data.filter((afastamento) => {
-            const colaboradorEquipe = afastamento.colaborador?.equipe;
-            // Incluir apenas se o colaborador tiver equipe e corresponder à equipe do usuário
-            return colaboradorEquipe && colaboradorEquipe === equipeAtual;
-          })
-        : data;
+      let filtrados = data;
+      
+      // Se o usuário não for ADMINISTRADOR, COMANDO ou SAD, filtrar apenas pela equipe
+      if (!usuarioPodeVerTodos) {
+        const equipeAtual = currentUser.equipe;
+        filtrados = equipeAtual
+          ? data.filter((afastamento) => {
+              const colaboradorEquipe = afastamento.colaborador?.equipe;
+              // Incluir apenas se o colaborador tiver equipe e corresponder à equipe do usuário
+              return colaboradorEquipe && colaboradorEquipe === equipeAtual;
+            })
+          : data;
+      }
+      // Se for ADMINISTRADOR, COMANDO ou SAD, mostrar todos os registros (sem filtro)
       
       setAfastamentos(filtrados);
       setError(null);
@@ -46,7 +57,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     } finally {
       setLoading(false);
     }
-    }, [currentUser.equipe]);
+    }, [currentUser.equipe, usuarioPodeVerTodos]);
 
   useEffect(() => {
     void carregarAfastamentos();
@@ -195,7 +206,19 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
         </button>
       </div>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <p className="empty-state">Carregando afastamentos...</p>

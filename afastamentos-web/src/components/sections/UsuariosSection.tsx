@@ -778,7 +778,19 @@ export function UsuariosSection({
         <p>Cadastre usuários responsáveis pelo acesso ao painel.</p>
       </div>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {success && (
         <div className="feedback success">
           {success}
@@ -1060,7 +1072,19 @@ export function UsuariosSection({
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal modal-large">
             <h3>Editar usuário</h3>
-            {editError && <div className="feedback error">{editError}</div>}
+            {editError && (
+              <div className="feedback error">
+                {editError}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setEditError(null)}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
+              </div>
+            )}
             <form onSubmit={handleEditSubmit}>
               <div className="grid three-columns">
                 <label>
@@ -1281,6 +1305,14 @@ export function UsuariosSection({
             {deleteModal.error && (
               <div className="feedback error" style={{ marginBottom: '16px' }}>
                 {deleteModal.error}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setDeleteModal((prev) => ({ ...prev, error: null }))}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
               </div>
             )}
 

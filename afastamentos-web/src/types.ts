@@ -57,10 +57,11 @@ export interface Colaborador {
   id: number;
   nome: string;
   matricula: string;
-  equipe: Equipe;
+  equipe: Equipe | null;
   status: PolicialStatus;
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null } | null;
+  fotoUrl?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -130,7 +131,7 @@ export interface ColaboradorBulkItem {
   nome: string;
   status: PolicialStatus;
   funcaoId?: number;
-  equipe?: Equipe;
+  equipe?: Equipe | null;
 }
 
 export interface CreateColaboradoresBulkInput {

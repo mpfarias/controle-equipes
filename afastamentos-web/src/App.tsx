@@ -136,7 +136,22 @@ export default function App() {
 
   // Filtrar tabs baseado no nível do usuário
   const tabsDisponiveis = useMemo(() => {
+    const nivelUsuario = currentUser?.nivel?.nome;
+    
+    // Filtrar tabs baseado no nível do usuário
     return TABS.filter((tab) => {
+      // Relatórios só disponível para COMANDO e ADMINISTRADOR
+      if (tab.key === 'relatorios') {
+        return nivelUsuario === 'COMANDO' || nivelUsuario === 'ADMINISTRADOR';
+      }
+      // Cadastrar Policial só disponível para ADMINISTRADOR e SAD
+      if (tab.key === 'colaboradores') {
+        return nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
+      }
+      // Gerenciar afastamentos NÃO disponível para COMANDO e OPERAÇÕES
+      if (tab.key === 'afastamentos') {
+        return nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
+      }
       // A aba de usuários só está disponível para SAD e ADMINISTRADOR
       if (tab.key === 'usuarios') {
         return usuarioTemAcessoUsuarios;
@@ -144,11 +159,27 @@ export default function App() {
       // Todas as outras abas estão disponíveis para todos
       return true;
     });
-  }, [usuarioTemAcessoUsuarios]);
+  }, [currentUser, usuarioTemAcessoUsuarios]);
 
-  // Se o usuário não tem acesso à aba de usuários e está tentando acessá-la, redirecionar
+  // Se o usuário não tem acesso à aba e está tentando acessá-la, redirecionar
   useEffect(() => {
-    if (currentUser && activeTab === 'usuarios' && !usuarioTemAcessoUsuarios) {
+    if (!currentUser) return;
+    
+    const nivelUsuario = currentUser.nivel?.nome;
+    const temAcessoRelatorios = nivelUsuario === 'COMANDO' || nivelUsuario === 'ADMINISTRADOR';
+    const temAcessoColaboradores = nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
+    const temAcessoAfastamentos = nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
+    
+    if (activeTab === 'usuarios' && !usuarioTemAcessoUsuarios) {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'relatorios' && !temAcessoRelatorios) {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'colaboradores' && !temAcessoColaboradores) {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'afastamentos' && !temAcessoAfastamentos) {
       setActiveTab('dashboard');
     }
   }, [currentUser, activeTab, usuarioTemAcessoUsuarios]);
@@ -177,7 +208,7 @@ export default function App() {
     return (
       <div className="app-container">
         <header>
-          <h1>Sistema de Afastamentos</h1>
+          <h1>Sistema de Gestão de Unidade - COPOM</h1>
           <p>
             {authView === 'login' && 'Informe sua matrícula e senha para acessar o painel.'}
             {authView === 'forgot-password' && 'Recupere sua senha informando sua matrícula.'}
@@ -217,7 +248,7 @@ export default function App() {
       <header>
         <div>
           <h1>
-            Sistema de Afastamentos
+          Sistema de Gestão de Pessoal - COPOM
           </h1>
           <p>Gerencie usuários, colaboradores e afastamentos da equipe.</p>
         </div>

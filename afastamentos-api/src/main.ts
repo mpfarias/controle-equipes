@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
+import { json } from 'express';
 import { AppModule } from './app.module';
 import { ensureInitialUser } from './on-startup';
 
@@ -9,6 +10,9 @@ async function bootstrap() {
   await ensureInitialUser();
 
   const app = await NestFactory.create(AppModule);
+  
+  // Aumentar o limite do body parser para permitir upload de imagens em base64 (até 10MB)
+  app.use(json({ limit: '10mb' }));
   
   // Configurar Helmet para adicionar headers de segurança
   app.use(helmet({

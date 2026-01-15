@@ -9,6 +9,7 @@ import type {
 import { STATUS_LABEL } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo } from '../../utils/dateUtils';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
+import { Autocomplete, TextField } from '@mui/material';
 
 interface AfastamentosSectionProps {
   currentUser: Usuario;
@@ -47,23 +48,6 @@ export function AfastamentosSection({
     conflitos: [],
     dataVerificada: '',
   });
-  const [validacaoDiasModal, setValidacaoDiasModal] = useState<{
-    open: boolean;
-    tipo: 'ferias' | 'abono';
-    diasUsados: number;
-    diasRestantes: number;
-    diasSolicitados: number;
-    colaboradorNome: string;
-    ultrapassa: boolean;
-  }>({
-    open: false,
-    tipo: 'ferias',
-    diasUsados: 0,
-    diasRestantes: 0,
-    diasSolicitados: 0,
-    colaboradorNome: '',
-    ultrapassa: false,
-  });
 
   const carregarDados = useCallback(async () => {
     try {
@@ -77,19 +61,24 @@ export function AfastamentosSection({
       setMotivos(motivosData);
       
       const equipeAtual = currentUser.equipe;
+      const nivelUsuario = currentUser.nivel?.nome;
       
-      // Filtrar colaboradores por equipe (se houver equipe definida)
-      const colaboradoresFiltrados = equipeAtual
+      // Filtrar colaboradores para exibição na lista: 
+      // - Nível OPERAÇÕES: apenas da equipe do usuário
+      // - Outros níveis: todos os colaboradores
+      const colaboradoresFiltrados = (nivelUsuario === 'OPERAÇÕES' && equipeAtual)
         ? colaboradoresData.filter((colaborador) => 
             colaborador.equipe && colaborador.equipe === equipeAtual
           )
         : colaboradoresData;
       
-      // Filtrar afastamentos apenas da equipe do usuário logado
-      const afastamentosFiltrados = equipeAtual
+      // Filtrar afastamentos para exibição na tabela:
+      // - Nível OPERAÇÕES: apenas da equipe do usuário
+      // - Outros níveis: todos os afastamentos
+      const afastamentosFiltrados = (nivelUsuario === 'OPERAÇÕES' && equipeAtual)
         ? afastamentosData.filter((afastamento) => {
             const colaboradorEquipe = afastamento.colaborador?.equipe;
-            // Incluir apenas se o colaborador tiver equipe e corresponder à  equipe do usuário
+            // Incluir apenas se o colaborador tiver equipe e corresponder à equipe do usuário
             return colaboradorEquipe && colaboradorEquipe === equipeAtual;
           })
         : afastamentosData;
@@ -138,6 +127,7 @@ export function AfastamentosSection({
     return totalDias;
   }, [afastamentos]);
 
+
   // Função para verificar se dois períodos se sobrepõem
   const periodosSobrepostos = useCallback((
     inicio1: string,
@@ -145,50 +135,81 @@ export function AfastamentosSection({
     inicio2: string,
     fim2: string | null | undefined,
   ): boolean => {
-    const dataInicio1 = new Date(inicio1);
-    const dataFim1 = fim1 ? new Date(fim1) : null;
-    const dataInicio2 = new Date(inicio2);
-    const dataFim2 = fim2 ? new Date(fim2) : null;
-
-    // Normalizar para comparar apenas a data (sem hora)
-    dataInicio1.setHours(0, 0, 0, 0);
-    if (dataFim1) dataFim1.setHours(0, 0, 0, 0);
-    dataInicio2.setHours(0, 0, 0, 0);
-    if (dataFim2) dataFim2.setHours(0, 0, 0, 0);
-
-    // Verificar sobreposição: períodos se sobrepõem se há pelo menos um dia em comum
-    // Período 1: [inicio1, fim1] - o policial está de férias até o dia fim1 (inclusive)
-    // Período 2: [inicio2, fim2] - o policial estaria de férias a partir do dia inicio2 (inclusive)
-    // Sobreposição se: inicio1 < fim2 && inicio2 < fim1
-    // (usar < em vez de <= porque se um termina em X e outro começa em X, não há sobreposição - são adjacentes)
-    if (dataFim1 && dataFim2) {
-      // Ambos têm data fim
-      const condicao1 = dataInicio1.getTime() < dataFim2.getTime();
-      const condicao2 = dataInicio2.getTime() < dataFim1.getTime();
-      const haSobreposicaoBasica = condicao1 && condicao2;
-
-      // Se não há sobreposição básica, verificar se são adjacentes (um termina em X, outro começa em X)
-      // Adjacentes não são considerados sobrepostos
-      if (!haSobreposicaoBasica) {
-        const saoAdjacentes1 = dataInicio2.getTime() === dataFim1.getTime(); // Período 2 começa quando período 1 termina
-        const saoAdjacentes2 = dataInicio1.getTime() === dataFim2.getTime(); // Período 1 começa quando período 2 termina
-        
-        // Se são adjacentes, não há sobreposição
-        return !(saoAdjacentes1 || saoAdjacentes2);
+    if (!fim1 || !fim2) {
+      // Se algum período não tem fim, tratar separadamente
+      if (fim1 && !fim2) {
+        // Período 1 tem fim, período 2 não tem fim
+        const dataInicio2 = new Date(inicio2);
+        const dataFim1 = new Date(fim1);
+        dataInicio2.setHours(0, 0, 0, 0);
+        dataFim1.setHours(0, 0, 0, 0);
+        return dataInicio2.getTime() <= dataFim1.getTime();
+      } else if (!fim1 && fim2) {
+        // Período 1 não tem fim, período 2 tem fim
+        const dataInicio1 = new Date(inicio1);
+        const dataFim2 = new Date(fim2);
+        dataInicio1.setHours(0, 0, 0, 0);
+        dataFim2.setHours(0, 0, 0, 0);
+        return dataInicio1.getTime() <= dataFim2.getTime();
+      } else {
+        // Ambos não têm fim - sempre há sobreposição
+        return true;
       }
-
-      // Há sobreposição básica
-      return true;
-    } else if (dataFim1 && !dataFim2) {
-      // Período 1 tem fim, período 2 não tem fim
-      return dataInicio2.getTime() <= dataFim1.getTime();
-    } else if (!dataFim1 && dataFim2) {
-      // Período 1 não tem fim, período 2 tem fim
-      return dataInicio1.getTime() <= dataFim2.getTime();
-    } else {
-      // Ambos não têm fim - sempre há sobreposição
-      return true;
     }
+
+    // Ambos têm data fim - normalizar para comparar apenas a data (sem hora)
+    const dataInicio1 = new Date(inicio1);
+    const dataFim1 = new Date(fim1);
+    const dataInicio2 = new Date(inicio2);
+    const dataFim2 = new Date(fim2);
+
+    // Normalizar para meia-noite (00:00:00) para evitar problemas de timezone
+    dataInicio1.setHours(0, 0, 0, 0);
+    dataFim1.setHours(0, 0, 0, 0);
+    dataInicio2.setHours(0, 0, 0, 0);
+    dataFim2.setHours(0, 0, 0, 0);
+
+    // Extrair apenas a parte da data (YYYY-MM-DD) para comparação mais segura
+    const getDateOnly = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const inicio1Str = getDateOnly(dataInicio1);
+    const fim1Str = getDateOnly(dataFim1);
+    const inicio2Str = getDateOnly(dataInicio2);
+    const fim2Str = getDateOnly(dataFim2);
+
+    // Primeiro, verificar se claramente não se sobrepõem (um termina antes do outro começar)
+    // Comparação de strings YYYY-MM-DD funciona perfeitamente
+    if (fim1Str < inicio2Str || fim2Str < inicio1Str) {
+      return false; // Períodos não se sobrepõem - um termina antes do outro começar
+    }
+
+    // Verificar se são adjacentes (um termina em X, outro começa em X+1)
+    // Períodos adjacentes NÃO se sobrepõem
+    // Se período 1 termina em 22/01 e período 2 começa em 23/01, são adjacentes
+    const dataFim1Obj = new Date(fim1Str);
+    dataFim1Obj.setDate(dataFim1Obj.getDate() + 1); // Adicionar 1 dia
+    const fim1MaisUmDia = getDateOnly(dataFim1Obj);
+    
+    const dataFim2Obj = new Date(fim2Str);
+    dataFim2Obj.setDate(dataFim2Obj.getDate() + 1); // Adicionar 1 dia
+    const fim2MaisUmDia = getDateOnly(dataFim2Obj);
+
+    if (inicio2Str === fim1MaisUmDia || inicio1Str === fim2MaisUmDia) {
+      return false; // Períodos adjacentes não se sobrepõem
+    }
+    
+    // Se chegou aqui, há sobreposição
+    // Verificar sobreposição: dois intervalos [a, b] e [c, d] se sobrepõem se: a <= d && c <= b
+    // Usando comparação de strings de data (YYYY-MM-DD) que é mais confiável
+    const condicao1 = inicio1Str <= fim2Str;
+    const condicao2 = inicio2Str <= fim1Str;
+    
+    return condicao1 && condicao2;
   }, []);
 
   // Função para verificar conflitos em todo o intervalo de dias (excluindo o próprio policial)
@@ -227,6 +248,8 @@ export function AfastamentosSection({
         dataInicio: form.dataInicio,
         dataFim: form.dataFim || undefined,
       });
+      setSuccess('Afastamento cadastrado com sucesso.');
+      
       // Resetar form mantendo motivoId padrão
       const feriasMotivo = motivos.find((m) => m.nome === 'Férias');
       const motivoIdPadrao = feriasMotivo?.id || 0;
@@ -237,7 +260,7 @@ export function AfastamentosSection({
         dataInicio: '',
         dataFim: '',
       });
-      setSuccess('Afastamento cadastrado com sucesso.');
+      
       await carregarDados();
     } catch (err) {
       setError(
@@ -331,22 +354,12 @@ export function AfastamentosSection({
 
     // Validar férias e abono
     if (motivoNome === 'Férias' || motivoNome === 'Abono') {
-      const colaboradorId = Number(form.colaboradorId);
-      const colaborador = colaboradores.find((c) => c.id === colaboradorId);
-      
-      if (!colaborador) {
-        setError('Colaborador não encontrado.');
-        return;
-      }
-
-      const dataInicio = new Date(form.dataInicio);
-      const ano = dataInicio.getFullYear();
-      const diasSolicitados = calcularDiasEntreDatas(form.dataInicio, form.dataFim || undefined);
-      
       if (!form.dataFim) {
         setError('Para férias e abono, é necessário informar a data de término.');
         return;
       }
+
+      const colaboradorId = Number(form.colaboradorId);
 
       // Validar sobreposição de férias (não pode ter férias sobrepostas)
       if (motivoNome === 'Férias') {
@@ -360,74 +373,13 @@ export function AfastamentosSection({
           );
 
         for (const feriasExistente of fériasExistentes) {
-          // Verificar se há sobreposição: períodos se sobrepõem se há pelo menos um dia em comum
-          // Período novo: [form.dataInicio, form.dataFim]
-          // Período existente: [feriasExistente.dataInicio, feriasExistente.dataFim]
-          // Sobreposição se: novoInicio <= existenteFim && existenteInicio <= novoFim
-          
-          // Criar datas de forma segura (usando formato ISO para evitar problemas de timezone)
-          // Extrair apenas a parte da data (YYYY-MM-DD) de strings ISO
-          const extrairDataStr = (dataStr: string): string => {
-            if (!dataStr) return '';
-            // Se já está no formato YYYY-MM-DD, retornar direto
-            if (dataStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
-              return dataStr;
-            }
-            // Se está no formato ISO, extrair a parte da data
-            return dataStr.split('T')[0];
-          };
-
-          const novoInicioStr = form.dataInicio;
-          const novoFimStr = form.dataFim || null;
-          const existenteInicioStr = extrairDataStr(feriasExistente.dataInicio);
-          const existenteFimStr = feriasExistente.dataFim 
-            ? extrairDataStr(feriasExistente.dataFim) 
-            : null;
-
-          // Comparar strings de data diretamente (formato YYYY-MM-DD)
-          // Strings no formato YYYY-MM-DD podem ser comparadas diretamente
-          let haSobreposicao = false;
-          
-          if (novoFimStr && existenteFimStr) {
-            // Ambos têm data fim
-            // Sobreposição se há pelo menos um dia em comum
-            // Períodos consecutivos (um termina no dia X, outro começa no dia X+1) NÃO se sobrepõem
-            // Strings no formato YYYY-MM-DD podem ser comparadas diretamente
-            
-            // Verificar sobreposição: períodos se sobrepõem se há pelo menos um dia em comum
-            // Período existente: [existenteInicio, existenteFim] - o policial está de férias até o dia existenteFim (inclusive)
-            // Período novo: [novoInicio, novoFim] - o policial estaria de férias a partir do dia novoInicio (inclusive)
-            // Sobreposição se: novoInicio < existenteFim && existenteInicio < novoFim
-            // (usar < em vez de <= porque se um termina em X e outro começa em X, não há sobreposição - são adjacentes)
-            
-            const condicao1 = novoInicioStr < existenteFimStr;
-            const condicao2 = existenteInicioStr < novoFimStr;
-            const haSobreposicaoBasica = condicao1 && condicao2;
-            
-            // Se não há sobreposição básica, verificar se são adjacentes (um termina em X, outro começa em X)
-            // Adjacentes não são considerados sobrepostos
-            if (!haSobreposicaoBasica) {
-              const saoAdjacentes1 = novoInicioStr === existenteFimStr; // Novo começa quando existente termina
-              const saoAdjacentes2 = existenteInicioStr === novoFimStr; // Existente começa quando novo termina
-              
-              // Se são adjacentes, não há sobreposição
-              haSobreposicao = !(saoAdjacentes1 || saoAdjacentes2);
-            } else {
-              // Há sobreposição básica
-              haSobreposicao = true;
-            }
-          } else if (novoFimStr && !existenteFimStr) {
-            // Novo tem fim, existente não tem fim (sem fim = infinito)
-            // Sobreposição se: existenteInicio <= novoFim
-            haSobreposicao = existenteInicioStr <= novoFimStr;
-          } else if (!novoFimStr && existenteFimStr) {
-            // Novo não tem fim (infinito), existente tem fim
-            // Sobreposição se: novoInicio <= existenteFim
-            haSobreposicao = novoInicioStr <= existenteFimStr;
-          } else {
-            // Ambos não têm fim - sempre há sobreposição
-            haSobreposicao = true;
-          }
+          // Usar a mesma função periodosSobrepostos que já está validada e funcionando
+          const haSobreposicao = periodosSobrepostos(
+            form.dataInicio,
+            form.dataFim || null,
+            feriasExistente.dataInicio,
+            feriasExistente.dataFim || null,
+          );
 
           if (haSobreposicao) {
             setError(
@@ -439,37 +391,29 @@ export function AfastamentosSection({
         }
       }
 
+      const dataInicio = new Date(form.dataInicio);
+      const ano = dataInicio.getFullYear();
+      const diasSolicitados = calcularDiasEntreDatas(form.dataInicio, form.dataFim || undefined);
       const diasUsados = calcularDiasUsadosNoAno(colaboradorId, form.motivoId, ano);
       const limiteDias = motivoNome === 'Férias' ? 30 : 5;
-      const diasRestantes = limiteDias - diasUsados;
       const totalAposCadastro = diasUsados + diasSolicitados;
-      const ultrapassa = totalAposCadastro > limiteDias;
 
-      // Validar se o período solicitado ultrapassa o limite
+      // Validar se o período solicitado ultrapassa o limite individual
       if (diasSolicitados > limiteDias) {
-        setValidacaoDiasModal({
-          open: true,
-          tipo: motivoNome === 'Férias' ? 'ferias' : 'abono',
-          diasUsados,
-          diasRestantes,
-          diasSolicitados,
-          colaboradorNome: colaborador.nome,
-          ultrapassa: true,
-        });
+        setError(
+          `O período de ${motivoNome} não pode ser superior a ${limiteDias} dias. Período informado: ${diasSolicitados} dias.`,
+        );
         return;
       }
 
-      // Mostrar modal informativo mesmo se não ultrapassar
-      setValidacaoDiasModal({
-        open: true,
-          tipo: motivoNome === 'Férias' ? 'ferias' : 'abono',
-        diasUsados,
-        diasRestantes,
-        diasSolicitados,
-        colaboradorNome: colaborador.nome,
-        ultrapassa: ultrapassa,
-      });
-      return;
+      // Validar se a soma ultrapassa o limite anual
+      if (totalAposCadastro > limiteDias) {
+        const diasRestantes = limiteDias - diasUsados;
+        setError(
+          `O colaborador já usufruiu ${diasUsados} dias de ${motivoNome} no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
+        );
+        return;
+      }
     }
 
     // Se não houver conflitos e validações passaram, submeter normalmente
@@ -485,61 +429,6 @@ export function AfastamentosSection({
     setConflitosModal({ open: false, conflitos: [], dataVerificada: '' });
   };
 
-  const handleConfirmarValidacaoDias = async () => {
-    if (validacaoDiasModal.ultrapassa) {
-      // Se ultrapassa, não permite cadastrar
-      setValidacaoDiasModal({
-        open: false,
-        tipo: 'ferias',
-        diasUsados: 0,
-        diasRestantes: 0,
-        diasSolicitados: 0,
-        colaboradorNome: '',
-        ultrapassa: false,
-      });
-      return;
-    }
-
-    // Se não ultrapassa, fecha o modal e continua com a submissão
-    setValidacaoDiasModal({
-      open: false,
-      tipo: 'ferias',
-      diasUsados: 0,
-      diasRestantes: 0,
-      diasSolicitados: 0,
-      colaboradorNome: '',
-      ultrapassa: false,
-    });
-
-    // Verificar conflitos novamente antes de submeter (caso algo tenha mudado)
-    const colaboradorId = Number(form.colaboradorId);
-    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || null, colaboradorId);
-    
-    if (conflitos.length > 0) {
-      // Mostrar modal de conflitos
-      setConflitosModal({
-        open: true,
-        conflitos,
-        dataVerificada: form.dataFim ? `${form.dataInicio} e ${form.dataFim}` : form.dataInicio,
-      });
-      return;
-    }
-
-    // Se não houver conflitos, submeter normalmente
-    await submeterAfastamento();
-  };
-
-  const handleCancelarValidacaoDias = () => {
-    setValidacaoDiasModal({
-      open: false,
-      tipo: 'ferias',
-      diasUsados: 0,
-      diasRestantes: 0,
-      diasSolicitados: 0,
-      colaboradorNome: '',
-      ultrapassa: false,
-    });
-  };
 
   const handleDelete = (afastamento: Afastamento) => {
     openConfirm({
@@ -673,7 +562,19 @@ export function AfastamentosSection({
         <p>Registre e acompanhe os afastamentos ativos e concluídos.</p>
       </div>
 
-      {error && <div className="feedback error">{error}</div>}
+      {error && (
+        <div className="feedback error">
+          {error}
+          <button
+            type="button"
+            className="feedback-close"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+      )}
       {success && (
         <div className="feedback success">
           {success}
@@ -690,25 +591,74 @@ export function AfastamentosSection({
 
       <form onSubmit={handleSubmit}>
         <div className="grid two-columns">
-          <label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             Policial
-            <select
-              value={form.colaboradorId}
-              onChange={(event) =>
+            <Autocomplete
+              options={colaboradoresOrdenados}
+              getOptionLabel={(option) => `${option.nome} - ${option.matricula}`}
+              value={colaboradoresOrdenados.find(c => c.id.toString() === form.colaboradorId) || null}
+              onChange={(_event, newValue) => {
                 setForm((prev) => ({
                   ...prev,
-                  colaboradorId: event.target.value,
-                }))
-              }
-              required
-            >
-              <option value="">Selecione</option>
-              {colaboradoresOrdenados.map((colaborador) => (
-                <option key={colaborador.id} value={colaborador.id}>
-                  {colaborador.nome} - {colaborador.matricula}
-                </option>
-              ))}
-            </select>
+                  colaboradorId: newValue ? newValue.id.toString() : '',
+                }));
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder="Digite o nome ou matrícula para buscar"
+                  required={!form.colaboradorId}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: '8px',
+                      fontSize: '0.95rem',
+                      padding: '0 !important',
+                      minHeight: 'auto',
+                      height: 'auto',
+                      '& fieldset': {
+                        borderColor: '#cbd5f5',
+                      },
+                      '&:hover fieldset': {
+                        borderColor: '#cbd5f5',
+                      },
+                      '&.Mui-focused fieldset': {
+                        borderColor: '#1d4ed8',
+                        boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.2)',
+                      },
+                      '& input': {
+                        padding: '10px 12px !important',
+                        height: 'auto',
+                      },
+                      '& .MuiAutocomplete-endAdornment': {
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        right: '8px',
+                      },
+                    },
+                  }}
+                />
+              )}
+              filterOptions={(options, { inputValue }) => {
+                const searchTerm = inputValue.toLowerCase();
+                return options.filter(
+                  (option) =>
+                    option.nome.toLowerCase().includes(searchTerm) ||
+                    option.matricula.toLowerCase().includes(searchTerm)
+                );
+              }}
+              noOptionsText="Nenhum policial encontrado"
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              sx={{
+                '& .MuiAutocomplete-root': {
+                  height: 'auto',
+                },
+                '& .MuiAutocomplete-inputRoot': {
+                  padding: '0 !important',
+                  height: 'auto',
+                  minHeight: 'auto',
+                },
+              }}
+            />
           </label>
           <label>
             Motivo
@@ -934,69 +884,6 @@ export function AfastamentosSection({
         </div>
       )}
 
-      {/* Modal de Validação de Dias (Férias/Abono) */}
-      {validacaoDiasModal.open && (
-        <div className="modal-backdrop">
-          <div className="modal" style={{ maxWidth: '500px' }}>
-            <h3>
-              {validacaoDiasModal.tipo === 'ferias' ? 'Validação de Férias' : 'Validação de Abono'}
-            </h3>
-            {validacaoDiasModal.ultrapassa ? (
-              <>
-                <div className="feedback error" style={{ marginBottom: '16px' }}>
-                  <strong>Período inválido!</strong>
-                  <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
-                    O período informado de <strong>{validacaoDiasModal.diasSolicitados} dias</strong> ultrapassa o limite de{' '}
-                    <strong>{validacaoDiasModal.tipo === 'ferias' ? '30 dias' : '5 dias'}</strong> por ano.
-                  </p>
-                </div>
-                <p style={{ marginBottom: '16px', color: '#475569' }}>
-                  <strong>{validacaoDiasModal.colaboradorNome}</strong> já usufruiu{' '}
-                  <strong>{validacaoDiasModal.diasUsados} dias</strong> de{' '}
-                  {validacaoDiasModal.tipo === 'ferias' ? 'férias' : 'abono'} no ano, restando apenas{' '}
-                  <strong>{validacaoDiasModal.diasRestantes} dias</strong>.
-                </p>
-              </>
-            ) : (
-              <p style={{ marginBottom: '16px', color: '#475569' }}>
-                <strong>{validacaoDiasModal.colaboradorNome}</strong> já usufruiu{' '}
-                <strong>{validacaoDiasModal.diasUsados} dias</strong> de{' '}
-                {validacaoDiasModal.tipo === 'ferias' ? 'férias' : 'abono'} no ano, restando apenas{' '}
-                <strong>{validacaoDiasModal.diasRestantes} dias</strong>.
-              </p>
-            )}
-            <p style={{ marginBottom: '16px', color: '#64748b', fontSize: '0.9rem' }}>
-              Período solicitado: <strong>{validacaoDiasModal.diasSolicitados} dias</strong>
-            </p>
-            {!validacaoDiasModal.ultrapassa && (
-              <p style={{ marginBottom: '16px', color: '#166534', fontSize: '0.9rem' }}>
-                Após este cadastro, restarão{' '}
-                <strong>{validacaoDiasModal.diasRestantes - validacaoDiasModal.diasSolicitados} dias</strong>.
-              </p>
-            )}
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="secondary"
-                onClick={handleCancelarValidacaoDias}
-                disabled={submitting}
-              >
-                {validacaoDiasModal.ultrapassa ? 'Fechar' : 'Cancelar'}
-              </button>
-              {!validacaoDiasModal.ultrapassa && (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={handleConfirmarValidacaoDias}
-                  disabled={submitting}
-                >
-                  {submitting ? 'Salvando...' : 'Confirmar e continuar'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
