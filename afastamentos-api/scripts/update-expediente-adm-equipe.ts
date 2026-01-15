@@ -22,8 +22,8 @@ async function main() {
   
   console.log(`Função encontrada: ${funcaoExpedienteAdm.nome} (ID: ${funcaoExpedienteAdm.id})\n`);
   
-  // Buscar todos os colaboradores com essa função
-  const colaboradores = await prisma.colaborador.findMany({
+  // Buscar todos os policiais com essa função
+  const policiais = await prisma.policial.findMany({
     where: {
       funcaoId: funcaoExpedienteAdm.id,
     },
@@ -32,20 +32,20 @@ async function main() {
     },
   });
   
-  if (colaboradores.length === 0) {
-    console.log('Nenhum colaborador encontrado com a função "EXPEDIENTE ADM".');
+  if (policiais.length === 0) {
+    console.log('Nenhum policial encontrado com a função "EXPEDIENTE ADM".');
     return;
   }
   
-  console.log(`Encontrados ${colaboradores.length} colaborador(es) com a função "EXPEDIENTE ADM".\n`);
+  console.log(`Encontrados ${policiais.length} policial(is) com a função "EXPEDIENTE ADM".\n`);
   
   // Contar quantos já estão com SEM_EQUIPE
-  const jaSemEquipe = colaboradores.filter(c => c.equipe === Equipe.SEM_EQUIPE).length;
+  const jaSemEquipe = policiais.filter(p => p.equipe === Equipe.SEM_EQUIPE).length;
   console.log(`- ${jaSemEquipe} já estão com equipe "SEM_EQUIPE"`);
-  console.log(`- ${colaboradores.length - jaSemEquipe} precisam ser atualizados\n`);
+  console.log(`- ${policiais.length - jaSemEquipe} precisam ser atualizados\n`);
   
-  // Atualizar todos os colaboradores para SEM_EQUIPE
-  const resultado = await prisma.colaborador.updateMany({
+  // Atualizar todos os policiais para SEM_EQUIPE
+  const resultado = await prisma.policial.updateMany({
     where: {
       funcaoId: funcaoExpedienteAdm.id,
       equipe: {
@@ -57,13 +57,13 @@ async function main() {
     },
   });
   
-  console.log(`✅ ${resultado.count} colaborador(es) atualizado(s) com sucesso!`);
+  console.log(`✅ ${resultado.count} policial(is) atualizado(s) com sucesso!`);
   console.log(`\nTodos os policiais com função "EXPEDIENTE ADM" agora estão com equipe "SEM_EQUIPE".`);
 }
 
 main()
   .catch((e) => {
-    console.error('Erro ao atualizar equipe dos colaboradores:', e);
+    console.error('Erro ao atualizar equipe dos policiais:', e);
     process.exit(1);
   })
   .finally(async () => {

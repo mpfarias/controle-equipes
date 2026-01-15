@@ -1,4 +1,4 @@
-export interface ColaboradorExtraido {
+export interface PolicialExtraido {
   matricula: string;
   nome: string;
   funcaoNome: string;
@@ -6,7 +6,7 @@ export interface ColaboradorExtraido {
 }
 
 export interface ProcessarArquivoResponseDto {
-  colaboradores: ColaboradorExtraido[];
+  policiais: PolicialExtraido[];
   funcoesCriadas: string[];
   erros?: string[];
 }

@@ -27,16 +27,16 @@ export class AfastamentosController {
 
   @Get()
   findAll(
-    @Query('colaboradorId') colaboradorId?: string,
+    @Query('policialId') policialId?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    if (colaboradorId) {
-      const id = Number.parseInt(colaboradorId, 10);
+    if (policialId) {
+      const id = Number.parseInt(policialId, 10);
       if (Number.isNaN(id)) {
-        throw new BadRequestException('O colaboradorId deve ser numérico.');
+        throw new BadRequestException('O policialId deve ser numérico.');
       }
-      return this.afastamentosService.findByColaborador(id);
+      return this.afastamentosService.findByPolicial(id);
     }
     return this.afastamentosService.findAll({
       page: page ? parseInt(page, 10) : undefined,

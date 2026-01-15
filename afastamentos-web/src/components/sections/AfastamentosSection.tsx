@@ -2,7 +2,7 @@
 import { api } from '../../api';
 import type {
   Afastamento,
-  Colaborador,
+  Policial,
   MotivoAfastamentoOption,
   Usuario,
 } from '../../types';
@@ -21,7 +21,7 @@ export function AfastamentosSection({
   openConfirm,
 }: AfastamentosSectionProps) {
   const initialForm = {
-    colaboradorId: '',
+    policialId: '',
     motivoId: 0,
     descricao: '',
     dataInicio: '',
@@ -29,7 +29,7 @@ export function AfastamentosSection({
   };
 
   const [afastamentos, setAfastamentos] = useState<Afastamento[]>([]);
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [motivos, setMotivos] = useState<MotivoAfastamentoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -52,9 +52,9 @@ export function AfastamentosSection({
   const carregarDados = useCallback(async () => {
     try {
       setLoading(true);
-      const [afastamentosData, colaboradoresData, motivosData] = await Promise.all([
+      const [afastamentosData, policiaisData, motivosData] = await Promise.all([
         api.listAfastamentos(),
-        api.listColaboradores(),
+        api.listPoliciais(),
         api.listMotivos(),
       ]);
       
@@ -63,28 +63,28 @@ export function AfastamentosSection({
       const equipeAtual = currentUser.equipe;
       const nivelUsuario = currentUser.nivel?.nome;
       
-      // Filtrar colaboradores para exibição na lista: 
+      // Filtrar policiais para exibição na lista: 
       // - Nível OPERAÇÕES: apenas da equipe do usuário
-      // - Outros níveis: todos os colaboradores
-      const colaboradoresFiltrados = (nivelUsuario === 'OPERAÇÕES' && equipeAtual)
-        ? colaboradoresData.filter((colaborador) => 
-            colaborador.equipe && colaborador.equipe === equipeAtual
+      // - Outros níveis: todos os policiais
+      const policiaisFiltrados = (nivelUsuario === 'OPERAÇÕES' && equipeAtual)
+        ? policiaisData.filter((policial) => 
+            policial.equipe && policial.equipe === equipeAtual
           )
-        : colaboradoresData;
+        : policiaisData;
       
       // Filtrar afastamentos para exibição na tabela:
       // - Nível OPERAÇÕES: apenas da equipe do usuário
       // - Outros níveis: todos os afastamentos
       const afastamentosFiltrados = (nivelUsuario === 'OPERAÇÕES' && equipeAtual)
         ? afastamentosData.filter((afastamento) => {
-            const colaboradorEquipe = afastamento.colaborador?.equipe;
-            // Incluir apenas se o colaborador tiver equipe e corresponder à equipe do usuário
-            return colaboradorEquipe && colaboradorEquipe === equipeAtual;
+            const policialEquipe = afastamento.policial?.equipe;
+            // Incluir apenas se o policial tiver equipe e corresponder à equipe do usuário
+            return policialEquipe && policialEquipe === equipeAtual;
           })
         : afastamentosData;
       
       setAfastamentos(afastamentosFiltrados);
-      setColaboradores(colaboradoresFiltrados);
+      setPoliciais(policiaisFiltrados);
       setError(null);
     } catch (err) {
       setError(
@@ -103,12 +103,12 @@ export function AfastamentosSection({
 
   // Função para calcular dias usados no ano para um motivo específico
   const calcularDiasUsadosNoAno = useCallback((
-    colaboradorId: number,
+    policialId: number,
     motivoId: number,
     ano: number,
   ): number => {
     const afastamentosDoAno = afastamentos.filter((afastamento) => {
-      if (afastamento.colaboradorId !== colaboradorId || afastamento.motivoId !== motivoId) {
+      if (afastamento.policialId !== policialId || afastamento.motivoId !== motivoId) {
         return false;
       }
       const dataInicio = new Date(afastamento.dataInicio);
@@ -213,7 +213,7 @@ export function AfastamentosSection({
   }, []);
 
   // Função para verificar conflitos em todo o intervalo de dias (excluindo o próprio policial)
-  const verificarConflitos = useCallback((dataInicio: string, dataFim?: string | null, colaboradorIdExcluir?: number): Afastamento[] => {
+  const verificarConflitos = useCallback((dataInicio: string, dataFim?: string | null, policialIdExcluir?: number): Afastamento[] => {
     if (!dataInicio) {
       return [];
     }
@@ -222,7 +222,7 @@ export function AfastamentosSection({
     // Excluindo o próprio policial que está sendo cadastrado
     const conflitos = afastamentos.filter((afastamento) => {
       // Excluir o próprio policial
-      if (colaboradorIdExcluir && afastamento.colaboradorId === colaboradorIdExcluir) {
+      if (policialIdExcluir && afastamento.policialId === policialIdExcluir) {
         return false;
       }
 
@@ -242,7 +242,7 @@ export function AfastamentosSection({
     try {
       setSubmitting(true);
       await api.createAfastamento({
-        colaboradorId: Number(form.colaboradorId),
+        policialId: Number(form.policialId),
         motivoId: form.motivoId,
         descricao: form.descricao.trim() || undefined,
         dataInicio: form.dataInicio,
@@ -254,7 +254,7 @@ export function AfastamentosSection({
       const feriasMotivo = motivos.find((m) => m.nome === 'Férias');
       const motivoIdPadrao = feriasMotivo?.id || 0;
       setForm({
-        colaboradorId: '',
+        policialId: '',
         motivoId: motivoIdPadrao,
         descricao: '',
         dataInicio: '',
@@ -278,7 +278,7 @@ export function AfastamentosSection({
       setError(null);
       setSuccess(null);
 
-    if (!form.colaboradorId) {
+    if (!form.policialId) {
       setError('Selecione um policial.');
       return;
     }
@@ -302,10 +302,10 @@ export function AfastamentosSection({
     }
 
     // PRIMEIRO: Verificar se o próprio policial já tem afastamento no período
-    const colaboradorId = Number(form.colaboradorId);
+    const policialId = Number(form.policialId);
     const afastamentosDoMesmoPolicial = afastamentos.filter(
       (afastamento) =>
-        afastamento.colaboradorId === colaboradorId &&
+        afastamento.policialId === policialId &&
         afastamento.status === 'ATIVO',
     );
 
@@ -327,7 +327,7 @@ export function AfastamentosSection({
     }
 
     // SEGUNDO: Verificar conflitos de afastamentos de OUTROS policiais no intervalo de dias
-    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || null, colaboradorId);
+    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || null, policialId);
     
     if (conflitos.length > 0) {
       // Mostrar modal de conflitos informando sobre outros policiais afastados
@@ -359,7 +359,7 @@ export function AfastamentosSection({
         return;
       }
 
-      const colaboradorId = Number(form.colaboradorId);
+      const policialId = Number(form.policialId);
 
       // Validar sobreposição de férias (não pode ter férias sobrepostas)
       if (motivoNome === 'Férias') {
@@ -367,7 +367,7 @@ export function AfastamentosSection({
         if (motivoFeriasId) {
           const fériasExistentes = afastamentos.filter(
             (afastamento) =>
-              afastamento.colaboradorId === colaboradorId &&
+              afastamento.policialId === policialId &&
               afastamento.motivoId === motivoFeriasId &&
               afastamento.status === 'ATIVO',
           );
@@ -394,7 +394,7 @@ export function AfastamentosSection({
       const dataInicio = new Date(form.dataInicio);
       const ano = dataInicio.getFullYear();
       const diasSolicitados = calcularDiasEntreDatas(form.dataInicio, form.dataFim || undefined);
-      const diasUsados = calcularDiasUsadosNoAno(colaboradorId, form.motivoId, ano);
+      const diasUsados = calcularDiasUsadosNoAno(policialId, form.motivoId, ano);
       const limiteDias = motivoNome === 'Férias' ? 30 : 5;
       const totalAposCadastro = diasUsados + diasSolicitados;
 
@@ -410,7 +410,7 @@ export function AfastamentosSection({
       if (totalAposCadastro > limiteDias) {
         const diasRestantes = limiteDias - diasUsados;
         setError(
-          `O colaborador já usufruiu ${diasUsados} dias de ${motivoNome} no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
+          `O policial já usufruiu ${diasUsados} dias de ${motivoNome} no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
         );
         return;
       }
@@ -433,7 +433,7 @@ export function AfastamentosSection({
   const handleDelete = (afastamento: Afastamento) => {
     openConfirm({
       title: 'Remover afastamento',
-      message: `Deseja remover o afastamento "${afastamento.motivo.nome}" do policial ${afastamento.colaborador.nome}?`,
+      message: `Deseja remover o afastamento "${afastamento.motivo.nome}" do policial ${afastamento.policial.nome}?`,
       confirmLabel: 'Remover',
       onConfirm: async () => {
         try {
@@ -452,12 +452,12 @@ export function AfastamentosSection({
     });
   };
 
-  const colaboradoresOrdenados = useMemo(
+  const policiaisOrdenados = useMemo(
     () =>
-      [...colaboradores].sort((a, b) =>
+      [...policiais].sort((a, b) =>
         a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }),
       ),
-    [colaboradores],
+    [policiais],
   );
  
   const normalizedSearch = searchTerm.trim().toUpperCase();
@@ -525,7 +525,7 @@ export function AfastamentosSection({
     }
 
     return filtradoPorMotivo.filter((afastamento) =>
-      afastamento.colaborador.nome.includes(normalizedSearch),
+      afastamento.policial.nome.includes(normalizedSearch),
     );
   }, [afastamentos, motivoFiltro, normalizedSearch, selectedMonth, periodoSobrepoeMes]);
 
@@ -594,20 +594,20 @@ export function AfastamentosSection({
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             Policial
             <Autocomplete
-              options={colaboradoresOrdenados}
+              options={policiaisOrdenados}
               getOptionLabel={(option) => `${option.nome} - ${option.matricula}`}
-              value={colaboradoresOrdenados.find(c => c.id.toString() === form.colaboradorId) || null}
+              value={policiaisOrdenados.find(c => c.id.toString() === form.policialId) || null}
               onChange={(_event, newValue) => {
                 setForm((prev) => ({
                   ...prev,
-                  colaboradorId: newValue ? newValue.id.toString() : '',
+                  policialId: newValue ? newValue.id.toString() : '',
                 }));
               }}
               renderInput={(params) => (
                 <TextField
                   {...params}
                   placeholder="Digite o nome ou matrícula para buscar"
-                  required={!form.colaboradorId}
+                  required={!form.policialId}
                   sx={{
                     '& .MuiOutlinedInput-root': {
                       borderRadius: '8px',
@@ -776,8 +776,8 @@ export function AfastamentosSection({
               {afastamentosFiltrados.map((afastamento) => (
                 <tr key={afastamento.id}>
                   <td>
-                    <div>{afastamento.colaborador.nome}</div>
-                    <small>{afastamento.colaborador.matricula}</small>
+                    <div>{afastamento.policial.nome}</div>
+                    <small>{afastamento.policial.matricula}</small>
                   </td>
                   <td>
                     <div>{afastamento.motivo.nome}</div>
@@ -837,8 +837,8 @@ export function AfastamentosSection({
                   {conflitosModal.conflitos.map((afastamento) => (
                     <tr key={afastamento.id}>
                       <td>
-                        <div>{afastamento.colaborador.nome}</div>
-                        <small>{afastamento.colaborador.matricula}</small>
+                        <div>{afastamento.policial.nome}</div>
+                        <small>{afastamento.policial.matricula}</small>
                       </td>
                       <td>
                         <div>{afastamento.motivo.nome}</div>

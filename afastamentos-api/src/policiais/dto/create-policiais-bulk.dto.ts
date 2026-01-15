@@ -2,7 +2,7 @@ import { IsArray, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateNested, Vali
 import { Type } from 'class-transformer';
 import { Equipe, PolicialStatus } from '@prisma/client';
 
-export class ColaboradorBulkItemDto {
+export class PolicialBulkItemDto {
   @IsString()
   @IsNotEmpty()
   matricula: string;
@@ -23,9 +23,9 @@ export class ColaboradorBulkItemDto {
   equipe?: Equipe | null;
 }
 
-export class CreateColaboradoresBulkDto {
+export class CreatePoliciaisBulkDto {
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => ColaboradorBulkItemDto)
-  colaboradores: ColaboradorBulkItemDto[];
+  @Type(() => PolicialBulkItemDto)
+  policiais: PolicialBulkItemDto[];
 }

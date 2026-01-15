@@ -35,8 +35,8 @@ async function main() {
   
   console.log(`Funções encontradas: ${funcoes.map(f => f.nome).join(', ')}\n`);
   
-  // Buscar todos os colaboradores com essas funções
-  const colaboradores = await prisma.colaborador.findMany({
+  // Buscar todos os policiais com essas funções
+  const policiais = await prisma.policial.findMany({
     where: {
       funcaoId: {
         in: funcoes.map(f => f.id),
@@ -47,20 +47,20 @@ async function main() {
     },
   });
   
-  if (colaboradores.length === 0) {
-    console.log('Nenhum colaborador encontrado com essas funções.');
+  if (policiais.length === 0) {
+    console.log('Nenhum policial encontrado com essas funções.');
     return;
   }
   
-  console.log(`Encontrados ${colaboradores.length} colaborador(es) com essas funções.\n`);
+  console.log(`Encontrados ${policiais.length} policial(is) com essas funções.\n`);
   
   // Contar quantos já estão com null
-  const jaSemEquipe = colaboradores.filter(c => c.equipe === null).length;
+  const jaSemEquipe = policiais.filter(p => p.equipe === null).length;
   console.log(`- ${jaSemEquipe} já estão com equipe null/vazia`);
-  console.log(`- ${colaboradores.length - jaSemEquipe} precisam ser atualizados\n`);
+  console.log(`- ${policiais.length - jaSemEquipe} precisam ser atualizados\n`);
   
-  // Atualizar todos os colaboradores para null
-  const resultado = await prisma.colaborador.updateMany({
+  // Atualizar todos os policiais para null
+  const resultado = await prisma.policial.updateMany({
     where: {
       funcaoId: {
         in: funcoes.map(f => f.id),
@@ -74,12 +74,12 @@ async function main() {
     },
   });
   
-  console.log(`✅ ${resultado.count} colaborador(es) atualizado(s) com sucesso!`);
+  console.log(`✅ ${resultado.count} policial(is) atualizado(s) com sucesso!`);
   console.log(`\nTodos os policiais com as funções especificadas agora estão com equipe null/vazia.`);
   
   // Também atualizar todos os que estão com SEM_EQUIPE para null
   console.log('\nAtualizando registros com SEM_EQUIPE para null...');
-  const resultadoSemEquipe = await prisma.colaborador.updateMany({
+  const resultadoSemEquipe = await prisma.policial.updateMany({
     where: {
       equipe: 'SEM_EQUIPE',
     },
@@ -88,12 +88,12 @@ async function main() {
     },
   });
   
-  console.log(`✅ ${resultadoSemEquipe.count} colaborador(es) atualizado(s) de SEM_EQUIPE para null.`);
+  console.log(`✅ ${resultadoSemEquipe.count} policial(is) atualizado(s) de SEM_EQUIPE para null.`);
 }
 
 main()
   .catch((e) => {
-    console.error('Erro ao atualizar equipe dos colaboradores:', e);
+    console.error('Erro ao atualizar equipe dos policiais:', e);
     process.exit(1);
   })
   .finally(async () => {

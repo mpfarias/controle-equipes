@@ -11,7 +11,7 @@ import {
 export class CreateAfastamentoDto {
   @IsInt()
   @Min(1)
-  colaboradorId: number;
+  policialId: number;
 
   @IsInt()
   @Min(1)

@@ -1,10 +1,9 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { IsOptional, IsString } from 'class-validator';
-import { CreateColaboradorDto } from './create-colaborador.dto';
+import { CreatePolicialDto } from './create-policial.dto';
 
-export class UpdateColaboradorDto extends PartialType(CreateColaboradorDto) {
+export class UpdatePolicialDto extends PartialType(CreatePolicialDto) {
   @IsOptional()
   @IsString()
   fotoUrl?: string | null;
 }
-

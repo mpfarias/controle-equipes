@@ -9,8 +9,8 @@ import { AuditService } from '../audit/audit.service';
 import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
 
-type AfastamentoWithColaborador = Prisma.AfastamentoGetPayload<{
-  include: { colaborador: true; motivo: true };
+type AfastamentoWithPolicial = Prisma.AfastamentoGetPayload<{
+  include: { policial: true; motivo: true };
 }>;
 
 @Injectable()
@@ -122,7 +122,7 @@ export class AfastamentosService {
    * Calcula o total de dias usados no ano para um motivo específico
    */
   private async calcularDiasUsadosNoAno(
-    colaboradorId: number,
+    policialId: number,
     motivoId: number,
     ano: number,
     excluirAfastamentoId?: number,
@@ -132,7 +132,7 @@ export class AfastamentosService {
 
     const afastamentosDoAno = await this.prisma.afastamento.findMany({
       where: {
-        colaboradorId,
+        policialId,
         motivoId,
         dataInicio: {
           gte: inicioAno,
@@ -156,15 +156,15 @@ export class AfastamentosService {
   }
 
   /**
-   * Calcula o total de dias de afastamento de um colaborador (todos os tipos)
+   * Calcula o total de dias de afastamento de um policial (todos os tipos)
    */
   private async calcularTotalDiasAfastamento(
-    colaboradorId: number,
+    policialId: number,
     excluirAfastamentoId?: number,
   ): Promise<number> {
     const afastamentos = await this.prisma.afastamento.findMany({
       where: {
-        colaboradorId,
+        policialId,
         status: AfastamentoStatus.ATIVO,
         ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
       },
@@ -188,23 +188,23 @@ export class AfastamentosService {
    * Valida se policial PTTC não ultrapassa 45 dias de afastamento
    */
   private async validarLimitePTTC(
-    colaboradorId: number,
+    policialId: number,
     dataInicio: Date,
     dataFim: Date | null,
     excluirAfastamentoId?: number,
   ): Promise<void> {
-    // Buscar o colaborador para verificar o status
-    const colaborador = await this.prisma.colaborador.findUnique({
-      where: { id: colaboradorId },
+    // Buscar o policial para verificar o status
+    const policial = await this.prisma.policial.findUnique({
+      where: { id: policialId },
       select: { status: true },
     });
 
-    if (!colaborador) {
-      throw new NotFoundException(`Colaborador ${colaboradorId} não encontrado.`);
+    if (!policial) {
+      throw new NotFoundException(`Policial ${policialId} não encontrado.`);
     }
 
-    // Só validar se o colaborador for PTTC
-    if (colaborador.status !== PolicialStatus.PTTC) {
+    // Só validar se o policial for PTTC
+    if (policial.status !== PolicialStatus.PTTC) {
       return;
     }
 
@@ -217,7 +217,7 @@ export class AfastamentosService {
 
     // Calcular total de dias já usados
     const diasUsados = await this.calcularTotalDiasAfastamento(
-      colaboradorId,
+      policialId,
       excluirAfastamentoId,
     );
 
@@ -240,7 +240,7 @@ export class AfastamentosService {
    * Valida regras específicas para férias
    */
   private async validarRegrasFerias(
-    colaboradorId: number,
+    policialId: number,
     dataInicio: Date,
     dataFim: Date | null,
     excluirAfastamentoId?: number,
@@ -286,11 +286,11 @@ export class AfastamentosService {
     const inicioAno = new Date(ano, 0, 1);
     const fimAno = new Date(ano, 11, 31, 23, 59, 59);
 
-    // Buscar todas as férias ativas do colaborador (não apenas do ano, mas que possam se sobrepor)
+    // Buscar todas as férias ativas do policial (não apenas do ano, mas que possam se sobrepor)
     // Buscar férias que começam no ano OU que terminam no ano OU que se sobrepõem ao período solicitado
     const feriasExistentes = await this.prisma.afastamento.findMany({
       where: {
-        colaboradorId,
+        policialId,
         motivoId: motivoFerias.id,
         status: AfastamentoStatus.ATIVO,
         OR: [
@@ -403,7 +403,7 @@ export class AfastamentosService {
     if (totalAposCadastro > 30) {
       const diasRestantes = 30 - totalDias;
       throw new BadRequestException(
-        `O colaborador já usufruiu ${totalDias} dias de férias no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de 30 dias.`,
+        `O policial já usufruiu ${totalDias} dias de férias no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de 30 dias.`,
       );
     }
 
@@ -411,7 +411,7 @@ export class AfastamentosService {
     const totalPeriodos = feriasExistentes.length;
     if (totalPeriodos >= 3) {
       throw new BadRequestException(
-        'O colaborador já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
+        'O policial já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
       );
     }
 
@@ -435,7 +435,7 @@ export class AfastamentosService {
       // O terceiro período deve ter exatamente a quantidade de dias restantes
       if (diasSolicitados !== diasRestantes) {
         throw new BadRequestException(
-          `O colaborador já possui 2 períodos de férias cadastrados, totalizando ${diasUsados} dias. O terceiro período deve ter exatamente ${diasRestantes} dias para completar o total de 30 dias de férias.`,
+          `O policial já possui 2 períodos de férias cadastrados, totalizando ${diasUsados} dias. O terceiro período deve ter exatamente ${diasRestantes} dias para completar o total de 30 dias de férias.`,
         );
       }
     }
@@ -491,7 +491,7 @@ export class AfastamentosService {
    * Valida limites de dias para férias e abono
    */
   private async validarLimitesDias(
-    colaboradorId: number,
+    policialId: number,
     motivoId: number,
     dataInicio: Date,
     dataFim: Date | null,
@@ -517,7 +517,7 @@ export class AfastamentosService {
     // Para férias, usar validação específica
     if (motivoNome === 'Férias') {
       await this.validarRegrasFerias(
-        colaboradorId,
+        policialId,
         dataInicio,
         dataFim,
         excluirAfastamentoId,
@@ -539,7 +539,7 @@ export class AfastamentosService {
     const diasSolicitados = this.calcularDiasEntreDatas(dataInicio, dataFim);
     const limiteDias = 5;
     const diasUsados = await this.calcularDiasUsadosNoAno(
-      colaboradorId,
+      policialId,
       motivoId,
       ano,
       excluirAfastamentoId,
@@ -557,7 +557,7 @@ export class AfastamentosService {
     if (totalAposCadastro > limiteDias) {
       const diasRestantes = limiteDias - diasUsados;
       throw new BadRequestException(
-        `O colaborador já usufruiu ${diasUsados} dias de abono no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
+        `O policial já usufruiu ${diasUsados} dias de abono no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
       );
     }
   }
@@ -565,25 +565,25 @@ export class AfastamentosService {
   async create(
     data: Omit<CreateAfastamentoDto, 'responsavelId'>,
     responsavelId?: number,
-  ): Promise<AfastamentoWithColaborador> {
+  ): Promise<AfastamentoWithPolicial> {
     const actor = await this.audit.resolveActor(responsavelId);
 
-    // Verificar se o colaborador existe
-    await this.ensureColaboradorExists(data.colaboradorId);
+    // Verificar se o policial existe
+    await this.ensurePolicialExists(data.policialId);
 
     const dataInicio = new Date(data.dataInicio);
     const dataFim = data.dataFim ? new Date(data.dataFim) : null;
 
     // Validar limite de 45 dias para policiais PTTC
     await this.validarLimitePTTC(
-      data.colaboradorId,
+      data.policialId,
       dataInicio,
       dataFim,
     );
 
     // Validar limites de dias para férias e abono
     await this.validarLimitesDias(
-      data.colaboradorId,
+      data.policialId,
       data.motivoId,
       dataInicio,
       dataFim,
@@ -591,7 +591,7 @@ export class AfastamentosService {
 
     const created = await this.prisma.afastamento.create({
       data: {
-        colaborador: { connect: { id: data.colaboradorId } },
+        policial: { connect: { id: data.policialId } },
         motivo: { connect: { id: data.motivoId } },
         descricao: data.descricao ? data.descricao.trim() : null,
         dataInicio,
@@ -602,7 +602,7 @@ export class AfastamentosService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { colaborador: true, motivo: true },
+      include: { policial: true, motivo: true },
     });
 
     await this.audit.record({
@@ -617,9 +617,9 @@ export class AfastamentosService {
   }
 
   async findAll(options?: { page?: number; pageSize?: number }): Promise<
-    | AfastamentoWithColaborador[]
+    | AfastamentoWithPolicial[]
     | {
-        afastamentos: AfastamentoWithColaborador[];
+        afastamentos: AfastamentoWithPolicial[];
         total: number;
         page: number;
         pageSize: number;
@@ -634,7 +634,7 @@ export class AfastamentosService {
     if (page === undefined && pageSize === undefined) {
       return this.prisma.afastamento.findMany({
         where: { status: AfastamentoStatus.ATIVO },
-        include: { colaborador: true, motivo: true },
+        include: { policial: true, motivo: true },
         orderBy: { dataInicio: 'desc' },
       });
     }
@@ -650,7 +650,7 @@ export class AfastamentosService {
     const [afastamentos, total] = await this.prisma.$transaction([
       this.prisma.afastamento.findMany({
         where,
-        include: { colaborador: true, motivo: true },
+        include: { policial: true, motivo: true },
         orderBy: { dataInicio: 'desc' },
         skip,
         take,
@@ -667,12 +667,12 @@ export class AfastamentosService {
     };
   }
 
-  async findOne(id: number): Promise<AfastamentoWithColaborador> {
+  async findOne(id: number): Promise<AfastamentoWithPolicial> {
     await this.markExpiredAfastamentos();
 
     const afastamento = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { colaborador: true, motivo: true },
+      include: { policial: true, motivo: true },
     });
 
     if (!afastamento) {
@@ -682,16 +682,16 @@ export class AfastamentosService {
     return afastamento;
   }
 
-  async findByColaborador(
-    colaboradorId: number,
-  ): Promise<AfastamentoWithColaborador[]> {
-    await this.ensureColaboradorExists(colaboradorId);
+  async findByPolicial(
+    policialId: number,
+  ): Promise<AfastamentoWithPolicial[]> {
+    await this.ensurePolicialExists(policialId);
 
     await this.markExpiredAfastamentos();
 
     return this.prisma.afastamento.findMany({
-      where: { colaboradorId, status: AfastamentoStatus.ATIVO },
-      include: { colaborador: true, motivo: true },
+      where: { policialId, status: AfastamentoStatus.ATIVO },
+      include: { policial: true, motivo: true },
       orderBy: { dataInicio: 'desc' },
     });
   }
@@ -700,10 +700,10 @@ export class AfastamentosService {
     id: number,
     data: UpdateAfastamentoDto,
     responsavelId?: number,
-  ): Promise<AfastamentoWithColaborador> {
+  ): Promise<AfastamentoWithPolicial> {
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { colaborador: true, motivo: true },
+      include: { policial: true, motivo: true },
     });
 
     if (!before) {
@@ -720,13 +720,13 @@ export class AfastamentosService {
     const dataFimFinal = data.dataFim !== undefined
       ? (data.dataFim ? new Date(data.dataFim) : null)
       : before.dataFim;
-    const colaboradorIdFinal = data.colaboradorId !== undefined 
-      ? data.colaboradorId 
-      : before.colaboradorId;
+    const policialIdFinal = data.policialId !== undefined 
+      ? data.policialId 
+      : before.policialId;
 
     // Validar limite de 45 dias para policiais PTTC (excluindo o próprio afastamento)
     await this.validarLimitePTTC(
-      colaboradorIdFinal,
+      policialIdFinal,
       dataInicioFinal,
       dataFimFinal,
       id, // Excluir este afastamento do cálculo
@@ -734,7 +734,7 @@ export class AfastamentosService {
 
     // Validar limites de dias para férias e abono (excluindo o próprio afastamento)
     await this.validarLimitesDias(
-      colaboradorIdFinal,
+      policialIdFinal,
       motivoIdFinal,
       dataInicioFinal,
       dataFimFinal,
@@ -762,14 +762,14 @@ export class AfastamentosService {
       updateData.dataFim = data.dataFim ? new Date(data.dataFim) : null;
     }
 
-    if (data.colaboradorId !== undefined) {
-      updateData.colaborador = { connect: { id: data.colaboradorId } };
+    if (data.policialId !== undefined) {
+      updateData.policial = { connect: { id: data.policialId } };
     }
 
     const updated = await this.prisma.afastamento.update({
       where: { id },
       data: updateData,
-      include: { colaborador: true, motivo: true },
+      include: { policial: true, motivo: true },
     });
 
     await this.markExpiredAfastamentos();
@@ -789,7 +789,7 @@ export class AfastamentosService {
   async remove(id: number, responsavelId?: number): Promise<void> {
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { colaborador: true, motivo: true },
+      include: { policial: true, motivo: true },
     });
 
     if (!before) {
@@ -841,14 +841,14 @@ export class AfastamentosService {
     }
   }
 
-  private async ensureColaboradorExists(id: number): Promise<void> {
-    const exists = await this.prisma.colaborador.findUnique({
+  private async ensurePolicialExists(id: number): Promise<void> {
+    const exists = await this.prisma.policial.findUnique({
       where: { id },
       select: { id: true },
     });
 
     if (!exists) {
-      throw new NotFoundException(`Colaborador ${id} não encontrado.`);
+      throw new NotFoundException(`Policial ${id} não encontrado.`);
     }
   }
 

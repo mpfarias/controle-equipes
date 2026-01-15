@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Colaborador {
+model Policial {
   id            Int            @id @default(autoincrement())
   nome          String
   matricula     String         @unique
@@ -36,8 +36,8 @@ model MotivoAfastamento {
 
 model Afastamento {
   id            Int               @id @default(autoincrement())
-  colaboradorId Int
-  colaborador   Colaborador       @relation(fields: [colaboradorId], references: [id], onDelete: Cascade)
+  policialId    Int
+  policial      Policial          @relation(fields: [policialId], references: [id], onDelete: Cascade)
   motivoId      Int
   motivo        MotivoAfastamento @relation(fields: [motivoId], references: [id])
   descricao     String?
@@ -62,13 +62,13 @@ model UsuarioNivel {
 }
 
 model Funcao {
-  id            Int           @id @default(autoincrement())
-  nome          String        @unique
-  descricao     String?
-  usuarios      Usuario[]
-  colaboradores Colaborador[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  id        Int        @id @default(autoincrement())
+  nome      String     @unique
+  descricao String?
+  usuarios  Usuario[]
+  policiais Policial[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model Usuario {
@@ -139,10 +139,10 @@ model AuditLog {
 }
 
 model RelatorioLog {
-  id        Int      @id @default(autoincrement())
-  userId    Int?
-  userName  String?
-  matricula String?
+  id            Int      @id @default(autoincrement())
+  userId        Int?
+  userName      String?
+  matricula     String?
   tipoRelatorio String
-  createdAt DateTime @default(now())
+  createdAt     DateTime @default(now())
 }

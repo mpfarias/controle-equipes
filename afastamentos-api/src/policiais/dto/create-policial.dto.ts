@@ -11,7 +11,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-export class CreateColaboradorDto {
+export class CreatePolicialDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)
@@ -37,4 +37,3 @@ export class CreateColaboradorDto {
   @IsInt()
   funcaoId?: number;
 }
-

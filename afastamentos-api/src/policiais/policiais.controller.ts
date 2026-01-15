@@ -13,24 +13,25 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { ColaboradoresService } from './colaboradores.service';
+import { PoliciaisService } from './policiais.service';
 import { ArquivoProcessorService } from './arquivo-processor.service';
-import { CreateColaboradorDto } from './dto/create-colaborador.dto';
-import { UpdateColaboradorDto } from './dto/update-colaborador.dto';
-import { CreateColaboradoresBulkDto } from './dto/create-colaboradores-bulk.dto';
+import { CreatePolicialDto } from './dto/create-policial.dto';
+import { UpdatePolicialDto } from './dto/update-policial.dto';
+import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
+import { DeletePolicialDto } from './dto/delete-policial.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { Usuario } from '@prisma/client';
 
-@Controller('colaboradores')
-export class ColaboradoresController {
+@Controller('policiais')
+export class PoliciaisController {
   constructor(
-    private readonly colaboradoresService: ColaboradoresService,
+    private readonly policiaisService: PoliciaisService,
     private readonly arquivoProcessorService: ArquivoProcessorService,
   ) {}
 
   @Post()
-  create(@Body() createColaboradorDto: CreateColaboradorDto, @CurrentUser() user: Usuario) {
-    return this.colaboradoresService.create(createColaboradorDto, user.id);
+  create(@Body() createPolicialDto: CreatePolicialDto, @CurrentUser() user: Usuario) {
+    return this.policiaisService.create(createPolicialDto, user.id);
   }
 
   @Get()
@@ -38,7 +39,7 @@ export class ColaboradoresController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.colaboradoresService.findAll({
+    return this.policiaisService.findAll({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
     });
@@ -46,26 +47,26 @@ export class ColaboradoresController {
 
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.colaboradoresService.findOne(id);
+    return this.policiaisService.findOne(id);
   }
 
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() updateColaboradorDto: UpdateColaboradorDto,
+    @Body() updatePolicialDto: UpdatePolicialDto,
     @CurrentUser() user: Usuario,
   ) {
-    return this.colaboradoresService.update(id, updateColaboradorDto, user.id);
+    return this.policiaisService.update(id, updatePolicialDto, user.id);
   }
 
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
-    return this.colaboradoresService.remove(id, user.id);
+    return this.policiaisService.remove(id, user.id);
   }
 
   @Patch(':id/activate')
   activate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
-    return this.colaboradoresService.activate(id, user.id);
+    return this.policiaisService.activate(id, user.id);
   }
 
   @Post('upload')
@@ -78,8 +79,20 @@ export class ColaboradoresController {
   }
 
   @Post('bulk')
-  async createBulk(@Body() createBulkDto: CreateColaboradoresBulkDto, @CurrentUser() user: Usuario) {
-    return this.colaboradoresService.createBulk(createBulkDto, user.id);
+  async createBulk(@Body() createBulkDto: CreatePoliciaisBulkDto, @CurrentUser() user: Usuario) {
+    return this.policiaisService.createBulk(createBulkDto, user.id);
+  }
+
+  @Post(':id/delete-permanent')
+  delete(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() deletePolicialDto: DeletePolicialDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    const { responsavelId, ...rest } = deletePolicialDto;
+    return this.policiaisService.delete(id, {
+      ...rest,
+      responsavelId: user.id,
+    }, user);
   }
 }
-

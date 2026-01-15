@@ -11,7 +11,7 @@ import {
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
 import { DashboardSection } from './components/sections/DashboardSection';
 import { MostrarEquipeSection } from './components/sections/MostrarEquipeSection';
-import { ColaboradoresSection } from './components/sections/ColaboradoresSection';
+import { PoliciaisSection } from './components/sections/PoliciaisSection';
 import { AfastamentosSection } from './components/sections/AfastamentosSection';
 import { UsuariosSection } from './components/sections/UsuariosSection';
 import { RelatoriosSection } from './components/sections/RelatoriosSection';
@@ -32,7 +32,7 @@ export default function App() {
     title: '',
     message: '',
   });
-  const [colaboradoresVersion, setColaboradoresVersion] = useState(0);
+  const [policiaisVersion, setPoliciaisVersion] = useState(0);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -95,8 +95,8 @@ export default function App() {
     });
   }, []);
  
-  const notifyColaboradoresChanged = useCallback(() => {
-    setColaboradoresVersion((value) => value + 1);
+  const notifyPoliciaisChanged = useCallback(() => {
+    setPoliciaisVersion((value) => value + 1);
   }, []);
 
   const closeConfirm = useCallback(() => {
@@ -145,7 +145,7 @@ export default function App() {
         return nivelUsuario === 'COMANDO' || nivelUsuario === 'ADMINISTRADOR';
       }
       // Cadastrar Policial só disponível para ADMINISTRADOR e SAD
-      if (tab.key === 'colaboradores') {
+      if (tab.key === 'policiais') {
         return nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
       }
       // Gerenciar afastamentos NÃO disponível para COMANDO e OPERAÇÕES
@@ -167,7 +167,7 @@ export default function App() {
     
     const nivelUsuario = currentUser.nivel?.nome;
     const temAcessoRelatorios = nivelUsuario === 'COMANDO' || nivelUsuario === 'ADMINISTRADOR';
-    const temAcessoColaboradores = nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
+    const temAcessoPoliciais = nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
     const temAcessoAfastamentos = nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
     
     if (activeTab === 'usuarios' && !usuarioTemAcessoUsuarios) {
@@ -176,7 +176,7 @@ export default function App() {
     if (activeTab === 'relatorios' && !temAcessoRelatorios) {
       setActiveTab('dashboard');
     }
-    if (activeTab === 'colaboradores' && !temAcessoColaboradores) {
+    if (activeTab === 'policiais' && !temAcessoPoliciais) {
       setActiveTab('dashboard');
     }
     if (activeTab === 'afastamentos' && !temAcessoAfastamentos) {
@@ -250,7 +250,7 @@ export default function App() {
           <h1>
           Sistema de Gestão de Pessoal - COPOM
           </h1>
-          <p>Gerencie usuários, colaboradores e afastamentos da equipe.</p>
+          <p>Gerencie usuários, policiais e afastamentos da equipe.</p>
         </div>
         <div className="header-actions">
           <span>
@@ -289,18 +289,18 @@ export default function App() {
           openConfirm={openConfirm}
         />
       )}
-      {activeTab === 'colaboradores' && (
-         <ColaboradoresSection
+      {activeTab === 'policiais' && (
+         <PoliciaisSection
            currentUser={currentUser}
-           onChanged={notifyColaboradoresChanged}
+           onChanged={notifyPoliciaisChanged}
          />
        )}
        {activeTab === 'equipe' && (
          <MostrarEquipeSection
            currentUser={currentUser}
            openConfirm={openConfirm}
-           onChanged={notifyColaboradoresChanged}
-           refreshKey={colaboradoresVersion}
+           onChanged={notifyPoliciaisChanged}
+           refreshKey={policiaisVersion}
          />
        )}
       {activeTab === 'usuarios' && (

@@ -53,7 +53,7 @@ export interface LoginInput {
   senha: string;
 }
 
-export interface Colaborador {
+export interface Policial {
   id: number;
   nome: string;
   matricula: string;
@@ -66,7 +66,7 @@ export interface Colaborador {
   updatedAt: string;
 }
 
-export interface CreateColaboradorInput {
+export interface CreatePolicialInput {
   nome: string;
   matricula: string;
   status: PolicialStatus;
@@ -76,8 +76,8 @@ export interface CreateColaboradorInput {
 
 export interface Afastamento {
   id: number;
-  colaboradorId: number;
-  colaborador: Colaborador;
+  policialId: number;
+  policial: Policial;
   motivoId: number;
   motivo: { id: number; nome: string; descricao?: string | null };
   descricao?: string | null;
@@ -89,7 +89,7 @@ export interface Afastamento {
 }
 
 export interface CreateAfastamentoInput {
-  colaboradorId: number;
+  policialId: number;
   motivoId: number;
   descricao?: string;
   dataInicio: string;
@@ -114,7 +114,7 @@ export interface FuncaoOption {
   descricao?: string | null;
 }
 
-export interface ColaboradorExtraido {
+export interface PolicialExtraido {
   matricula: string;
   nome: string;
   funcaoNome: string;
@@ -122,11 +122,11 @@ export interface ColaboradorExtraido {
 }
 
 export interface ProcessFileResponse {
-  colaboradores: ColaboradorExtraido[];
+  policiais: PolicialExtraido[];
   funcoesCriadas: string[];
 }
 
-export interface ColaboradorBulkItem {
+export interface PolicialBulkItem {
   matricula: string;
   nome: string;
   status: PolicialStatus;
@@ -134,8 +134,8 @@ export interface ColaboradorBulkItem {
   equipe?: Equipe | null;
 }
 
-export interface CreateColaboradoresBulkInput {
-  colaboradores: ColaboradorBulkItem[];
+export interface CreatePoliciaisBulkInput {
+  policiais: PolicialBulkItem[];
 }
 
 export interface BulkCreateResponse {

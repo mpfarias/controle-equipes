@@ -51,12 +51,12 @@ async function main() {
       select: { id: true, nome: true, matricula: true },
     });
 
-    const colaboradoresComFuncao = await prisma.colaborador.findMany({
+    const policiaisComFuncao = await prisma.policial.findMany({
       where: { funcaoId: funcao.id },
       select: { id: true, nome: true, matricula: true },
     });
 
-    if (usuariosComFuncao.length > 0 || colaboradoresComFuncao.length > 0) {
+    if (usuariosComFuncao.length > 0 || policiaisComFuncao.length > 0) {
       console.log(`\n⚠️  ATENÇÃO: A função "${funcao.nome}" está sendo usada:`);
       
       if (usuariosComFuncao.length > 0) {
@@ -66,10 +66,10 @@ async function main() {
         });
       }
       
-      if (colaboradoresComFuncao.length > 0) {
-        console.log(`   - ${colaboradoresComFuncao.length} colaborador(es):`);
-        colaboradoresComFuncao.forEach((c) => {
-          console.log(`     * ${c.nome} (${c.matricula})`);
+      if (policiaisComFuncao.length > 0) {
+        console.log(`   - ${policiaisComFuncao.length} policial(is):`);
+        policiaisComFuncao.forEach((p) => {
+          console.log(`     * ${p.nome} (${p.matricula})`);
         });
       }
       
@@ -81,8 +81,8 @@ async function main() {
         data: { funcaoId: null },
       });
       
-      // Remover referências de colaboradores
-      await prisma.colaborador.updateMany({
+      // Remover referências de policiais
+      await prisma.policial.updateMany({
         where: { funcaoId: funcao.id },
         data: { funcaoId: null },
       });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import type { Afastamento, MotivoAfastamentoOption, Usuario } from '../../types';
-import { STATUS_LABEL } from '../../constants';
+import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS } from '../../constants';
 import { formatPeriodo } from '../../utils/dateUtils';
 
 interface DashboardSectionProps {
@@ -38,9 +38,9 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
         const equipeAtual = currentUser.equipe;
         filtrados = equipeAtual
           ? data.filter((afastamento) => {
-              const colaboradorEquipe = afastamento.colaborador?.equipe;
-              // Incluir apenas se o colaborador tiver equipe e corresponder à equipe do usuário
-              return colaboradorEquipe && colaboradorEquipe === equipeAtual;
+              const policialEquipe = afastamento.policial?.equipe;
+              // Incluir apenas se o policial tiver equipe e corresponder à equipe do usuário
+              return policialEquipe && policialEquipe === equipeAtual;
             })
           : data;
       }
@@ -137,7 +137,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     }
 
     return filtradoPorMotivo.filter((afastamento) =>
-      afastamento.colaborador.nome.includes(normalizedSearch),
+      afastamento.policial.nome.includes(normalizedSearch),
     );
   }, [afastamentos, searchTerm, motivoFiltro, selectedMonth, periodoSobrepoeMes]);
 
@@ -229,17 +229,27 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
           <thead>
             <tr>
               <th>Policial</th>
+              <th>Status do Policial</th>
               <th>Motivo</th>
               <th>Período</th>
-              <th>Status</th>
+              <th>Status do Afastamento</th>
             </tr>
           </thead>
           <tbody>
             {afastamentosFiltrados.map((afastamento) => (
               <tr key={afastamento.id}>
                 <td>
-                  <div>{afastamento.colaborador.nome}</div>
-                  <small>{afastamento.colaborador.matricula}</small>
+                  <div>{afastamento.policial.nome}</div>
+                  <small>{afastamento.policial.matricula}</small>
+                </td>
+                <td>
+                  <span className="badge badge-muted">
+                    {
+                      POLICIAL_STATUS_OPTIONS.find(
+                        (option) => option.value === afastamento.policial.status,
+                      )?.label ?? afastamento.policial.status
+                    }
+                  </span>
                 </td>
                 <td>
                   <div>{afastamento.motivo.nome}</div>

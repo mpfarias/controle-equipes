@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma.service';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const pdfParseLib = require('pdf-parse');
 import * as XLSX from 'xlsx';
-import type { ColaboradorExtraido, ProcessarArquivoResponseDto } from './dto/processar-arquivo-response.dto';
+import type { PolicialExtraido, ProcessarArquivoResponseDto } from './dto/processar-arquivo-response.dto';
 
 // Extrair a classe/função correta do pdf-parse
 const PDFParseClass = pdfParseLib.PDFParse || pdfParseLib.default || pdfParseLib;
@@ -42,10 +42,10 @@ export class ArquivoProcessorService {
       const texto = data.text;
       
       // Extrair dados do PDF (matrícula, nome, função)
-      const colaboradores = this.extrairDadosDoPDF(texto);
+      const policiais = this.extrairDadosDoPDF(texto);
       
       // Mapear e criar funções
-      return await this.mapearFuncoes(colaboradores);
+      return await this.mapearFuncoes(policiais);
     } catch (error) {
       throw new BadRequestException(`Erro ao processar PDF: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     }
@@ -58,17 +58,17 @@ export class ArquivoProcessorService {
       const dados = XLSX.utils.sheet_to_json(primeiraSheet, { header: 1, defval: '' }) as string[][];
       
       // Extrair dados do Excel
-      const colaboradores = this.extrairDadosDoExcel(dados);
+      const policiais = this.extrairDadosDoExcel(dados);
       
       // Mapear e criar funções
-      return await this.mapearFuncoes(colaboradores);
+      return await this.mapearFuncoes(policiais);
     } catch (error) {
       throw new BadRequestException(`Erro ao processar Excel: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     }
   }
 
   private extrairDadosDoPDF(texto: string): Array<{ matricula: string; nome: string; funcaoNome: string }> {
-    const colaboradores: Array<{ matricula: string; nome: string; funcaoNome: string }> = [];
+    const policiais: Array<{ matricula: string; nome: string; funcaoNome: string }> = [];
     const matriculaSet = new Set<string>();
     
     // Dividir o texto em linhas
@@ -144,7 +144,7 @@ export class ArquivoProcessorService {
       funcaoNome = this.normalizarFuncaoNome(funcaoNome);
       
       if (nome && funcaoNome && matricula) {
-        colaboradores.push({
+        policiais.push({
           matricula: matricula.toUpperCase(),
           nome: nome.toUpperCase(),
           funcaoNome: funcaoNome.toUpperCase(),
@@ -152,11 +152,11 @@ export class ArquivoProcessorService {
       }
     }
     
-    return colaboradores;
+    return policiais;
   }
 
   private extrairDadosDoExcel(dados: string[][]): Array<{ matricula: string; nome: string; funcaoNome: string }> {
-    const colaboradores: Array<{ matricula: string; nome: string; funcaoNome: string }> = [];
+    const policiais: Array<{ matricula: string; nome: string; funcaoNome: string }> = [];
     const matriculaSet = new Set<string>();
     
     if (dados.length < 2) {
@@ -222,30 +222,30 @@ export class ArquivoProcessorService {
       matriculaSet.add(matricula);
       
       if (nome && funcaoNome && matricula) {
-        colaboradores.push({ matricula, nome, funcaoNome });
+        policiais.push({ matricula, nome, funcaoNome });
       }
     }
     
-    return colaboradores;
+    return policiais;
   }
 
   private async mapearFuncoes(
-    colaboradores: Array<{ matricula: string; nome: string; funcaoNome: string }>,
+    policiais: Array<{ matricula: string; nome: string; funcaoNome: string }>,
   ): Promise<ProcessarArquivoResponseDto> {
     const funcoesCriadas: string[] = [];
-    const colaboradoresComFuncaoId: ColaboradorExtraido[] = [];
+    const policiaisComFuncaoId: PolicialExtraido[] = [];
     
     // Buscar todas as matrículas já cadastradas no banco
-    const colaboradoresExistentes = await this.prisma.colaborador.findMany({
+    const policiaisExistentes = await this.prisma.policial.findMany({
       select: { matricula: true },
     });
     const matriculasExistentes = new Set(
-      colaboradoresExistentes.map(c => c.matricula.toUpperCase())
+      policiaisExistentes.map(p => p.matricula.toUpperCase())
     );
     
-    // Filtrar colaboradores que já existem no banco
-    const colaboradoresNovos = colaboradores.filter(
-      colab => !matriculasExistentes.has(colab.matricula.toUpperCase())
+    // Filtrar policiais que já existem no banco
+    const policiaisNovos = policiais.filter(
+      policial => !matriculasExistentes.has(policial.matricula.toUpperCase())
     );
     
     // Buscar todas as funções existentes
@@ -258,9 +258,9 @@ export class ArquivoProcessorService {
       mapaFuncoes.set(f.nome.toUpperCase(), f.id);
     });
     
-    // Processar cada colaborador
-    for (const colaborador of colaboradoresNovos) {
-      const funcaoNomeUpper = colaborador.funcaoNome.toUpperCase();
+    // Processar cada policial
+    for (const policial of policiaisNovos) {
+      const funcaoNomeUpper = policial.funcaoNome.toUpperCase();
       
       // Tentar encontrar função existente (busca exata)
       let funcaoId = mapaFuncoes.get(funcaoNomeUpper);
@@ -270,7 +270,7 @@ export class ArquivoProcessorService {
         try {
           const novaFuncao = await this.prisma.funcao.create({
             data: {
-              nome: colaborador.funcaoNome,
+              nome: policial.funcaoNome,
               descricao: null,
             },
           });
@@ -278,13 +278,13 @@ export class ArquivoProcessorService {
           funcaoId = novaFuncao.id;
           mapaFuncoes.set(funcaoNomeUpper, funcaoId);
           
-          if (!funcoesCriadas.includes(colaborador.funcaoNome)) {
-            funcoesCriadas.push(colaborador.funcaoNome);
+          if (!funcoesCriadas.includes(policial.funcaoNome)) {
+            funcoesCriadas.push(policial.funcaoNome);
           }
         } catch (error) {
           // Se der erro (pode ser duplicado por concorrência), tentar buscar novamente
           const funcaoExistente = await this.prisma.funcao.findUnique({
-            where: { nome: colaborador.funcaoNome },
+            where: { nome: policial.funcaoNome },
             select: { id: true },
           });
           
@@ -295,16 +295,16 @@ export class ArquivoProcessorService {
         }
       }
       
-      colaboradoresComFuncaoId.push({
-        matricula: colaborador.matricula,
-        nome: colaborador.nome,
-        funcaoNome: colaborador.funcaoNome,
+      policiaisComFuncaoId.push({
+        matricula: policial.matricula,
+        nome: policial.nome,
+        funcaoNome: policial.funcaoNome,
         funcaoId,
       });
     }
     
     return {
-      colaboradores: colaboradoresComFuncaoId,
+      policiais: policiaisComFuncaoId,
       funcoesCriadas,
     };
   }

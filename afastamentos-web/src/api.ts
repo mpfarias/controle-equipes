@@ -1,9 +1,9 @@
 import type {
   Afastamento,
-  Colaborador,
+  Policial,
   CreateAfastamentoInput,
-  CreateColaboradorInput,
-  CreateColaboradoresBulkInput,
+  CreatePolicialInput,
+  CreatePoliciaisBulkInput,
   CreateUsuarioInput,
   LoginInput,
   MotivoAfastamentoOption,
@@ -220,36 +220,43 @@ export const api = {
     });
   },
 
-  async listColaboradores(): Promise<Colaborador[]> {
-    return request('/colaboradores');
+  async listPoliciais(): Promise<Policial[]> {
+    return request('/policiais');
   },
 
-  async createColaborador(payload: CreateColaboradorInput): Promise<Colaborador> {
-    return request('/colaboradores', {
+  async createPolicial(payload: CreatePolicialInput): Promise<Policial> {
+    return request('/policiais', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   },
 
-  async updateColaborador(
+  async updatePolicial(
     id: number,
-    payload: Partial<CreateColaboradorInput>,
-  ): Promise<Colaborador> {
-    return request(`/colaboradores/${id}`, {
+    payload: Partial<CreatePolicialInput>,
+  ): Promise<Policial> {
+    return request(`/policiais/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
   },
 
-  async removeColaborador(id: number): Promise<void> {
-    await request(`/colaboradores/${id}`, {
+  async removePolicial(id: number): Promise<void> {
+    await request(`/policiais/${id}`, {
       method: 'DELETE',
     });
   },
 
-  async activateColaborador(id: number): Promise<Colaborador> {
-    return request(`/colaboradores/${id}/activate`, {
+  async activatePolicial(id: number): Promise<Policial> {
+    return request(`/policiais/${id}/activate`, {
       method: 'PATCH',
+    });
+  },
+
+  async deletePolicial(id: number, senha: string): Promise<void> {
+    await request(`/policiais/${id}/delete-permanent`, {
+      method: 'POST',
+      body: JSON.stringify({ senha }),
     });
   },
 
@@ -257,8 +264,8 @@ export const api = {
     return request('/afastamentos/motivos');
   },
 
-  async listAfastamentos(colaboradorId?: number): Promise<Afastamento[]> {
-    const url = colaboradorId ? `/afastamentos?colaboradorId=${colaboradorId}` : '/afastamentos';
+  async listAfastamentos(policialId?: number): Promise<Afastamento[]> {
+    const url = policialId ? `/afastamentos?policialId=${policialId}` : '/afastamentos';
     return request(url);
   },
 
@@ -289,14 +296,14 @@ export const api = {
     const formData = new FormData();
     formData.append('file', file);
     
-    return request('/colaboradores/upload', {
+    return request('/policiais/upload', {
       method: 'POST',
       body: formData,
     });
   },
 
-  async createColaboradoresBulk(payload: CreateColaboradoresBulkInput): Promise<BulkCreateResponse> {
-    return request('/colaboradores/bulk', {
+  async createPoliciaisBulk(payload: CreatePoliciaisBulkInput): Promise<BulkCreateResponse> {
+    return request('/policiais/bulk', {
       method: 'POST',
       body: JSON.stringify(payload),
     });

@@ -3,7 +3,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { HealthModule } from './health/health.module';
-import { ColaboradoresModule } from './colaboradores/colaboradores.module';
+import { PoliciaisModule } from './policiais/policiais.module';
 import { AfastamentosModule } from './afastamentos/afastamentos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { AuthModule } from './auth/auth.module';
@@ -21,7 +21,7 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
       },
     ]),
     HealthModule,
-    ColaboradoresModule,
+    PoliciaisModule,
     AfastamentosModule,
     UsuariosModule,
     AuthModule,

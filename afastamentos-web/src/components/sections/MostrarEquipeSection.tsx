@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import type { Afastamento, Colaborador, Equipe, FuncaoOption, PolicialStatus, Usuario } from '../../types';
+import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario } from '../../types';
 import { EQUIPE_FONETICA, EQUIPE_OPTIONS, POLICIAL_STATUS_OPTIONS, STATUS_LABEL } from '../../constants';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
 import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate } from '@mui/icons-material';
+import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block } from '@mui/icons-material';
 import { formatPeriodo } from '../../utils/dateUtils';
 
 interface MostrarEquipeSectionProps {
@@ -21,24 +21,37 @@ export function MostrarEquipeSection({
   onChanged,
   refreshKey,
 }: MostrarEquipeSectionProps) {
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [editingColaborador, setEditingColaborador] = useState<Colaborador | null>(
+  const [editingPolicial, setEditingPolicial] = useState<Policial | null>(
     null,
   );
-  const [viewingColaborador, setViewingColaborador] = useState<Colaborador | null>(
+  const [viewingPolicial, setViewingPolicial] = useState<Policial | null>(
     null,
   );
   const [viewingAfastamentos, setViewingAfastamentos] = useState<Afastamento[]>([]);
   const [loadingAfastamentos, setLoadingAfastamentos] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    policial: Policial | null;
+    senha: string;
+    error: string | null;
+    loading: boolean;
+  }>({
+    open: false,
+    policial: null,
+    senha: '',
+    error: null,
+    loading: false,
+  });
   const [editForm, setEditForm] = useState({
     nome: '',
     matricula: '',
     status: 'ATIVO' as PolicialStatus,
-    equipe: 'A' as Equipe,
+    equipe: undefined as Equipe | undefined,
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
   });
@@ -59,11 +72,11 @@ export function MostrarEquipeSection({
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
  
-  const carregarColaboradores = useCallback(async () => {
+  const carregarPoliciais = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.listColaboradores();
-      setColaboradores(data);
+      const data = await api.listPoliciais();
+      setPoliciais(data);
       setError(null);
     } catch (err) {
       setError(
@@ -91,31 +104,31 @@ export function MostrarEquipeSection({
   }, [funcoes]);
  
   useEffect(() => {
-    void carregarColaboradores();
+    void carregarPoliciais();
     void carregarFuncoes();
-  }, [carregarColaboradores, carregarFuncoes, refreshKey]);
+  }, [carregarPoliciais, carregarFuncoes, refreshKey]);
 
-  const openEditModal = (colaborador: Colaborador) => {
-    setEditingColaborador(colaborador);
+  const openEditModal = (policial: Policial) => {
+    setEditingPolicial(policial);
     // O Prisma retorna funcaoId diretamente quando usa include
     // Precisamos tratar null explicitamente, pois null ?? undefined retorna undefined
-    const funcaoId = colaborador.funcaoId !== null && colaborador.funcaoId !== undefined
-      ? colaborador.funcaoId
-      : colaborador.funcao?.id ?? undefined;
+    const funcaoId = policial.funcaoId !== null && policial.funcaoId !== undefined
+      ? policial.funcaoId
+      : policial.funcao?.id ?? undefined;
     setEditForm({
-      nome: colaborador.nome,
-      matricula: colaborador.matricula,
-      status: colaborador.status,
-      equipe: colaborador.equipe ?? 'A' as Equipe,
+      nome: policial.nome,
+      matricula: policial.matricula,
+      status: policial.status,
+      equipe: policial.equipe ?? undefined,
       funcaoId: funcaoId,
-      fotoUrl: colaborador.fotoUrl ?? null,
+      fotoUrl: policial.fotoUrl ?? null,
     });
     setEditError(null);
     setShowImageCropper(false);
   };
 
   const closeEditModal = () => {
-    setEditingColaborador(null);
+    setEditingPolicial(null);
     setEditError(null);
     setShowImageCropper(false);
     setImageForCrop('');
@@ -160,7 +173,7 @@ export function MostrarEquipeSection({
 
   const handleEditSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!editingColaborador || editSubmitting) {
+    if (!editingPolicial || editSubmitting) {
       return;
     }
 
@@ -172,27 +185,39 @@ export function MostrarEquipeSection({
       return;
     }
 
+    // Validar se MOTORISTA DE DIA não tem equipe E
+    let equipeFinal = editForm.equipe;
+    if (editForm.funcaoId) {
+      const funcaoSelecionada = funcoes.find(f => f.id === editForm.funcaoId);
+      if (funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA')) {
+        if (equipeFinal === 'E') {
+          setEditError('A função MOTORISTA DE DIA não pode ter equipe E (Echo). Selecione uma equipe de A até D.');
+          return;
+        }
+      }
+    }
+
     const payload = {
       nome,
       matricula,
       status: editForm.status,
-      equipe: editForm.equipe,
+      equipe: equipeFinal,
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl,
     };
 
     openConfirm({
       title: 'Confirmar edição',
-      message: `Deseja salvar as alterações para ${editingColaborador.nome}?`,
+      message: `Deseja salvar as alterações para ${editingPolicial.nome}?`,
       confirmLabel: 'Salvar',
       onConfirm: async () => {
         try {
           setEditSubmitting(true);
           setEditError(null);
-          await api.updateColaborador(editingColaborador.id, payload);
+          await api.updatePolicial(editingPolicial.id, payload);
           setSuccess('Policial atualizado com sucesso.');
           closeEditModal();
-          await carregarColaboradores();
+          await carregarPoliciais();
           onChanged?.();
         } catch (err) {
           setEditError(
@@ -207,16 +232,16 @@ export function MostrarEquipeSection({
     });
   };
 
-  const handleDelete = (colaborador: Colaborador) => {
+  const handleDelete = (policial: Policial) => {
     openConfirm({
       title: 'Desativar policial',
-      message: `Deseja desativar ${colaborador.nome} (matrícula ${colaborador.matricula})?`,
+      message: `Deseja desativar ${policial.nome} (matrícula ${policial.matricula})?`,
       confirmLabel: 'Desativar',
       onConfirm: async () => {
         try {
-          await api.removeColaborador(colaborador.id);
+          await api.removePolicial(policial.id);
           setSuccess('Policial desativado.');
-          await carregarColaboradores();
+          await carregarPoliciais();
           onChanged?.();
         } catch (err) {
           setError(
@@ -229,6 +254,92 @@ export function MostrarEquipeSection({
     });
   };
 
+  const handleActivate = (policial: Policial) => {
+    openConfirm({
+      title: 'Reativar policial',
+      message: `Deseja reativar ${policial.nome} (matrícula ${policial.matricula})?`,
+      confirmLabel: 'Reativar',
+      onConfirm: async () => {
+        try {
+          await api.activatePolicial(policial.id);
+          setSuccess('Policial reativado com sucesso.');
+          await carregarPoliciais();
+          onChanged?.();
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Não foi possível reativar o policial.',
+          );
+        }
+      },
+    });
+  };
+
+  const handleOpenDeleteModal = (policial: Policial) => {
+    setDeleteModal({
+      open: true,
+      policial,
+      senha: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  const handleCloseDeleteModal = () => {
+    setDeleteModal({
+      open: false,
+      policial: null,
+      senha: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteModal.policial) {
+      return;
+    }
+
+    if (!deleteModal.senha.trim()) {
+      setDeleteModal((prev) => ({
+        ...prev,
+        error: 'Por favor, informe sua senha para confirmar a exclusão.',
+      }));
+      return;
+    }
+
+    try {
+      setDeleteModal((prev) => ({ ...prev, loading: true, error: null }));
+      await api.deletePolicial(deleteModal.policial.id, deleteModal.senha);
+      
+      if (editingPolicial?.id === deleteModal.policial.id) {
+        closeEditModal();
+      }
+      
+      setSuccess('Policial excluído permanentemente.');
+      handleCloseDeleteModal();
+      await carregarPoliciais();
+      onChanged?.();
+    } catch (err) {
+      let errorMessage = 'Não foi possível excluir o policial.';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+        // Ajustar mensagens específicas
+        if (errorMessage.includes('Senha de administrador')) {
+          errorMessage = 'Senha de administrador inválida.';
+        } else if (errorMessage.includes('Nenhum administrador encontrado')) {
+          errorMessage = 'Nenhum administrador encontrado no sistema.';
+        }
+      }
+      setDeleteModal((prev) => ({
+        ...prev,
+        error: errorMessage,
+        loading: false,
+      }));
+    }
+  };
+
   const normalizedSearch = searchTerm.trim().toUpperCase();
   const equipeAtual = currentUser.equipe;
 
@@ -236,6 +347,12 @@ export function MostrarEquipeSection({
   const usuarioPodeVerTodosEAcoes = useMemo(() => {
     const nivelNome = currentUser.nivel?.nome;
     return nivelNome === 'ADMINISTRADOR' || nivelNome === 'SAD' || currentUser.isAdmin === true;
+  }, [currentUser]);
+
+  // Verificar se o usuário é ADMINISTRADOR (pode excluir permanentemente)
+  const usuarioPodeExcluirPermanentemente = useMemo(() => {
+    const nivelNome = currentUser.nivel?.nome;
+    return nivelNome === 'ADMINISTRADOR' || currentUser.isAdmin === true;
   }, [currentUser]);
 
   // Verificar se o usuário é COMANDO (pode ver todos, mas apenas visualizar)
@@ -249,40 +366,36 @@ export function MostrarEquipeSection({
     return usuarioPodeVerTodosEAcoes || usuarioPodeVerTodosSomenteLeitura;
   }, [usuarioPodeVerTodosEAcoes, usuarioPodeVerTodosSomenteLeitura]);
 
-  const colaboradoresDaEquipe = useMemo(
+  const policiaisDaEquipe = useMemo(
     () => {
-      // Se for ADMINISTRADOR, SAD ou COMANDO, retornar todos os colaboradores
+      // Se for ADMINISTRADOR, SAD ou COMANDO, retornar todos os policiais (incluindo desativados)
       if (usuarioPodeVerTodos) {
-        return colaboradores.filter(
-          (colaborador) => colaborador.status !== 'DESATIVADO',
-        );
+        return policiais;
       }
-      // Caso contrário (OPERAÇÕES), filtrar apenas pela equipe do usuário
-      return colaboradores.filter(
-        (colaborador) =>
-          colaborador.equipe === equipeAtual &&
-          colaborador.status !== 'DESATIVADO',
+      // Caso contrário (OPERAÇÕES), filtrar apenas pela equipe do usuário (incluindo desativados)
+      return policiais.filter(
+        (policial) => policial.equipe === equipeAtual,
       );
     },
-    [colaboradores, equipeAtual, usuarioPodeVerTodos],
+    [policiais, equipeAtual, usuarioPodeVerTodos],
   );
 
-  const filteredColaboradores = useMemo(() => {
-    let resultado = colaboradoresDaEquipe;
+  const filteredPoliciales = useMemo(() => {
+    let resultado = policiaisDaEquipe;
 
     // Aplicar filtro de busca por nome, matrícula ou função
     if (normalizedSearch) {
-      resultado = resultado.filter((colaborador) => {
+      resultado = resultado.filter((policial) => {
         // Buscar por nome
-        if (colaborador.nome.includes(normalizedSearch)) {
+        if (policial.nome.includes(normalizedSearch)) {
           return true;
         }
         // Buscar por matrícula
-        if (colaborador.matricula.toUpperCase().includes(normalizedSearch)) {
+        if (policial.matricula.toUpperCase().includes(normalizedSearch)) {
           return true;
         }
         // Buscar por função
-        if (colaborador.funcao?.nome && colaborador.funcao.nome.toUpperCase().includes(normalizedSearch)) {
+        if (policial.funcao?.nome && policial.funcao.nome.toUpperCase().includes(normalizedSearch)) {
           return true;
         }
         return false;
@@ -291,17 +404,17 @@ export function MostrarEquipeSection({
 
     // Aplicar filtro por equipe
     if (filtroEquipe) {
-      resultado = resultado.filter((colaborador) => colaborador.equipe === filtroEquipe);
+      resultado = resultado.filter((policial) => policial.equipe === filtroEquipe);
     }
 
     // Aplicar filtro por status/condição
     if (filtroStatus) {
-      resultado = resultado.filter((colaborador) => colaborador.status === filtroStatus);
+      resultado = resultado.filter((policial) => policial.status === filtroStatus);
     }
 
     // Aplicar filtro por função
     if (filtroFuncao) {
-      resultado = resultado.filter((colaborador) => colaborador.funcaoId === filtroFuncao);
+      resultado = resultado.filter((policial) => policial.funcaoId === filtroFuncao);
     }
 
     // Aplicar ordenação
@@ -333,19 +446,19 @@ export function MostrarEquipeSection({
     }
 
     return resultado;
-  }, [colaboradoresDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao]);
+  }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao]);
 
   // Calcular itens paginados
-  const colaboradoresPaginados = useMemo(() => {
+  const policiaisPaginados = useMemo(() => {
     const inicio = (paginaAtual - 1) * itensPorPagina;
     const fim = inicio + itensPorPagina;
-    return filteredColaboradores.slice(inicio, fim);
-  }, [filteredColaboradores, paginaAtual, itensPorPagina]);
+    return filteredPoliciales.slice(inicio, fim);
+  }, [filteredPoliciales, paginaAtual, itensPorPagina]);
 
   // Calcular total de páginas
   const totalPaginas = useMemo(() => {
-    return Math.ceil(filteredColaboradores.length / itensPorPagina);
-  }, [filteredColaboradores.length, itensPorPagina]);
+    return Math.ceil(filteredPoliciales.length / itensPorPagina);
+  }, [filteredPoliciales.length, itensPorPagina]);
 
   // Resetar para página 1 quando filtros ou busca mudarem
   useEffect(() => {
@@ -413,7 +526,7 @@ export function MostrarEquipeSection({
         >
           {filtrosAberto ? 'Ocultar filtros' : 'Mostrar filtros'}
         </button>
-        <button className="ghost" type="button" onClick={() => void carregarColaboradores()}>
+        <button className="ghost" type="button" onClick={() => void carregarPoliciais()}>
           Atualizar lista
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
@@ -433,6 +546,42 @@ export function MostrarEquipeSection({
             <option value={100}>100</option>
           </select>
         </label>
+      </div>
+
+      {/* Contador de Registros */}
+      <div style={{ 
+        marginBottom: '16px', 
+        padding: '12px 16px', 
+        backgroundColor: '#f0f9ff', 
+        borderRadius: '8px', 
+        border: '1px solid #bae6fd',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '16px',
+        flexWrap: 'wrap'
+      }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+            Total do efetivo:
+          </Typography>
+          <Chip 
+            label={policiaisDaEquipe.length} 
+            size="small" 
+            sx={{ fontWeight: 600, backgroundColor: '#3b82f6', color: 'white' }}
+          />
+        </Box>
+        {(searchTerm || filtroEquipe || filtroStatus || filtroFuncao) && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
+              Com filtros aplicados:
+            </Typography>
+            <Chip 
+              label={filteredPoliciales.length} 
+              size="small" 
+              sx={{ fontWeight: 600, backgroundColor: '#10b981', color: 'white' }}
+            />
+          </Box>
+        )}
       </div>
 
       {filtrosAberto && (
@@ -503,7 +652,7 @@ export function MostrarEquipeSection({
 
       {loading ? (
         <p className="empty-state">Carregando policiais...</p>
-      ) : filteredColaboradores.length === 0 ? (
+      ) : filteredPoliciales.length === 0 ? (
         <p className="empty-state">Nenhum policial cadastrado.</p>
       ) : (
         <>
@@ -585,18 +734,18 @@ export function MostrarEquipeSection({
               </tr>
             </thead>
             <tbody>
-              {colaboradoresPaginados.map((colaborador) => (
-              <tr key={colaborador.id}>
+              {policiaisPaginados.map((policial) => (
+              <tr key={policial.id}>
                 <td>
                   <a
                     href="#"
                     onClick={async (e) => {
                       e.preventDefault();
-                      setViewingColaborador(colaborador);
-                      // Carregar afastamentos do colaborador
+                      setViewingPolicial(policial);
+                      // Carregar afastamentos do policial
                       try {
                         setLoadingAfastamentos(true);
-                        const afastamentosData = await api.listAfastamentos(colaborador.id);
+                        const afastamentosData = await api.listAfastamentos(policial.id);
                         setViewingAfastamentos(afastamentosData);
                       } catch (err) {
                         console.error('Erro ao carregar afastamentos:', err);
@@ -619,30 +768,36 @@ export function MostrarEquipeSection({
                     }}
                     title="Clique para ver detalhes"
                   >
-                    {colaborador.nome}
+                    {policial.nome}
                   </a>
                 </td>
-                <td>{colaborador.matricula}</td>
+                <td>{policial.matricula}</td>
                 <td>
-                  <span className="badge badge-muted">
+                  <span 
+                    className={policial.status === 'DESATIVADO' ? 'badge' : 'badge badge-muted'}
+                    style={policial.status === 'DESATIVADO' ? { 
+                      backgroundColor: '#ef4444', 
+                      color: 'white' 
+                    } : {}}
+                  >
                     {
                       POLICIAL_STATUS_OPTIONS.find(
-                        (option) => option.value === colaborador.status,
-                      )?.label ?? colaborador.status
+                        (option) => option.value === policial.status,
+                      )?.label ?? policial.status
                     }
                   </span>
                 </td>
                 <td>
-                  {colaborador.funcao?.nome ? (
-                    colaborador.funcao.nome
+                  {policial.funcao?.nome ? (
+                    policial.funcao.nome
                   ) : (
                     <span style={{ color: '#64748b', fontStyle: 'italic' }}>-</span>
                   )}
                 </td>
                 <td>
-                  {colaborador.equipe && colaborador.equipe !== 'SEM_EQUIPE' ? (
+                  {policial.equipe && policial.equipe !== 'SEM_EQUIPE' ? (
                     <>
-                      {EQUIPE_FONETICA[colaborador.equipe]} ({colaborador.equipe})
+                      {EQUIPE_FONETICA[policial.equipe]} ({policial.equipe})
                     </>
                   ) : (
                     <span style={{ color: '#64748b', fontStyle: 'italic' }}>-</span>
@@ -651,56 +806,63 @@ export function MostrarEquipeSection({
                 <td className="actions">
                   {usuarioPodeVerTodosEAcoes ? (
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <button
-                        type="button"
-                        onClick={() => openEditModal(colaborador)}
+                      <IconButton
+                        onClick={() => openEditModal(policial)}
                         title="Editar"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontSize: '18px',
-                          padding: '4px 8px',
+                        size="small"
+                        sx={{
                           color: '#3b82f6',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#eff6ff';
-                          e.currentTarget.style.borderRadius = '4px';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'transparent';
+                          '&:hover': {
+                            backgroundColor: '#eff6ff',
+                          },
                         }}
                       >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(colaborador)}
-                        title="Desativar"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          cursor: 'pointer',
-                          fontSize: '18px',
-                          padding: '4px 8px',
-                          color: '#ef4444',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#fef2f2';
-                          e.currentTarget.style.borderRadius = '4px';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = 'transparent';
-                        }}
-                      >
-                        🗑️
-                      </button>
+                        <Edit fontSize="small" />
+                      </IconButton>
+                      {policial.status === 'DESATIVADO' ? (
+                        <IconButton
+                          onClick={() => handleActivate(policial)}
+                          title="Reativar"
+                          size="small"
+                          sx={{
+                            color: '#10b981',
+                            '&:hover': {
+                              backgroundColor: '#d1fae5',
+                            },
+                          }}
+                        >
+                          <CheckCircle fontSize="small" />
+                        </IconButton>
+                      ) : (
+                        <IconButton
+                          onClick={() => handleDelete(policial)}
+                          title="Desativar"
+                          size="small"
+                          sx={{
+                            color: '#ef4444',
+                            '&:hover': {
+                              backgroundColor: '#fef2f2',
+                            },
+                          }}
+                        >
+                          <Block fontSize="small" />
+                        </IconButton>
+                      )}
+                      {usuarioPodeExcluirPermanentemente && (
+                        <IconButton
+                          onClick={() => handleOpenDeleteModal(policial)}
+                          title="Excluir permanentemente"
+                          size="small"
+                          sx={{
+                            color: '#dc2626',
+                            '&:hover': {
+                              backgroundColor: '#fee2e2',
+                            },
+                          }}
+                        >
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      )}
                     </div>
                   ) : (
                     <span style={{ color: '#64748b', fontStyle: 'italic' }}>
@@ -726,7 +888,7 @@ export function MostrarEquipeSection({
             border: '1px solid #e9ecef'
           }}>
             <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
-              Mostrando {((paginaAtual - 1) * itensPorPagina) + 1} a {Math.min(paginaAtual * itensPorPagina, filteredColaboradores.length)} de {filteredColaboradores.length} registro(s)
+              Mostrando {((paginaAtual - 1) * itensPorPagina) + 1} a {Math.min(paginaAtual * itensPorPagina, filteredPoliciales.length)} de {filteredPoliciales.length} registro(s)
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -774,7 +936,7 @@ export function MostrarEquipeSection({
         </>
       )}
 
-      {editingColaborador && (
+      {editingPolicial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal" style={{ maxWidth: showImageCropper ? '800px' : '500px' }}>
             <h3>Editar policial</h3>
@@ -958,52 +1120,38 @@ export function MostrarEquipeSection({
                     ))}
                   </select>
                 </label>
-                {(() => {
-                  // Funções que não devem mostrar equipe: EXPEDIENTE ADM, CMT UPM, SUBCMT UPM, MOTORISTA DE DIA
-                  const funcaoNome = editingColaborador.funcao?.nome?.toUpperCase() || '';
-                  const naoMostraEquipe = 
-                    funcaoNome.includes('EXPEDIENTE') || 
-                    funcaoNome.includes('CMT UPM') || 
-                    funcaoNome.includes('SUBCMT UPM') ||
-                    funcaoNome.includes('MOTORISTA DE DIA');
-                  
-                  if (naoMostraEquipe) {
-                    return null;
-                  }
-                  
-                  return (
-                    <label>
-                      Equipe
-                      <select
-                        value={editForm.equipe}
-                        onChange={(event) =>
-                          setEditForm((prev) => ({
-                            ...prev,
-                            equipe: event.target.value as Equipe,
-                          }))
-                        }
-                        required
-                      >
-                        {EQUIPE_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {EQUIPE_FONETICA[option.value]} ({option.value})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  );
-                })()}
               </div>
               <label>
                 Função
                 <select
                   value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      funcaoId: event.target.value ? Number(event.target.value) : undefined,
-                    }))
-                  }
+                  onChange={(event) => {
+                    const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
+                    const funcaoSelecionada = novoFuncaoId ? funcoes.find(f => f.id === novoFuncaoId) : null;
+                    
+                    // Se a função selecionada não permite equipe, limpar o campo de equipe
+                    // Se for MOTORISTA DE DIA e a equipe for E, limpar também
+                    if (funcaoSelecionada) {
+                      const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
+                      const naoMostraEquipe = 
+                        funcaoUpper.includes('EXPEDIENTE ADM') || 
+                        funcaoUpper.includes('CMT UPM') || 
+                        funcaoUpper.includes('SUBCMT UPM');
+                      
+                      const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
+                      
+                      setEditForm((prev) => ({
+                        ...prev,
+                        funcaoId: novoFuncaoId,
+                        equipe: naoMostraEquipe ? undefined : (isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe),
+                      }));
+                    } else {
+                      setEditForm((prev) => ({
+                        ...prev,
+                        funcaoId: novoFuncaoId,
+                      }));
+                    }
+                  }}
                 >
                   <option value="">Selecione uma função</option>
                   {funcoesOrdenadas.map((funcao) => (
@@ -1013,6 +1161,57 @@ export function MostrarEquipeSection({
                   ))}
                 </select>
               </label>
+              
+              {/* Campo Equipe - Mostrar apenas se a função selecionada permitir */}
+              {(() => {
+                const funcaoSelecionada = editForm.funcaoId ? funcoes.find(f => f.id === editForm.funcaoId) : null;
+                const mostrarEquipe = funcaoSelecionada ? (() => {
+                  const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
+                  return !(
+                    funcaoUpper.includes('EXPEDIENTE ADM') || 
+                    funcaoUpper.includes('CMT UPM') || 
+                    funcaoUpper.includes('SUBCMT UPM')
+                  );
+                })() : false;
+                
+                const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') || false;
+                
+                // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E (Echo)
+                const equipesDisponiveis = (() => {
+                  let equipes = currentUser.nivel?.nome === 'OPERAÇÕES'
+                    ? EQUIPE_OPTIONS.filter((option) => option.value === currentUser.equipe)
+                    : EQUIPE_OPTIONS;
+                  
+                  if (isMotoristaDia) {
+                    equipes = equipes.filter((option) => option.value !== 'E');
+                  }
+                  
+                  return equipes;
+                })();
+                
+                return mostrarEquipe ? (
+                  <label>
+                    Equipe
+                    <select
+                      value={editForm.equipe || ''}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          equipe: event.target.value ? (event.target.value as Equipe) : undefined,
+                        }))
+                      }
+                      required
+                    >
+                      <option value="">Selecione uma equipe</option>
+                      {equipesDisponiveis.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {EQUIPE_FONETICA[option.value]} ({option.value})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null;
+              })()}
               
               <div className="modal-actions">
                 <button
@@ -1035,9 +1234,9 @@ export function MostrarEquipeSection({
       )}
 
       {/* Modal de Visualização (Somente Leitura) */}
-      {viewingColaborador && (
+      {viewingPolicial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => {
-          setViewingColaborador(null);
+          setViewingPolicial(null);
           setViewingAfastamentos([]);
         }}>
           <Box
@@ -1070,7 +1269,7 @@ export function MostrarEquipeSection({
                 <Box sx={{ flex: { xs: '1 1 100%', md: '0 0 40%' }, minWidth: 0 }}>
                   <Paper elevation={2} sx={{ p: 3, height: '100%' }}>
                     {/* Foto do policial */}
-                    {viewingColaborador.fotoUrl && (
+                    {viewingPolicial.fotoUrl && (
                       <Box sx={{ display: 'flex', justifyContent: 'center', marginBottom: 3 }}>
                         <Card 
                           sx={{ 
@@ -1083,7 +1282,7 @@ export function MostrarEquipeSection({
                         >
                           <CardMedia
                             component="img"
-                            image={viewingColaborador.fotoUrl}
+                            image={viewingPolicial.fotoUrl}
                             alt="Foto do policial"
                             sx={{
                               width: '100%',
@@ -1104,7 +1303,7 @@ export function MostrarEquipeSection({
                           Nome
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5, fontWeight: 500 }}>
-                          {viewingColaborador.nome}
+                          {viewingPolicial.nome}
                         </Typography>
                       </Box>
 
@@ -1115,7 +1314,7 @@ export function MostrarEquipeSection({
                           Matrícula
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5 }}>
-                          {viewingColaborador.matricula}
+                          {viewingPolicial.matricula}
                         </Typography>
                       </Box>
 
@@ -1129,8 +1328,8 @@ export function MostrarEquipeSection({
                           <Chip
                             label={
                               POLICIAL_STATUS_OPTIONS.find(
-                                (option) => option.value === viewingColaborador.status,
-                              )?.label ?? viewingColaborador.status
+                                (option) => option.value === viewingPolicial.status,
+                              )?.label ?? viewingPolicial.status
                             }
                             size="small"
                             color="default"
@@ -1139,7 +1338,7 @@ export function MostrarEquipeSection({
                         </Box>
                       </Box>
 
-                      {viewingColaborador.funcao && (
+                      {viewingPolicial.funcao && (
                         <>
                           <Divider />
                           <Box>
@@ -1147,13 +1346,13 @@ export function MostrarEquipeSection({
                               Função
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
-                              {viewingColaborador.funcao.nome}
+                              {viewingPolicial.funcao.nome}
                             </Typography>
                           </Box>
                         </>
                       )}
 
-                      {viewingColaborador.equipe && (
+                      {viewingPolicial.equipe && (
                         <>
                           <Divider />
                           <Box>
@@ -1161,7 +1360,7 @@ export function MostrarEquipeSection({
                               Equipe
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
-                              {EQUIPE_FONETICA[viewingColaborador.equipe]} ({viewingColaborador.equipe})
+                              {EQUIPE_FONETICA[viewingPolicial.equipe]} ({viewingPolicial.equipe})
                             </Typography>
                           </Box>
                         </>
@@ -1239,7 +1438,7 @@ export function MostrarEquipeSection({
                 type="button"
                 className="primary"
                 onClick={() => {
-                  setViewingColaborador(null);
+                  setViewingPolicial(null);
                   setViewingAfastamentos([]);
                 }}
               >
@@ -1250,9 +1449,9 @@ export function MostrarEquipeSection({
                   type="button"
                   className="secondary"
                   onClick={() => {
-                    setViewingColaborador(null);
+                    setViewingPolicial(null);
                     setViewingAfastamentos([]);
-                    openEditModal(viewingColaborador);
+                    openEditModal(viewingPolicial);
                   }}
                 >
                   Editar
@@ -1260,6 +1459,79 @@ export function MostrarEquipeSection({
               )}
             </Box>
           </Box>
+        </div>
+      )}
+
+      {/* Modal de Exclusão Permanente */}
+      {deleteModal.open && deleteModal.policial && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={handleCloseDeleteModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Excluir Permanentemente</h3>
+            <p style={{ marginBottom: '24px', color: '#ef4444', fontWeight: 500 }}>
+              ⚠️ Esta ação não pode ser desfeita!
+            </p>
+            <p style={{ marginBottom: '24px' }}>
+              Tem certeza que deseja excluir permanentemente <strong>{deleteModal.policial.nome}</strong> (matrícula {deleteModal.policial.matricula}) do banco de dados?
+            </p>
+            
+            {deleteModal.error && (
+              <div className="feedback error" style={{ marginBottom: '16px' }}>
+                {deleteModal.error}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setDeleteModal((prev) => ({ ...prev, error: null }))}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleConfirmDelete();
+              }}
+            >
+              <label>
+                Senha do Administrador
+                <input
+                  type="password"
+                  value={deleteModal.senha}
+                  onChange={(event) =>
+                    setDeleteModal((prev) => ({
+                      ...prev,
+                      senha: event.target.value,
+                      error: null,
+                    }))
+                  }
+                  placeholder="Digite a senha do administrador"
+                  autoFocus
+                  disabled={deleteModal.loading}
+                  required
+                />
+              </label>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={handleCloseDeleteModal}
+                  disabled={deleteModal.loading}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="danger"
+                  disabled={deleteModal.loading || !deleteModal.senha.trim()}
+                >
+                  {deleteModal.loading ? 'Excluindo...' : 'Sim, excluir permanentemente'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </section>

@@ -1,9 +1,9 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import type {
-  Colaborador,
-  ColaboradorExtraido,
-  ColaboradorBulkItem,
+  Policial,
+  PolicialExtraido,
+  PolicialBulkItem,
   Equipe,
   FuncaoOption,
   PolicialStatus,
@@ -12,17 +12,17 @@ import type {
 } from '../../types';
 import { EQUIPE_FONETICA, EQUIPE_OPTIONS, POLICIAL_STATUS_OPTIONS } from '../../constants';
 
-interface ColaboradoresSectionProps {
+interface PoliciaisSectionProps {
   currentUser: Usuario;
   onChanged?: () => void;
 }
 
-export function ColaboradoresSection({
+export function PoliciaisSection({
   currentUser,
   onChanged,
-}: ColaboradoresSectionProps) {
+}: PoliciaisSectionProps) {
   const initialForm = { nome: '', matricula: '', status: 'ATIVO' as PolicialStatus, funcaoId: undefined as number | undefined, equipe: undefined as Equipe | undefined };
-  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -35,30 +35,30 @@ export function ColaboradoresSection({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reativarModal, setReativarModal] = useState<{
     open: boolean;
-    colaborador: Colaborador | null;
+    policial: Policial | null;
     loading: boolean;
   }>({
     open: false,
-    colaborador: null,
+    policial: null,
     loading: false,
   });
   const [validacaoModal, setValidacaoModal] = useState<{
     open: boolean;
-    colaboradores: Array<ColaboradorExtraido & { status: PolicialStatus; equipe?: Equipe }>;
+    policiais: Array<PolicialExtraido & { status: PolicialStatus; equipe?: Equipe }>;
     loading: boolean;
     funcoesCriadas: string[];
   }>({
     open: false,
-    colaboradores: [],
+    policiais: [],
     loading: false,
     funcoesCriadas: [],
   });
 
-  const carregarColaboradores = useCallback(async () => {
+  const carregarPoliciais = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.listColaboradores();
-      setColaboradores(data);
+      const data = await api.listPoliciais();
+      setPoliciais(data);
     } catch (err) {
       // Silenciosamente falha, não precisa mostrar erro aqui
     } finally {
@@ -82,7 +82,7 @@ export function ColaboradoresSection({
 
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
-    if (loading || (colaboradores.length === 0 && !error)) {
+    if (loading || (policiais.length === 0 && !error)) {
       return;
     }
 
@@ -92,16 +92,16 @@ export function ColaboradoresSection({
       return;
     }
 
-    const matriculaExists = colaboradores.some(
-      (colaborador) => colaborador.matricula.toUpperCase() === matriculaTrimmed,
+    const matriculaExists = policiais.some(
+      (policial) => policial.matricula.toUpperCase() === matriculaTrimmed,
     );
 
     if (matriculaExists) {
-      setMatriculaError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um colaborador com a mesma matrícula.');
+      setMatriculaError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
     } else {
       setMatriculaError(null);
     }
-  }, [colaboradores, loading, error]);
+  }, [policiais, loading, error]);
 
   const validateFuncao = useCallback((funcaoId: number | undefined) => {
     if (!funcaoId) {
@@ -110,7 +110,7 @@ export function ColaboradoresSection({
     }
 
     // Se a lista ainda não foi carregada, não valida
-    if (loading || (colaboradores.length === 0 && !error)) {
+    if (loading || (policiais.length === 0 && !error)) {
       return;
     }
 
@@ -125,10 +125,10 @@ export function ColaboradoresSection({
     // Verificar se é CMT UPM ou SUBCMT UPM
     if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
       // Verificar se já existe alguém com essa função
-      const jaExiste = colaboradores.some((colaborador) => {
-        if (!colaborador.funcao) return false;
-        const colaboradorFuncaoUpper = colaborador.funcao.nome.toUpperCase();
-        return colaboradorFuncaoUpper === funcaoUpper;
+      const jaExiste = policiais.some((policial) => {
+        if (!policial.funcao) return false;
+        const policialFuncaoUpper = policial.funcao.nome.toUpperCase();
+        return policialFuncaoUpper === funcaoUpper;
       });
 
       if (jaExiste) {
@@ -139,26 +139,26 @@ export function ColaboradoresSection({
     } else {
       setFuncaoError(null);
     }
-  }, [colaboradores, funcoes, loading, error]);
+  }, [policiais, funcoes, loading, error]);
 
   useEffect(() => {
-    void carregarColaboradores();
+    void carregarPoliciais();
     void carregarFuncoes();
-  }, [carregarColaboradores, carregarFuncoes]);
+  }, [carregarPoliciais, carregarFuncoes]);
 
-  // Revalidar matrícula quando a lista de colaboradores for atualizada
+  // Revalidar matrícula quando a lista de policiais for atualizada
   useEffect(() => {
     if (form.matricula.trim() && !loading) {
       validateMatricula(form.matricula);
     }
-  }, [colaboradores, form.matricula, validateMatricula, loading]);
+  }, [policiais, form.matricula, validateMatricula, loading]);
 
-  // Revalidar função quando a lista de colaboradores for atualizada
+  // Revalidar função quando a lista de policiais for atualizada
   useEffect(() => {
     if (form.funcaoId && !loading) {
       validateFuncao(form.funcaoId);
     }
-  }, [colaboradores, form.funcaoId, validateFuncao, loading]);
+  }, [policiais, form.funcaoId, validateFuncao, loading]);
 
   // Limpar timeout ao desmontar o componente
   useEffect(() => {
@@ -191,8 +191,8 @@ export function ColaboradoresSection({
         const response: ProcessFileResponse = await api.uploadFile(file);
         
         // Preparar dados para validação (adicionar status padrão)
-        const colaboradoresComStatus = response.colaboradores.map((colab) => ({
-          ...colab,
+        const policiaisComStatus = response.policiais.map((policial) => ({
+          ...policial,
           status: 'ATIVO' as PolicialStatus,
           equipe: undefined as Equipe | undefined,
         }));
@@ -200,7 +200,7 @@ export function ColaboradoresSection({
         // Abrir modal de validação
         setValidacaoModal({
           open: true,
-          colaboradores: colaboradoresComStatus,
+          policiais: policiaisComStatus,
           loading: false,
           funcoesCriadas: response.funcoesCriadas || [],
         });
@@ -239,12 +239,12 @@ export function ColaboradoresSection({
 
     // Validar matrícula antes de submeter - bloquear cadastro se já existir
     const matriculaTrimmed = matricula.trim().toUpperCase();
-    const matriculaExists = colaboradores.some(
-      (colaborador) => colaborador.matricula.toUpperCase() === matriculaTrimmed,
+    const matriculaExists = policiais.some(
+      (policial) => policial.matricula.toUpperCase() === matriculaTrimmed,
     );
     if (matriculaExists) {
-      setMatriculaError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um colaborador com a mesma matrícula.');
-      setError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um colaborador com a mesma matrícula.');
+      setMatriculaError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
+      setError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
       return;
     }
 
@@ -254,10 +254,10 @@ export function ColaboradoresSection({
       if (funcaoSelecionada) {
         const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
         if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
-          const jaExiste = colaboradores.some((colaborador) => {
-            if (!colaborador.funcao) return false;
-            const colaboradorFuncaoUpper = colaborador.funcao.nome.toUpperCase();
-            return colaboradorFuncaoUpper === funcaoUpper;
+          const jaExiste = policiais.some((policial) => {
+            if (!policial.funcao) return false;
+            const policialFuncaoUpper = policial.funcao.nome.toUpperCase();
+            return policialFuncaoUpper === funcaoUpper;
           });
 
           if (jaExiste) {
@@ -282,12 +282,16 @@ export function ColaboradoresSection({
           const naoMostraEquipe = 
             funcaoUpper.includes('EXPEDIENTE ADM') || 
             funcaoUpper.includes('CMT UPM') || 
-            funcaoUpper.includes('SUBCMT UPM') ||
-            funcaoUpper.includes('MOTORISTA DE DIA');
+            funcaoUpper.includes('SUBCMT UPM');
           
           if (!naoMostraEquipe) {
             // Função permite equipe: usar a selecionada ou a do usuário
-            equipeFinal = form.equipe || currentUser.equipe || null;
+            let equipeTemp: Equipe | null = form.equipe || (currentUser.equipe as Equipe) || null;
+            // MOTORISTA DE DIA não pode ter equipe E
+            if (funcaoUpper.includes('MOTORISTA DE DIA') && equipeTemp === 'E') {
+              equipeTemp = null;
+            }
+            equipeFinal = equipeTemp;
           } else {
             // Função não permite equipe
             equipeFinal = null;
@@ -301,7 +305,7 @@ export function ColaboradoresSection({
         equipeFinal = form.equipe || currentUser.equipe || null;
       }
       
-      await api.createColaborador({ 
+      await api.createPolicial({ 
         nome, 
         matricula, 
         status: form.status,
@@ -316,10 +320,10 @@ export function ColaboradoresSection({
         clearTimeout(matriculaTimeoutRef.current);
         matriculaTimeoutRef.current = null;
       }
-      await carregarColaboradores();
+      await carregarPoliciais();
       onChanged?.();
     } catch (err) {
-      // Verificar se é erro de colaborador desativado
+      // Verificar se é erro de policial desativado
       let errorData: unknown = null;
       
       if (err instanceof Error && 'data' in err) {
@@ -338,13 +342,13 @@ export function ColaboradoresSection({
         typeof errorData === 'object' &&
         errorData !== null &&
         'message' in errorData &&
-        errorData.message === 'COLABORADOR_DESATIVADO' &&
-        'colaborador' in errorData
+        errorData.message === 'POLICIAL_DESATIVADO' &&
+        'policial' in errorData
       ) {
         // Mostrar modal de reativação
         setReativarModal({
           open: true,
-          colaborador: errorData.colaborador as Colaborador,
+          policial: errorData.policial as Policial,
           loading: false,
         });
         setSubmitting(false);
@@ -368,7 +372,7 @@ export function ColaboradoresSection({
   const handleCloseReativarModal = () => {
     setReativarModal({
       open: false,
-      colaborador: null,
+      policial: null,
       loading: false,
     });
   };
@@ -376,14 +380,14 @@ export function ColaboradoresSection({
   const handleCloseValidacaoModal = () => {
     setValidacaoModal({
       open: false,
-      colaboradores: [],
+      policiais: [],
       loading: false,
       funcoesCriadas: [],
     });
   };
 
   const handleConfirmValidacao = async () => {
-    if (validacaoModal.colaboradores.length === 0 || validacaoModal.loading) {
+    if (validacaoModal.policiais.length === 0 || validacaoModal.loading) {
       return;
     }
 
@@ -393,40 +397,40 @@ export function ColaboradoresSection({
       setSuccess(null);
 
       // Preparar dados para envio
-      const colaboradoresBulk: ColaboradorBulkItem[] = validacaoModal.colaboradores.map((colab) => ({
-        matricula: colab.matricula,
-        nome: colab.nome,
-        status: colab.status,
-        funcaoId: colab.funcaoId,
-        equipe: colab.equipe,
+      const policiaisBulk: PolicialBulkItem[] = validacaoModal.policiais.map((policial) => ({
+        matricula: policial.matricula,
+        nome: policial.nome,
+        status: policial.status,
+        funcaoId: policial.funcaoId,
+        equipe: policial.equipe,
       }));
 
       // Enviar para o backend
-      const response = await api.createColaboradoresBulk({ colaboradores: colaboradoresBulk });
+      const response = await api.createPoliciaisBulk({ policiais: policiaisBulk });
 
       // Mostrar resultado
       if (response.erros.length > 0) {
         const errosMsg = response.erros.map((e) => `Matrícula ${e.matricula}: ${e.erro}`).join('\n');
-        setError(`${response.criados} colaborador(es) criado(s). Erros:\n${errosMsg}`);
+        setError(`${response.criados} policial(es) criado(s). Erros:\n${errosMsg}`);
       } else {
         setSuccess(`${response.criados} policial(is) criado(s) com sucesso.`);
       }
 
       handleCloseValidacaoModal();
-      await carregarColaboradores();
+      await carregarPoliciais();
       onChanged?.();
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : 'Não foi possível salvar os colaboradores.',
+          : 'Não foi possível salvar os policiais.',
       );
       setValidacaoModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
   const handleConfirmReativar = async () => {
-    if (!reativarModal.colaborador) {
+    if (!reativarModal.policial) {
       return;
     }
 
@@ -434,8 +438,8 @@ export function ColaboradoresSection({
       setReativarModal((prev) => ({ ...prev, loading: true }));
       setError(null);
       
-      // Reativar o colaborador
-      await api.activateColaborador(reativarModal.colaborador.id);
+      // Reativar o policial
+      await api.activatePolicial(reativarModal.policial.id);
       
       // Determinar a equipe para reativação (mesma lógica do cadastro)
       let equipeFinalReativar: Equipe | null | undefined = undefined;
@@ -447,11 +451,15 @@ export function ColaboradoresSection({
           const naoMostraEquipe = 
             funcaoUpper.includes('EXPEDIENTE ADM') || 
             funcaoUpper.includes('CMT UPM') || 
-            funcaoUpper.includes('SUBCMT UPM') ||
-            funcaoUpper.includes('MOTORISTA DE DIA');
+            funcaoUpper.includes('SUBCMT UPM');
           
           if (!naoMostraEquipe) {
-            equipeFinalReativar = form.equipe || currentUser.equipe || null;
+            let equipeTemp: Equipe | null = form.equipe || (currentUser.equipe as Equipe) || null;
+            // MOTORISTA DE DIA não pode ter equipe E
+            if (funcaoUpper.includes('MOTORISTA DE DIA') && equipeTemp === 'E') {
+              equipeTemp = null;
+            }
+            equipeFinalReativar = equipeTemp;
           } else {
             equipeFinalReativar = null;
           }
@@ -462,8 +470,8 @@ export function ColaboradoresSection({
         equipeFinalReativar = form.equipe || currentUser.equipe || null;
       }
       
-      // Atualizar os dados do colaborador reativado com os novos dados do formulário
-      await api.updateColaborador(reativarModal.colaborador.id, {
+      // Atualizar os dados do policial reativado com os novos dados do formulário
+      await api.updatePolicial(reativarModal.policial.id, {
         nome: form.nome.trim(),
         status: form.status,
         funcaoId: form.funcaoId,
@@ -478,7 +486,7 @@ export function ColaboradoresSection({
         matriculaTimeoutRef.current = null;
       }
       handleCloseReativarModal();
-      await carregarColaboradores();
+      await carregarPoliciais();
       onChanged?.();
     } catch (err) {
       setError(
@@ -613,18 +621,20 @@ export function ColaboradoresSection({
                 }
                 
                 // Se a função selecionada não permite equipe, limpar o campo de equipe
+                // Se for MOTORISTA DE DIA e a equipe for E, limpar também
                 if (funcaoSelecionada) {
                   const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
                   const naoMostraEquipe = 
                     funcaoUpper.includes('EXPEDIENTE ADM') || 
                     funcaoUpper.includes('CMT UPM') || 
-                    funcaoUpper.includes('SUBCMT UPM') ||
-                    funcaoUpper.includes('MOTORISTA DE DIA');
+                    funcaoUpper.includes('SUBCMT UPM');
+                  
+                  const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
                   
                   setForm((prev) => ({
                     ...prev,
                     funcaoId: novoFuncaoId,
-                    equipe: naoMostraEquipe ? undefined : prev.equipe,
+                    equipe: naoMostraEquipe ? undefined : (isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe),
                   }));
                 } else {
                   setForm((prev) => ({
@@ -676,10 +686,24 @@ export function ColaboradoresSection({
             return !(
               funcaoUpper.includes('EXPEDIENTE ADM') || 
               funcaoUpper.includes('CMT UPM') || 
-              funcaoUpper.includes('SUBCMT UPM') ||
-              funcaoUpper.includes('MOTORISTA DE DIA')
+              funcaoUpper.includes('SUBCMT UPM')
             );
           })() : false;
+          
+          const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') || false;
+          
+          // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E (Echo)
+          const equipesDisponiveis = (() => {
+            let equipes = currentUser.nivel?.nome === 'OPERAÇÕES'
+              ? EQUIPE_OPTIONS.filter((option) => option.value === currentUser.equipe)
+              : EQUIPE_OPTIONS;
+            
+            if (isMotoristaDia) {
+              equipes = equipes.filter((option) => option.value !== 'E');
+            }
+            
+            return equipes;
+          })();
           
           return mostrarEquipe ? (
             <div className="grid two-columns">
@@ -696,10 +720,7 @@ export function ColaboradoresSection({
                   required
                 >
                   <option value="">Selecione uma equipe</option>
-                  {(currentUser.nivel?.nome === 'OPERAÇÕES'
-                    ? EQUIPE_OPTIONS.filter((option) => option.value === currentUser.equipe)
-                    : EQUIPE_OPTIONS
-                  ).map((option) => (
+                  {equipesDisponiveis.map((option) => (
                     <option key={option.value} value={option.value}>
                       {EQUIPE_FONETICA[option.value]} ({option.value})
                     </option>
@@ -717,7 +738,7 @@ export function ColaboradoresSection({
         </div>
       </form>
 
-      {/* Modal de Validação de Colaboradores Extraídos */}
+              {/* Modal de Validação de Policiais Extraídos */}
       {validacaoModal.open && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal modal-large" style={{ maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
@@ -734,7 +755,7 @@ export function ColaboradoresSection({
               </div>
             )}
 
-            {validacaoModal.colaboradores.length === 0 ? (
+            {validacaoModal.policiais.length === 0 ? (
               <div style={{ flex: '1 1 auto', minHeight: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
                 <div className="feedback" style={{ backgroundColor: '#f0f9ff', borderColor: '#3b82f6', color: '#1e40af', textAlign: 'center' }}>
                   <strong>Todos os policiais da lista estão cadastrados</strong>
@@ -750,9 +771,9 @@ export function ColaboradoresSection({
                       onChange={(event) => {
                         const equipeSelecionada = event.target.value ? (event.target.value as Equipe) : undefined;
                         if (equipeSelecionada) {
-                          // Atualizar todos os colaboradores que têm equipe disponível
-                          const novosColaboradores = validacaoModal.colaboradores.map((colab) => {
-                            const funcaoUpper = colab.funcaoNome?.toUpperCase() || '';
+                          // Atualizar todos os policiais que têm equipe disponível
+                          const novosPoliciais = validacaoModal.policiais.map((policial) => {
+                            const funcaoUpper = policial.funcaoNome?.toUpperCase() || '';
                             const naoMostraEquipe = 
                               funcaoUpper.includes('EXPEDIENTE') || 
                               funcaoUpper.includes('CMT UPM') || 
@@ -761,16 +782,16 @@ export function ColaboradoresSection({
                             
                             if (!naoMostraEquipe) {
                               return {
-                                ...colab,
+                                ...policial,
                                 equipe: equipeSelecionada,
                               };
                             }
-                            return colab;
+                            return policial;
                           });
                           
                           setValidacaoModal((prev) => ({
                             ...prev,
-                            colaboradores: novosColaboradores,
+                            policiais: novosPoliciais,
                           }));
                           
                           // Resetar o select
@@ -803,33 +824,40 @@ export function ColaboradoresSection({
                   </tr>
                 </thead>
                 <tbody>
-                  {validacaoModal.colaboradores.map((colab, idx) => {
-                    // Funções que não devem mostrar equipe: EXPEDIENTE ADM, CMT UPM, SUBCMT UPM, MOTORISTA DE DIA
-                    const funcaoUpper = colab.funcaoNome?.toUpperCase() || '';
+                  {validacaoModal.policiais.map((policial, idx) => {
+                    // Funções que não devem mostrar equipe: EXPEDIENTE ADM, CMT UPM, SUBCMT UPM
+                    const funcaoUpper = policial.funcaoNome?.toUpperCase() || '';
                     const naoMostraEquipe = 
                       funcaoUpper.includes('EXPEDIENTE') || 
                       funcaoUpper.includes('CMT UPM') || 
-                      funcaoUpper.includes('SUBCMT UPM') ||
-                      funcaoUpper.includes('MOTORISTA DE DIA');
+                      funcaoUpper.includes('SUBCMT UPM');
+                    const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
                     return (
                       <tr key={idx}>
-                        <td>{colab.matricula}</td>
-                        <td>{colab.nome}</td>
+                        <td>{policial.matricula}</td>
+                        <td>{policial.nome}</td>
                         <td>
                           <select
-                            value={colab.funcaoId || ''}
+                            value={policial.funcaoId || ''}
                             onChange={(event) => {
-                              const novosColaboradores = [...validacaoModal.colaboradores];
+                              const novosPoliciais = [...validacaoModal.policiais];
                               const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
                               const funcaoSelecionada = funcoes.find(f => f.id === novoFuncaoId);
-                              novosColaboradores[idx] = {
-                                ...novosColaboradores[idx],
+                              const funcaoUpper = funcaoSelecionada?.nome.toUpperCase() || '';
+                              const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
+                              
+                              novosPoliciais[idx] = {
+                                ...novosPoliciais[idx],
                                 funcaoId: novoFuncaoId,
-                                funcaoNome: funcaoSelecionada?.nome || novosColaboradores[idx].funcaoNome,
+                                funcaoNome: funcaoSelecionada?.nome || novosPoliciais[idx].funcaoNome,
+                                // Se mudar para MOTORISTA DE DIA e a equipe for E, limpar
+                                equipe: isMotoristaDia && novosPoliciais[idx].equipe === 'E' 
+                                  ? undefined 
+                                  : novosPoliciais[idx].equipe,
                               };
                               setValidacaoModal((prev) => ({
                                 ...prev,
-                                colaboradores: novosColaboradores,
+                                policiais: novosPoliciais,
                               }));
                             }}
                             style={{ width: '100%', padding: '4px' }}
@@ -844,16 +872,16 @@ export function ColaboradoresSection({
                         </td>
                         <td>
                           <select
-                            value={colab.status}
+                            value={policial.status}
                             onChange={(event) => {
-                              const novosColaboradores = [...validacaoModal.colaboradores];
-                              novosColaboradores[idx] = {
-                                ...novosColaboradores[idx],
+                              const novosPoliciais = [...validacaoModal.policiais];
+                              novosPoliciais[idx] = {
+                                ...novosPoliciais[idx],
                                 status: event.target.value as PolicialStatus,
                               };
                               setValidacaoModal((prev) => ({
                                 ...prev,
-                                colaboradores: novosColaboradores,
+                                policiais: novosPoliciais,
                               }));
                             }}
                             style={{ width: '100%', padding: '4px' }}
@@ -868,23 +896,25 @@ export function ColaboradoresSection({
                         <td>
                           {!naoMostraEquipe ? (
                             <select
-                              value={colab.equipe || ''}
+                              value={policial.equipe || ''}
                               onChange={(event) => {
-                                const novosColaboradores = [...validacaoModal.colaboradores];
-                                novosColaboradores[idx] = {
-                                  ...novosColaboradores[idx],
+                                const novosPoliciais = [...validacaoModal.policiais];
+                                novosPoliciais[idx] = {
+                                  ...novosPoliciais[idx],
                                   equipe: event.target.value ? (event.target.value as Equipe) : undefined,
                                 };
                                 setValidacaoModal((prev) => ({
                                   ...prev,
-                                  colaboradores: novosColaboradores,
+                                  policiais: novosPoliciais,
                                 }));
                               }}
                               style={{ width: '100%', padding: '4px' }}
                               required
                             >
                               <option value="">Selecione uma equipe</option>
-                              {EQUIPE_OPTIONS.map((option) => (
+                              {EQUIPE_OPTIONS
+                                .filter((option) => !isMotoristaDia || option.value !== 'E')
+                                .map((option) => (
                                 <option key={option.value} value={option.value}>
                                   {EQUIPE_FONETICA[option.value]} ({option.value})
                                 </option>
@@ -912,14 +942,14 @@ export function ColaboradoresSection({
               >
                 Cancelar
               </button>
-              {validacaoModal.colaboradores.length > 0 && (
+              {validacaoModal.policiais.length > 0 && (
                 <button
                   type="button"
                   className="primary"
                   onClick={handleConfirmValidacao}
                   disabled={validacaoModal.loading}
                 >
-                  {validacaoModal.loading ? 'Salvando...' : `Salvar ${validacaoModal.colaboradores.length} policiais`}
+                  {validacaoModal.loading ? 'Salvando...' : `Salvar ${validacaoModal.policiais.length} policiais`}
                 </button>
               )}
             </div>
@@ -927,21 +957,21 @@ export function ColaboradoresSection({
         </div>
       )}
 
-      {/* Modal de Reativação de Colaborador Desativado */}
-      {reativarModal.open && reativarModal.colaborador && (
+      {/* Modal de Reativação de Policial Desativado */}
+      {reativarModal.open && reativarModal.policial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal" style={{ maxWidth: '500px' }}>
-            <h3>Colaborador já cadastrado</h3>
+            <h3>Policial já cadastrado</h3>
             <div className="feedback" style={{ marginBottom: '16px', backgroundColor: '#fef3c7', borderColor: '#f59e0b', color: '#92400e' }}>
-              <strong>Este colaborador já existe no sistema, porém está desativado.</strong>
+              <strong>Este policial já existe no sistema, porém está desativado.</strong>
               <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
-                <strong>Nome:</strong> {reativarModal.colaborador.nome}
+                <strong>Nome:</strong> {reativarModal.policial.nome}
               </p>
               <p style={{ margin: '4px 0 0', fontSize: '0.9rem' }}>
-                <strong>Matrícula:</strong> {reativarModal.colaborador.matricula}
+                <strong>Matrícula:</strong> {reativarModal.policial.matricula}
               </p>
               <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
-                Deseja reativar este colaborador com os dados informados?
+                Deseja reativar este policial com os dados informados?
               </p>
             </div>
 
