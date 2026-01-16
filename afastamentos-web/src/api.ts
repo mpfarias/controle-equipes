@@ -1,6 +1,7 @@
 import type {
   Afastamento,
   Policial,
+  RestricaoMedica,
   CreateAfastamentoInput,
   CreatePolicialInput,
   CreatePoliciaisBulkInput,
@@ -14,12 +15,17 @@ import type {
   BulkCreateResponse,
   AuditLogsResponse,
   RelatorioLogsResponse,
+  ErroLogsResponse,
+  ErroLog,
+  AcessoLogsResponse,
+  AcessoLog,
 } from './types.ts';
 
 const API_URL =
   import.meta.env.VITE_API_URL ?? 'http://10.95.91.53:3002';
 
 const TOKEN_STORAGE_KEY = 'afastamentos-web:token';
+const ACESSO_ID_STORAGE_KEY = 'afastamentos-web:acessoId';
 
 export function getToken(): string | null {
   return sessionStorage.getItem(TOKEN_STORAGE_KEY);
@@ -31,6 +37,19 @@ export function setToken(token: string): void {
 
 export function removeToken(): void {
   sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+export function getAcessoId(): number | null {
+  const acessoId = sessionStorage.getItem(ACESSO_ID_STORAGE_KEY);
+  return acessoId ? parseInt(acessoId, 10) : null;
+}
+
+export function setAcessoId(acessoId: number): void {
+  sessionStorage.setItem(ACESSO_ID_STORAGE_KEY, acessoId.toString());
+}
+
+export function removeAcessoId(): void {
+  sessionStorage.removeItem(ACESSO_ID_STORAGE_KEY);
 }
 
 async function request<T>(
@@ -156,14 +175,34 @@ export const api = {
     });
   },
 
-  async login(payload: LoginInput): Promise<{ accessToken: string; usuario: Usuario }> {
-    const response = await request<{ accessToken: string; usuario: Usuario }>('/auth/login', {
+  async login(payload: LoginInput): Promise<{ accessToken: string; usuario: Usuario; acessoId?: number }> {
+    const response = await request<{ accessToken: string; usuario: Usuario; acessoId?: number }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    // Armazenar token automaticamente após login
+    // Armazenar token e acessoId automaticamente após login
     setToken(response.accessToken);
+    if (response.acessoId) {
+      setAcessoId(response.acessoId);
+    }
     return response;
+  },
+
+  async logout(): Promise<void> {
+    const acessoId = getAcessoId();
+    if (acessoId) {
+      try {
+        await request('/acessos/logout', {
+          method: 'POST',
+          body: JSON.stringify({ acessoId }),
+        });
+      } catch (error) {
+        // Não bloquear logout se falhar ao registrar
+        console.error('Erro ao registrar logout:', error);
+      }
+    }
+    removeToken();
+    removeAcessoId();
   },
 
   async forgotPassword(matricula: string): Promise<{
@@ -224,6 +263,10 @@ export const api = {
     return request('/policiais');
   },
 
+  async getPolicial(id: number): Promise<Policial> {
+    return request(`/policiais/${id}`);
+  },
+
   async createPolicial(payload: CreatePolicialInput): Promise<Policial> {
     return request('/policiais', {
       method: 'POST',
@@ -257,6 +300,20 @@ export const api = {
     await request(`/policiais/${id}/delete-permanent`, {
       method: 'POST',
       body: JSON.stringify({ senha }),
+    });
+  },
+
+  async listRestricoesMedicas(): Promise<RestricaoMedica[]> {
+    return request('/policiais/restricoes-medicas');
+  },
+
+  async updateRestricaoMedicaPolicial(
+    id: number,
+    restricaoMedicaId: number | null,
+  ): Promise<Policial> {
+    return request(`/policiais/${id}/restricao-medica`, {
+      method: 'PATCH',
+      body: JSON.stringify({ restricaoMedicaId }),
     });
   },
 
@@ -334,5 +391,50 @@ export const api = {
     if (dataFim) params.append('dataFim', dataFim);
     const query = params.toString();
     return request(`/relatorios/logs${query ? `?${query}` : ''}`);
+  },
+
+  async listErroLogs(page?: number, pageSize?: number, dataInicio?: string, dataFim?: string): Promise<ErroLogsResponse> {
+    const params = new URLSearchParams();
+    if (page) params.append('page', page.toString());
+    if (pageSize) params.append('pageSize', pageSize.toString());
+    if (dataInicio) params.append('dataInicio', dataInicio);
+    if (dataFim) params.append('dataFim', dataFim);
+    const query = params.toString();
+    const response = await request<ErroLogsResponse | ErroLog[]>(`/erros${query ? `?${query}` : ''}`);
+    
+    // Se a resposta for um array (sem paginação), converter para formato padronizado
+    if (Array.isArray(response)) {
+      return { logs: response };
+    }
+    
+    // Se a resposta já tem erros ou logs, padronizar
+    if ('erros' in response) {
+      return { logs: response.erros || [] };
+    }
+    
+    return response;
+  },
+
+  async listAcessoLogs(page?: number, pageSize?: number, dataInicio?: string, dataFim?: string, userId?: number): Promise<AcessoLogsResponse> {
+    const params = new URLSearchParams();
+    if (page) params.append('page', page.toString());
+    if (pageSize) params.append('pageSize', pageSize.toString());
+    if (dataInicio) params.append('dataInicio', dataInicio);
+    if (dataFim) params.append('dataFim', dataFim);
+    if (userId) params.append('userId', userId.toString());
+    const query = params.toString();
+    const response = await request<AcessoLogsResponse | AcessoLog[]>(`/acessos${query ? `?${query}` : ''}`);
+    
+    // Se a resposta for um array (sem paginação), converter para formato padronizado
+    if (Array.isArray(response)) {
+      return { logs: response };
+    }
+    
+    // Se a resposta já tem acessos ou logs, padronizar
+    if ('acessos' in response) {
+      return { logs: response.acessos || [] };
+    }
+    
+    return response;
   },
 };

@@ -1,5 +1,6 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -13,8 +14,10 @@ export class AuthController {
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // 5 tentativas por minuto
   @Post('login')
-  login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto.matricula, loginDto.senha);
+  login(@Body() loginDto: LoginDto, @Req() request: Request) {
+    const ip = (request.ip || request.headers['x-forwarded-for'] || request.socket.remoteAddress || '') as string;
+    const userAgent = (request.headers['user-agent'] || '') as string;
+    return this.authService.login(loginDto.matricula, loginDto.senha, ip, userAgent);
   }
 
   @Public()

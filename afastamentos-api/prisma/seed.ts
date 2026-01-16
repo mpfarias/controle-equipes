@@ -75,6 +75,22 @@ async function main() {
   }
   console.log('✅ Motivos de afastamento criados/verificados!\n');
 
+  // Criar restrições médicas
+  console.log('📋 Criando restrições médicas...');
+  const restricoes = [
+    { nome: 'Restrição médica' },
+    { nome: 'Porte de arma suspenso' },
+  ];
+
+  for (const restricaoData of restricoes) {
+    await prisma.restricaoMedica.upsert({
+      where: { nome: restricaoData.nome },
+      update: {},
+      create: restricaoData,
+    });
+  }
+  console.log('✅ Restrições médicas criadas/verificadas!\n');
+
   // Verificar se já existe um usuário
   const usuarioExistente = await prisma.usuario.findFirst({
     where: {

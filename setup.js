@@ -281,7 +281,7 @@ async function main() {
       shell: true,
       stdio: 'pipe'
     });
-    if (result.includes('Colaborador') || result.includes('Usuario') || result.includes('Afastamento')) {
+    if (result.includes('Policial') || result.includes('Usuario') || result.includes('Afastamento')) {
       log('✅ Tabelas criadas com sucesso!', 'green');
     }
   } catch (error) {

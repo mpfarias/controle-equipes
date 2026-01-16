@@ -81,9 +81,10 @@ export default function App() {
     // O token já foi armazenado pelo api.login()
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Registrar logout no backend antes de limpar o estado
+    await api.logout();
     setCurrentUser(null);
-    removeToken();
   };
 
   const openConfirm = useCallback((config: ConfirmConfig) => {

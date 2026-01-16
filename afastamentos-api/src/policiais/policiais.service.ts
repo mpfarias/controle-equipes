@@ -9,7 +9,7 @@ import { DeletePolicialDto } from './dto/delete-policial.dto';
 import * as bcrypt from 'bcryptjs';
 
 type PolicialWithRelations = Prisma.PolicialGetPayload<{
-  include: { afastamentos: true; funcao: true };
+  include: { afastamentos: true; funcao: true; restricaoMedica: true };
 }>;
 
 @Injectable()
@@ -138,7 +138,7 @@ export class PoliciaisService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
     });
 
     await this.audit.record({
@@ -168,7 +168,7 @@ export class PoliciaisService {
     if (page === undefined && pageSize === undefined) {
       return this.prisma.policial.findMany({
         orderBy: { nome: 'asc' },
-        include: { afastamentos: true, funcao: true },
+        include: { afastamentos: true, funcao: true, restricaoMedica: true },
       });
     }
 
@@ -184,7 +184,7 @@ export class PoliciaisService {
       this.prisma.policial.findMany({
         where,
         orderBy: { nome: 'asc' },
-        include: { afastamentos: true, funcao: true },
+        include: { afastamentos: true, funcao: true, restricaoMedica: true },
         skip,
         take,
       }),
@@ -203,7 +203,7 @@ export class PoliciaisService {
   async findOne(id: number): Promise<PolicialWithRelations> {
     const policial = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
     });
 
     if (!policial) {
@@ -342,7 +342,7 @@ export class PoliciaisService {
     const updated = await this.prisma.policial.update({
       where: { id },
       data: updateData,
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
     });
 
     await this.audit.record({
@@ -376,7 +376,7 @@ export class PoliciaisService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
     });
 
     await this.audit.record({
@@ -408,7 +408,7 @@ export class PoliciaisService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
     });
 
     await this.audit.record({
@@ -578,6 +578,62 @@ export class PoliciaisService {
       before,
       after: { deletado: true, confirmadoPorSenha: true },
     });
+  }
+
+  async listRestricoesMedicas() {
+    return this.prisma.restricaoMedica.findMany({
+      orderBy: { nome: 'asc' },
+    });
+  }
+
+  async updateRestricaoMedica(
+    id: number,
+    restricaoMedicaId: number | null,
+    responsavelId?: number,
+  ): Promise<PolicialWithRelations> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    // Verificar se o policial existe
+    const before = await this.prisma.policial.findUnique({
+      where: { id },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Policial ${id} não encontrado.`);
+    }
+
+    // Se restricaoMedicaId foi fornecido, verificar se existe
+    if (restricaoMedicaId !== null) {
+      const restricao = await this.prisma.restricaoMedica.findUnique({
+        where: { id: restricaoMedicaId },
+      });
+
+      if (!restricao) {
+        throw new NotFoundException(`Restrição médica ${restricaoMedicaId} não encontrada.`);
+      }
+    }
+
+    const updated = await this.prisma.policial.update({
+      where: { id },
+      data: {
+        restricaoMedicaId: restricaoMedicaId,
+        updatedById: actor?.id ?? null,
+        updatedByName: actor?.nome ?? null,
+      },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+    });
+
+    await this.audit.record({
+      entity: 'Policial',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
   }
 }
 

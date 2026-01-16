@@ -30,7 +30,7 @@ As seções principais são muito grandes e devem ser extraídas gradualmente:
 
 1. **Seções** (`src/components/sections/`)
    - `UsuariosSection.tsx` (~1300 linhas)
-   - `ColaboradoresSection.tsx` (~700 linhas)
+   - `PoliciaisSection.tsx` (~700 linhas)
    - `AfastamentosSection.tsx` (~1000 linhas)
    - `DashboardSection.tsx` (~200 linhas)
    - `MostrarEquipeSection.tsx` (~400 linhas)
@@ -60,7 +60,7 @@ src/
 │   │   └── index.ts
 │   ├── sections/
 │   │   ├── UsuariosSection.tsx
-│   │   ├── ColaboradoresSection.tsx
+│   │   ├── PoliciaisSection.tsx
 │   │   ├── AfastamentosSection.tsx
 │   │   ├── DashboardSection.tsx
 │   │   ├── MostrarEquipeSection.tsx

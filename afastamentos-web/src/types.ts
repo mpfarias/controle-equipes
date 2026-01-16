@@ -53,6 +53,14 @@ export interface LoginInput {
   senha: string;
 }
 
+export interface RestricaoMedica {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Policial {
   id: number;
   nome: string;
@@ -61,6 +69,8 @@ export interface Policial {
   status: PolicialStatus;
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null } | null;
+  restricaoMedicaId?: number | null;
+  restricaoMedica?: RestricaoMedica | null;
   fotoUrl?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -179,4 +189,53 @@ export interface RelatorioLogsResponse {
   page: number;
   pageSize: number;
   totalPages: number;
+}
+
+export interface ErroLog {
+  id: number;
+  mensagem: string;
+  stack?: string | null;
+  endpoint?: string | null;
+  metodo?: string | null;
+  userId?: number | null;
+  userName?: string | null;
+  matricula?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  requestBody?: unknown;
+  statusCode?: number | null;
+  erro?: unknown;
+  createdAt: string;
+}
+
+export interface ErroLogsResponse {
+  logs?: ErroLog[];
+  erros?: ErroLog[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+}
+
+export interface AcessoLog {
+  id: number;
+  userId?: number | null;
+  userName?: string | null;
+  matricula?: string | null;
+  ip?: string | null;
+  userAgent?: string | null;
+  dataEntrada: string;
+  dataSaida?: string | null;
+  tempoSessao?: number | null; // Tempo em minutos
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AcessoLogsResponse {
+  logs?: AcessoLog[];
+  acessos?: AcessoLog[];
+  total?: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
 }

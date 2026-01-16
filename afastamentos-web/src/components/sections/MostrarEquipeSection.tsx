@@ -6,7 +6,7 @@ import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
 import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip } from '@mui/material';
 import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block } from '@mui/icons-material';
-import { formatPeriodo } from '../../utils/dateUtils';
+import { formatPeriodo, calcularDiasEntreDatas } from '../../utils/dateUtils';
 
 interface MostrarEquipeSectionProps {
   currentUser: Usuario;
@@ -34,6 +34,21 @@ export function MostrarEquipeSection({
   );
   const [viewingAfastamentos, setViewingAfastamentos] = useState<Afastamento[]>([]);
   const [loadingAfastamentos, setLoadingAfastamentos] = useState(false);
+  const [restricaoModal, setRestricaoModal] = useState<{
+    open: boolean;
+    policial: Policial | null;
+    restricaoMedicaId: number | null;
+    loading: boolean;
+    error: string | null;
+  }>({
+    open: false,
+    policial: null,
+    restricaoMedicaId: null,
+    loading: false,
+    error: null,
+  });
+  const [restricoesMedicas, setRestricoesMedicas] = useState<Array<{ id: number; nome: string }>>([]);
+  const [loadingRestricoes, setLoadingRestricoes] = useState(false);
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     policial: Policial | null;
@@ -98,6 +113,18 @@ export function MostrarEquipeSection({
     }
   }, []);
 
+  const carregarRestricoesMedicas = useCallback(async () => {
+    try {
+      setLoadingRestricoes(true);
+      const restricoes = await api.listRestricoesMedicas();
+      setRestricoesMedicas(restricoes);
+    } catch (err) {
+      console.error('Erro ao carregar restrições médicas:', err);
+    } finally {
+      setLoadingRestricoes(false);
+    }
+  }, []);
+
   // Ordenar funções alfabeticamente
   const funcoesOrdenadas = useMemo(() => {
     return [...funcoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
@@ -106,7 +133,8 @@ export function MostrarEquipeSection({
   useEffect(() => {
     void carregarPoliciais();
     void carregarFuncoes();
-  }, [carregarPoliciais, carregarFuncoes, refreshKey]);
+    void carregarRestricoesMedicas();
+  }, [carregarPoliciais, carregarFuncoes, carregarRestricoesMedicas, refreshKey]);
 
   const openEditModal = (policial: Policial) => {
     setEditingPolicial(policial);
@@ -460,6 +488,17 @@ export function MostrarEquipeSection({
     return Math.ceil(filteredPoliciales.length / itensPorPagina);
   }, [filteredPoliciales.length, itensPorPagina]);
 
+  // Calcular totais de dias por tipo de afastamento para a modal de visualização
+  const resumoDiasPorTipo = useMemo(() => {
+    const totais: Record<string, number> = {};
+    viewingAfastamentos.forEach((afastamento) => {
+      const motivoNome = afastamento.motivo.nome;
+      const dias = calcularDiasEntreDatas(afastamento.dataInicio, afastamento.dataFim);
+      totais[motivoNome] = (totais[motivoNome] || 0) + dias;
+    });
+    return Object.entries(totais).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
+  }, [viewingAfastamentos]);
+
   // Resetar para página 1 quando filtros ou busca mudarem
   useEffect(() => {
     setPaginaAtual(1);
@@ -741,7 +780,15 @@ export function MostrarEquipeSection({
                     href="#"
                     onClick={async (e) => {
                       e.preventDefault();
-                      setViewingPolicial(policial);
+                      // Carregar dados completos do policial (incluindo restrição médica)
+                      try {
+                        const policialCompleto = await api.getPolicial(policial.id);
+                        setViewingPolicial(policialCompleto);
+                      } catch (err) {
+                        console.error('Erro ao carregar dados do policial:', err);
+                        setViewingPolicial(policial);
+                      }
+                      
                       // Carregar afastamentos do policial
                       try {
                         setLoadingAfastamentos(true);
@@ -1236,38 +1283,43 @@ export function MostrarEquipeSection({
       {/* Modal de Visualização (Somente Leitura) */}
       {viewingPolicial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => {
-          setViewingPolicial(null);
-          setViewingAfastamentos([]);
-        }}>
-          <Box
-            component="div"
-            onClick={(e) => e.stopPropagation()}
-            sx={{
-              position: 'relative',
-              width: '90%',
-              maxWidth: '1200px',
-              maxHeight: '90vh',
-              backgroundColor: 'white',
-              borderRadius: 2,
-              boxShadow: 24,
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            {/* Header */}
-            <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
-                Informações do Policial
-              </Typography>
-            </Box>
+            setViewingPolicial(null);
+            setViewingAfastamentos([]);
+          }}>
+            <Box
+              component="div"
+              onClick={(e) => e.stopPropagation()}
+              sx={{
+                position: 'relative',
+                width: '90%',
+                maxWidth: '1400px',
+                maxHeight: '85vh',
+                backgroundColor: 'white',
+                borderRadius: 2,
+                boxShadow: 24,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+              }}
+            >
+              {/* Header */}
+              <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
+                <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                  Informações do Policial
+                </Typography>
+                {viewingPolicial.restricaoMedica && (
+                  <Typography variant="body1" sx={{ mt: 1, color: 'error.main', fontWeight: 500 }}>
+                    Restrição: {viewingPolicial.restricaoMedica.nome}
+                  </Typography>
+                )}
+              </Box>
 
-            {/* Content - Layout de duas colunas */}
-            <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
-              <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
-                {/* Coluna Esquerda - Dados do Policial */}
-                <Box sx={{ flex: { xs: '1 1 100%', md: '0 0 40%' }, minWidth: 0 }}>
-                  <Paper elevation={2} sx={{ p: 3, height: '100%' }}>
+              {/* Content - Layout de três colunas */}
+              <Box sx={{ flex: 1, overflow: 'auto', p: 2 }}>
+                <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', lg: 'row' } }}>
+                  {/* Coluna Esquerda - Dados do Policial */}
+                  <Box sx={{ flex: { xs: '1 1 100%', lg: '0 0 22%' }, minWidth: 0 }}>
+                  <Paper elevation={2} sx={{ p: 2, height: '100%' }}>
                     {/* Foto do policial */}
                     {viewingPolicial.fotoUrl && (
                       <Box sx={{ display: 'flex', justifyContent: 'center', marginBottom: 3 }}>
@@ -1367,16 +1419,16 @@ export function MostrarEquipeSection({
                       )}
                     </Box>
                   </Paper>
-                </Box>
+                  </Box>
 
-                {/* Coluna Direita - Afastamentos */}
-                <Box sx={{ flex: { xs: '1 1 100%', md: '0 0 60%' }, minWidth: 0 }}>
-                  <Paper elevation={2} sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
-                      Afastamentos
-                    </Typography>
+                  {/* Coluna Central - Lista de Afastamentos */}
+                  <Box sx={{ flex: { xs: '1 1 100%', lg: '0 0 35%' }, minWidth: 0 }}>
+                    <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: 'primary.main', fontSize: '1.1rem' }}>
+                        Afastamentos
+                      </Typography>
 
-                    <Box sx={{ flex: 1, overflow: 'auto' }}>
+                    <Box sx={{ flex: 1, overflow: 'auto', maxHeight: 'calc(85vh - 200px)' }}>
                       {loadingAfastamentos ? (
                         <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
                           Carregando afastamentos...
@@ -1386,28 +1438,28 @@ export function MostrarEquipeSection({
                           Nenhum afastamento registrado para este policial.
                         </Typography>
                       ) : (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                           {viewingAfastamentos.map((afastamento) => (
                             <Card
                               key={afastamento.id}
                               elevation={1}
                               sx={{
-                                p: 2,
+                                p: 1.5,
                                 backgroundColor: 'background.paper',
                                 border: 1,
                                 borderColor: 'divider',
                                 '&:hover': {
-                                  boxShadow: 3,
+                                  boxShadow: 2,
                                 },
                               }}
                             >
-                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
                                 <Box sx={{ flex: 1 }}>
-                                  <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.25, fontSize: '0.9rem' }}>
                                     {afastamento.motivo.nome}
                                   </Typography>
                                   {afastamento.descricao && (
-                                    <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>
+                                    <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.5, fontSize: '0.8rem' }}>
                                       {afastamento.descricao}
                                     </Typography>
                                   )}
@@ -1416,10 +1468,10 @@ export function MostrarEquipeSection({
                                   label={STATUS_LABEL[afastamento.status]}
                                   size="small"
                                   color={afastamento.status === 'ATIVO' ? 'success' : 'default'}
-                                  sx={{ ml: 1 }}
+                                  sx={{ ml: 1, fontSize: '0.7rem', height: '24px' }}
                                 />
                               </Box>
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
                                 {formatPeriodo(afastamento.dataInicio, afastamento.dataFim)}
                               </Typography>
                             </Card>
@@ -1428,35 +1480,238 @@ export function MostrarEquipeSection({
                       )}
                     </Box>
                   </Paper>
+                  </Box>
+
+                  {/* Coluna Direita - Resumo de Dias por Tipo */}
+                  <Box sx={{ flex: { xs: '1 1 100%', lg: '0 0 28%' }, minWidth: 0 }}>
+                    <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: 'primary.main', fontSize: '1.1rem' }}>
+                        Resumo de Afastamentos
+                      </Typography>
+                      
+                      <Box sx={{ flex: 1, overflow: 'auto', maxHeight: 'calc(85vh - 200px)' }}>
+                        {loadingAfastamentos ? (
+                          <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                            Carregando...
+                          </Typography>
+                        ) : resumoDiasPorTipo.length === 0 ? (
+                          <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic', fontSize: '0.85rem' }}>
+                            Nenhum afastamento registrado.
+                          </Typography>
+                        ) : (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            {resumoDiasPorTipo.map(([motivo, totalDias]) => (
+                              <Box
+                                key={motivo}
+                                sx={{
+                                  p: 1.5,
+                                  backgroundColor: 'background.default',
+                                  borderRadius: 1,
+                                  border: 1,
+                                  borderColor: 'divider',
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.85rem' }}>
+                                    {motivo}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main', fontSize: '0.85rem' }}>
+                                    {totalDias} {totalDias === 1 ? 'dia' : 'dias'}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            ))}
+                          </Box>
+                        )}
+                      </Box>
+                    </Paper>
+                  </Box>
                 </Box>
               </Box>
-            </Box>
 
-            {/* Footer - Botões */}
-            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-              <button
-                type="button"
-                className="primary"
-                onClick={() => {
-                  setViewingPolicial(null);
-                  setViewingAfastamentos([]);
-                }}
-              >
-                Fechar
-              </button>
-              {usuarioPodeVerTodosEAcoes && (
+              {/* Footer - Botões */}
+            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2 }}>
                 <button
                   type="button"
-                  className="secondary"
+                  style={{
+                    backgroundColor: '#ef4444',
+                    border: '1px solid #ef4444',
+                    color: '#ffffff',
+                    padding: '8px 16px',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                    fontWeight: 500,
+                    transition: 'background-color 0.2s ease-in-out',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#dc2626';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#ef4444';
+                  }}
+                  onClick={() => {
+                    if (!viewingPolicial) return;
+
+                    setRestricaoModal({
+                      open: true,
+                      policial: viewingPolicial,
+                      restricaoMedicaId: viewingPolicial.restricaoMedicaId ?? null,
+                      loading: false,
+                      error: null,
+                    });
+                  }}
+                >
+                  Inserir restrição
+                </button>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <button
+                  type="button"
+                  className="primary"
                   onClick={() => {
                     setViewingPolicial(null);
                     setViewingAfastamentos([]);
-                    openEditModal(viewingPolicial);
                   }}
                 >
-                  Editar
+                  Fechar
                 </button>
+                {usuarioPodeVerTodosEAcoes && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setViewingPolicial(null);
+                      setViewingAfastamentos([]);
+                      openEditModal(viewingPolicial);
+                    }}
+                  >
+                    Editar
+                  </button>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        </div>
+      )}
+
+      {/* Modal de Inserir Restrição Médica */}
+      {restricaoModal.open && restricaoModal.policial && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => {
+          setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
+        }}>
+          <Box
+            component="div"
+            onClick={(e) => e.stopPropagation()}
+            sx={{
+              position: 'relative',
+              width: '90%',
+              maxWidth: '500px',
+              backgroundColor: 'white',
+              borderRadius: 2,
+              boxShadow: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
+              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                Inserir Restrição
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
+                {restricaoModal.policial.nome}
+              </Typography>
+            </Box>
+
+            <Box sx={{ p: 3 }}>
+              {restricaoModal.error && (
+                <Box sx={{ mb: 2, p: 2, backgroundColor: 'error.light', borderRadius: 1, color: 'error.dark' }}>
+                  {restricaoModal.error}
+                </Box>
               )}
+
+              <label style={{ display: 'block', marginBottom: '16px' }}>
+                <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Restrição Médica</span>
+                {loadingRestricoes ? (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                    Carregando restrições...
+                  </Typography>
+                ) : (
+                  <select
+                    value={restricaoModal.restricaoMedicaId ?? ''}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setRestricaoModal((prev) => ({
+                        ...prev,
+                        restricaoMedicaId: value === '' ? null : parseInt(value, 10),
+                      }));
+                    }}
+                    disabled={restricaoModal.loading || loadingRestricoes}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '1rem',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      backgroundColor: 'white',
+                    }}
+                  >
+                    <option value="">Nenhuma restrição</option>
+                    {restricoesMedicas.map((restricao) => (
+                      <option key={restricao.id} value={restricao.id}>
+                        {restricao.nome}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </label>
+            </Box>
+
+            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
+                }}
+                disabled={restricaoModal.loading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={restricaoModal.loading}
+                onClick={async () => {
+                  if (!restricaoModal.policial) return;
+
+                  try {
+                    setRestricaoModal((prev) => ({ ...prev, loading: true, error: null }));
+                    const updatedPolicial = await api.updateRestricaoMedicaPolicial(
+                      restricaoModal.policial.id,
+                      restricaoModal.restricaoMedicaId,
+                    );
+
+                    // Atualizar o policial na visualização
+                    setViewingPolicial(updatedPolicial);
+                    
+                    // Recarregar lista de policiais
+                    await carregarPoliciais();
+
+                    setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
+                  } catch (err) {
+                    setRestricaoModal((prev) => ({
+                      ...prev,
+                      loading: false,
+                      error: err instanceof Error ? err.message : 'Erro ao salvar restrição médica',
+                    }));
+                  }
+                }}
+              >
+                {restricaoModal.loading ? 'Salvando...' : 'Salvar'}
+              </button>
             </Box>
           </Box>
         </div>

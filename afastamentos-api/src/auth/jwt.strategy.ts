@@ -9,6 +9,7 @@ export interface JwtPayload {
   sub: number; // userId
   matricula: string;
   isAdmin?: boolean;
+  acessoId?: number; // ID do log de acesso para registrar logout
 }
 
 @Injectable()

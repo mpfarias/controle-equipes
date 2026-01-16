@@ -8,21 +8,23 @@ datasource db {
 }
 
 model Policial {
-  id            Int            @id @default(autoincrement())
-  nome          String
-  matricula     String         @unique
-  equipe        Equipe?
-  status        PolicialStatus @default(ATIVO)
-  funcaoId      Int?
-  funcao        Funcao?        @relation(fields: [funcaoId], references: [id])
-  fotoUrl       String?
-  afastamentos  Afastamento[]
-  createdById   Int?
-  createdByName String?
-  updatedById   Int?
-  updatedByName String?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id                Int              @id @default(autoincrement())
+  nome              String
+  matricula         String           @unique
+  equipe            Equipe?
+  status            PolicialStatus   @default(ATIVO)
+  funcaoId          Int?
+  funcao            Funcao?          @relation(fields: [funcaoId], references: [id])
+  restricaoMedicaId Int?
+  restricaoMedica   RestricaoMedica? @relation(fields: [restricaoMedicaId], references: [id])
+  fotoUrl           String?
+  afastamentos      Afastamento[]
+  createdById       Int?
+  createdByName     String?
+  updatedById       Int?
+  updatedByName     String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 }
 
 model MotivoAfastamento {
@@ -145,4 +147,44 @@ model RelatorioLog {
   matricula     String?
   tipoRelatorio String
   createdAt     DateTime @default(now())
+}
+
+model ErroLog {
+  id            Int      @id @default(autoincrement())
+  mensagem      String
+  stack         String?
+  endpoint      String?
+  metodo        String?
+  userId        Int?
+  userName      String?
+  matricula     String?
+  ip            String?
+  userAgent     String?
+  requestBody   Json?
+  statusCode    Int?
+  erro          Json?
+  createdAt     DateTime @default(now())
+}
+
+model AcessoLog {
+  id            Int       @id @default(autoincrement())
+  userId        Int?
+  userName      String?
+  matricula     String?
+  ip            String?
+  userAgent     String?
+  dataEntrada   DateTime  @default(now())
+  dataSaida     DateTime?
+  tempoSessao   Int?      // Tempo em minutos
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model RestricaoMedica {
+  id        Int        @id @default(autoincrement())
+  nome      String     @unique
+  descricao String?
+  policiais Policial[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }

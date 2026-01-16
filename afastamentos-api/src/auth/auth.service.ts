@@ -9,15 +9,22 @@ import * as bcrypt from 'bcryptjs';
 import { UsuarioStatus } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { JwtPayload } from './jwt.strategy';
+import { AcessosService } from '../acessos/acessos.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly acessosService: AcessosService,
   ) {}
 
-  async login(matricula: string, senha: string) {
+  async login(
+    matricula: string,
+    senha: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
     const matriculaNormalizada = matricula.trim().toUpperCase();
 
     const usuario = await this.prisma.usuario.findUnique({
@@ -56,11 +63,21 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas.');
     }
 
+    // Registrar login (após validação bem-sucedida)
+    const acessoId = await this.acessosService.registrarLogin({
+      userId: usuario.id,
+      userName: usuario.nome,
+      matricula: usuario.matricula,
+      ip: ip || null,
+      userAgent: userAgent || null,
+    });
+
     // Gerar token JWT
     const payload: JwtPayload = {
       sub: usuario.id,
       matricula: usuario.matricula,
       isAdmin: usuario.isAdmin || false,
+      acessoId, // Incluir acessoId no payload para poder registrar logout depois
     };
 
     const accessToken = this.jwtService.sign(payload);
@@ -71,6 +88,7 @@ export class AuthService {
     return {
       accessToken,
       usuario: dadosUsuario,
+      acessoId,
     };
   }
 

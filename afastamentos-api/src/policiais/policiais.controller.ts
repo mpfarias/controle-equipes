@@ -45,6 +45,11 @@ export class PoliciaisController {
     });
   }
 
+  @Get('restricoes-medicas')
+  listRestricoesMedicas() {
+    return this.policiaisService.listRestricoesMedicas();
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.policiaisService.findOne(id);
@@ -94,5 +99,18 @@ export class PoliciaisController {
       ...rest,
       responsavelId: user.id,
     }, user);
+  }
+
+  @Patch(':id/restricao-medica')
+  updateRestricaoMedica(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { restricaoMedicaId: number | null },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.updateRestricaoMedica(
+      id,
+      body.restricaoMedicaId,
+      user.id,
+    );
   }
 }

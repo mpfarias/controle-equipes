@@ -9,7 +9,11 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { AuthModule } from './auth/auth.module';
 import { AuditModule } from './audit/audit.module';
 import { RelatoriosModule } from './relatorios/relatorios.module';
+import { ErrosModule } from './erros/erros.module';
+import { AcessosModule } from './acessos/acessos.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { APP_FILTER } from '@nestjs/core';
+import { HttpExceptionFilter } from './erros/http-exception.filter';
 
 @Module({
   imports: [
@@ -27,6 +31,8 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
     AuthModule,
     AuditModule,
     RelatoriosModule,
+    ErrosModule,
+    AcessosModule,
   ],
   providers: [
     {
@@ -36,6 +42,10 @@ import { JwtAuthGuard } from './auth/jwt-auth.guard';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: HttpExceptionFilter,
     },
   ],
 })

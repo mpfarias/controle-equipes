@@ -42,8 +42,8 @@ async function main() {
     return;
   }
 
-  // Verificar se há usuários ou colaboradores usando essas funções
-  console.log('\n🔍 Verificando se há usuários ou colaboradores usando essas funções...');
+  // Verificar se há usuários ou policiais usando essas funções
+  console.log('\n🔍 Verificando se há usuários ou policiais usando essas funções...');
   
   for (const funcao of funcoesLowercase) {
     const usuariosComFuncao = await prisma.usuario.findMany({

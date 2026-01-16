@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
-import type { AuditLog, Usuario, RelatorioLog } from '../../types';
+import type { AuditLog, Usuario, RelatorioLog, ErroLog, AcessoLog } from '../../types';
 import jsPDF from 'jspdf';
 
 interface RelatoriosSectionProps {
@@ -14,11 +14,15 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
   const [generating, setGenerating] = useState(false);
   const [generatingUsuarios, setGeneratingUsuarios] = useState(false);
   const [generatingRelatorioLogs, setGeneratingRelatorioLogs] = useState(false);
+  const [generatingErros, setGeneratingErros] = useState(false);
+  const [generatingAcessos, setGeneratingAcessos] = useState(false);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [relatorioLogs, setRelatorioLogs] = useState<RelatorioLog[]>([]);
+  const [erroLogs, setErroLogs] = useState<ErroLog[]>([]);
+  const [acessoLogs, setAcessoLogs] = useState<AcessoLog[]>([]);
   const [modalDataFiltro, setModalDataFiltro] = useState<{
     open: boolean;
-    tipoRelatorio: 'auditoria' | 'usuarios' | 'geracao-relatorios' | null;
+    tipoRelatorio: 'auditoria' | 'usuarios' | 'geracao-relatorios' | 'erros' | 'acessos' | null;
     dataInicio: string;
     dataFim: string;
   }>({
@@ -76,6 +80,34 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
     void carregarRelatorioLogs();
   }, [carregarRelatorioLogs]);
 
+  const carregarErroLogs = useCallback(async () => {
+    try {
+      const response = await api.listErroLogs();
+      const logs = response.logs || response.erros || [];
+      setErroLogs(Array.isArray(logs) ? logs : []);
+    } catch (err) {
+      console.error('Erro ao carregar logs de erros:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregarErroLogs();
+  }, [carregarErroLogs]);
+
+  const carregarAcessoLogs = useCallback(async () => {
+    try {
+      const response = await api.listAcessoLogs();
+      const logs = response.logs || response.acessos || [];
+      setAcessoLogs(Array.isArray(logs) ? logs : []);
+    } catch (err) {
+      console.error('Erro ao carregar logs de acessos:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void carregarAcessoLogs();
+  }, [carregarAcessoLogs]);
+
   // Função auxiliar para adicionar rodapé em todas as páginas
   const adicionarRodape = useCallback((doc: jsPDF, pageWidth: number, pageHeight: number) => {
     const agora = new Date();
@@ -96,7 +128,7 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
     doc.text(rodape, xPosition, pageHeight - 10);
   }, [currentUser]);
 
-  const abrirModalFiltro = useCallback((tipoRelatorio: 'auditoria' | 'usuarios' | 'geracao-relatorios') => {
+  const abrirModalFiltro = useCallback((tipoRelatorio: 'auditoria' | 'usuarios' | 'geracao-relatorios' | 'erros' | 'acessos') => {
     const hoje = new Date();
     const primeiroDiaMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const ultimoDiaMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
@@ -580,6 +612,329 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
     }
   }, [adicionarRodape]);
 
+  const gerarRelatorioErros = useCallback(async (dataInicio?: string, dataFim?: string) => {
+    try {
+      setGeneratingErros(true);
+      setError(null);
+
+      // Buscar todos os logs de erros (sem paginação) com filtro de data
+      const response = await api.listErroLogs(1, 10000, dataInicio, dataFim);
+      const logs = response.logs || response.erros || [];
+      const errosList = Array.isArray(logs) ? logs : [];
+
+      // Criar PDF em orientação paisagem
+      const doc = new jsPDF('landscape');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const lineHeight = 6;
+      let yPosition = margin;
+
+      // Título
+      doc.setFontSize(18);
+      doc.text('Relatório de Erros do Sistema', margin, yPosition);
+      yPosition += lineHeight * 2;
+
+      // Data de geração
+      doc.setFontSize(10);
+      const dataGeracao = new Date().toLocaleString('pt-BR');
+      doc.text(`Gerado em: ${dataGeracao}`, margin, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      // Período filtrado
+      if (dataInicio || dataFim) {
+        const dataInicioFormatada = dataInicio 
+          ? new Date(dataInicio).toLocaleDateString('pt-BR')
+          : 'Início';
+        const dataFimFormatada = dataFim
+          ? new Date(dataFim).toLocaleDateString('pt-BR')
+          : 'Fim';
+        doc.text(`Período: ${dataInicioFormatada} a ${dataFimFormatada}`, margin, yPosition);
+        yPosition += lineHeight * 1.5;
+      }
+
+      // Informações gerais
+      doc.setFontSize(12);
+      doc.text(`Total de erros registrados: ${errosList.length}`, margin, yPosition);
+      yPosition += lineHeight * 2;
+
+      // Cabeçalho da tabela
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      const headers = ['Data', 'Hora', 'Status', 'Método', 'Endpoint', 'Mensagem', 'Usuário'];
+      const colWidths = [25, 18, 20, 18, 60, 90, 50];
+      let xPosition = margin;
+
+      headers.forEach((header, index) => {
+        doc.text(header, xPosition, yPosition);
+        xPosition += colWidths[index];
+      });
+      yPosition += lineHeight;
+
+      // Linha separadora
+      doc.setLineWidth(0.5);
+      doc.line(margin, yPosition - 2, pageWidth - margin, yPosition - 2);
+      yPosition += lineHeight * 0.5;
+
+      // Adicionar rodapé na primeira página
+      adicionarRodape(doc, pageWidth, pageHeight);
+
+      // Linhas de dados
+      doc.setFont('helvetica', 'normal');
+      errosList.forEach((erro) => {
+        // Verificar se precisa de nova página
+        if (yPosition > pageHeight - margin - lineHeight - 15) { // -15 para espaço do rodapé
+          doc.addPage('landscape');
+          yPosition = margin;
+          
+          // Reimprimir cabeçalho
+          doc.setFont('helvetica', 'bold');
+          xPosition = margin;
+          headers.forEach((header, index) => {
+            doc.text(header, xPosition, yPosition);
+            xPosition += colWidths[index];
+          });
+          yPosition += lineHeight;
+          doc.line(margin, yPosition - 2, pageWidth - margin, yPosition - 2);
+          yPosition += lineHeight * 0.5;
+          doc.setFont('helvetica', 'normal');
+          
+          // Adicionar rodapé na nova página
+          adicionarRodape(doc, pageWidth, pageHeight);
+        }
+
+        // Formatar data e hora separadamente
+        const date = new Date(erro.createdAt);
+        const dia = String(date.getDate()).padStart(2, '0');
+        const mes = String(date.getMonth() + 1).padStart(2, '0');
+        const ano = date.getFullYear();
+        const data = `${dia}/${mes}/${ano}`;
+        const horas = String(date.getHours()).padStart(2, '0');
+        const minutos = String(date.getMinutes()).padStart(2, '0');
+        const hora = `${horas}:${minutos}`;
+        
+        const statusCode = erro.statusCode?.toString() || '-';
+        const metodo = erro.metodo || '-';
+        const endpoint = erro.endpoint || '-';
+        const mensagem = erro.mensagem || '-';
+        const usuario = erro.userName || erro.matricula || '-';
+
+        xPosition = margin;
+        
+        // Truncar textos longos
+        const truncarTexto = (texto: string, largura: number) => {
+          const textoTruncado = doc.splitTextToSize(texto, largura);
+          return textoTruncado[0] || texto.substring(0, 20);
+        };
+        
+        doc.text(data, xPosition, yPosition);
+        xPosition += colWidths[0];
+        doc.text(hora, xPosition, yPosition);
+        xPosition += colWidths[1];
+        doc.text(statusCode, xPosition, yPosition);
+        xPosition += colWidths[2];
+        doc.text(metodo, xPosition, yPosition);
+        xPosition += colWidths[3];
+        doc.text(truncarTexto(endpoint, colWidths[4]), xPosition, yPosition);
+        xPosition += colWidths[4];
+        doc.text(truncarTexto(mensagem, colWidths[5]), xPosition, yPosition);
+        xPosition += colWidths[5];
+        doc.text(truncarTexto(usuario, colWidths[6]), xPosition, yPosition);
+
+        yPosition += lineHeight;
+      });
+
+      // Salvar PDF
+      const fileName = `relatorio-erros-${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+
+      // Registrar geração do relatório
+      try {
+        await api.registrarGeracaoRelatorio('Relatório de Erros do Sistema');
+      } catch (err) {
+        console.error('Erro ao registrar geração do relatório:', err);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível gerar o relatório de erros.',
+      );
+    } finally {
+      setGeneratingErros(false);
+    }
+  }, [adicionarRodape]);
+
+  const gerarRelatorioAcessos = useCallback(async (dataInicio?: string, dataFim?: string) => {
+    try {
+      setGeneratingAcessos(true);
+      setError(null);
+
+      // Buscar todos os logs de acessos (sem paginação) com filtro de data
+      const response = await api.listAcessoLogs(1, 10000, dataInicio, dataFim);
+      const logs = response.logs || response.acessos || [];
+      const acessosList = Array.isArray(logs) ? logs : [];
+
+      // Criar PDF em orientação paisagem
+      const doc = new jsPDF('landscape');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const lineHeight = 6;
+      let yPosition = margin;
+
+      // Título
+      doc.setFontSize(18);
+      doc.text('Relatório de Acessos ao Sistema', margin, yPosition);
+      yPosition += lineHeight * 2;
+
+      // Data de geração
+      doc.setFontSize(10);
+      const dataGeracao = new Date().toLocaleString('pt-BR');
+      doc.text(`Gerado em: ${dataGeracao}`, margin, yPosition);
+      yPosition += lineHeight * 1.5;
+
+      // Período filtrado
+      if (dataInicio || dataFim) {
+        const dataInicioFormatada = dataInicio 
+          ? new Date(dataInicio).toLocaleDateString('pt-BR')
+          : 'Início';
+        const dataFimFormatada = dataFim
+          ? new Date(dataFim).toLocaleDateString('pt-BR')
+          : 'Fim';
+        doc.text(`Período: ${dataInicioFormatada} a ${dataFimFormatada}`, margin, yPosition);
+        yPosition += lineHeight * 1.5;
+      }
+
+      // Informações gerais
+      doc.setFontSize(12);
+      doc.text(`Total de acessos registrados: ${acessosList.length}`, margin, yPosition);
+      yPosition += lineHeight * 2;
+
+      // Cabeçalho da tabela
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      const headers = ['Data Entrada', 'Hora Entrada', 'Usuário', 'Matrícula', 'IP', 'Data Saída', 'Hora Saída', 'Tempo Sessão (min)'];
+      const colWidths = [25, 18, 60, 25, 30, 25, 18, 30];
+      let xPosition = margin;
+
+      headers.forEach((header, index) => {
+        doc.text(header, xPosition, yPosition);
+        xPosition += colWidths[index];
+      });
+      yPosition += lineHeight;
+
+      // Linha separadora
+      doc.setLineWidth(0.5);
+      doc.line(margin, yPosition - 2, pageWidth - margin, yPosition - 2);
+      yPosition += lineHeight * 0.5;
+
+      // Adicionar rodapé na primeira página
+      adicionarRodape(doc, pageWidth, pageHeight);
+
+      // Linhas de dados
+      doc.setFont('helvetica', 'normal');
+      acessosList.forEach((acesso) => {
+        // Verificar se precisa de nova página
+        if (yPosition > pageHeight - margin - lineHeight - 15) { // -15 para espaço do rodapé
+          doc.addPage('landscape');
+          yPosition = margin;
+          
+          // Reimprimir cabeçalho
+          doc.setFont('helvetica', 'bold');
+          xPosition = margin;
+          headers.forEach((header, index) => {
+            doc.text(header, xPosition, yPosition);
+            xPosition += colWidths[index];
+          });
+          yPosition += lineHeight;
+          doc.line(margin, yPosition - 2, pageWidth - margin, yPosition - 2);
+          yPosition += lineHeight * 0.5;
+          doc.setFont('helvetica', 'normal');
+          
+          // Adicionar rodapé na nova página
+          adicionarRodape(doc, pageWidth, pageHeight);
+        }
+
+        // Formatar data e hora de entrada separadamente
+        const dateEntrada = new Date(acesso.dataEntrada);
+        const diaEntrada = String(dateEntrada.getDate()).padStart(2, '0');
+        const mesEntrada = String(dateEntrada.getMonth() + 1).padStart(2, '0');
+        const anoEntrada = dateEntrada.getFullYear();
+        const dataEntrada = `${diaEntrada}/${mesEntrada}/${anoEntrada}`;
+        const horasEntrada = String(dateEntrada.getHours()).padStart(2, '0');
+        const minutosEntrada = String(dateEntrada.getMinutes()).padStart(2, '0');
+        const horaEntrada = `${horasEntrada}:${minutosEntrada}`;
+        
+        // Formatar data e hora de saída separadamente (se houver)
+        let dataSaida = '-';
+        let horaSaida = '-';
+        if (acesso.dataSaida) {
+          const dateSaida = new Date(acesso.dataSaida);
+          const diaSaida = String(dateSaida.getDate()).padStart(2, '0');
+          const mesSaida = String(dateSaida.getMonth() + 1).padStart(2, '0');
+          const anoSaida = dateSaida.getFullYear();
+          dataSaida = `${diaSaida}/${mesSaida}/${anoSaida}`;
+          const horasSaida = String(dateSaida.getHours()).padStart(2, '0');
+          const minutosSaida = String(dateSaida.getMinutes()).padStart(2, '0');
+          horaSaida = `${horasSaida}:${minutosSaida}`;
+        }
+        
+        const usuario = acesso.userName || '-';
+        const matricula = acesso.matricula || '-';
+        const ip = acesso.ip || '-';
+        const tempoSessao = acesso.tempoSessao !== null && acesso.tempoSessao !== undefined 
+          ? acesso.tempoSessao.toString() 
+          : '-';
+
+        xPosition = margin;
+        
+        // Truncar textos longos
+        const truncarTexto = (texto: string, largura: number) => {
+          const textoTruncado = doc.splitTextToSize(texto, largura);
+          return textoTruncado[0] || texto.substring(0, 20);
+        };
+        
+        doc.text(dataEntrada, xPosition, yPosition);
+        xPosition += colWidths[0];
+        doc.text(horaEntrada, xPosition, yPosition);
+        xPosition += colWidths[1];
+        doc.text(truncarTexto(usuario, colWidths[2]), xPosition, yPosition);
+        xPosition += colWidths[2];
+        doc.text(matricula, xPosition, yPosition);
+        xPosition += colWidths[3];
+        doc.text(truncarTexto(ip, colWidths[4]), xPosition, yPosition);
+        xPosition += colWidths[4];
+        doc.text(dataSaida, xPosition, yPosition);
+        xPosition += colWidths[5];
+        doc.text(horaSaida, xPosition, yPosition);
+        xPosition += colWidths[6];
+        doc.text(tempoSessao, xPosition, yPosition);
+
+        yPosition += lineHeight;
+      });
+
+      // Salvar PDF
+      const fileName = `relatorio-acessos-${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+
+      // Registrar geração do relatório
+      try {
+        await api.registrarGeracaoRelatorio('Relatório de Acessos ao Sistema');
+      } catch (err) {
+        console.error('Erro ao registrar geração do relatório:', err);
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Não foi possível gerar o relatório de acessos.',
+      );
+    } finally {
+      setGeneratingAcessos(false);
+    }
+  }, [adicionarRodape]);
+
   const confirmarGeracaoRelatorio = useCallback(async () => {
     const { tipoRelatorio, dataInicio, dataFim } = modalDataFiltro;
     fecharModalFiltro();
@@ -590,8 +945,12 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
       await gerarRelatorioUsuarios(dataInicio, dataFim);
     } else if (tipoRelatorio === 'geracao-relatorios') {
       await gerarRelatorioLogsRelatorios(dataInicio, dataFim);
+    } else if (tipoRelatorio === 'erros') {
+      await gerarRelatorioErros(dataInicio, dataFim);
+    } else if (tipoRelatorio === 'acessos') {
+      await gerarRelatorioAcessos(dataInicio, dataFim);
     }
-  }, [modalDataFiltro, fecharModalFiltro, gerarRelatorioCompleto, gerarRelatorioUsuarios, gerarRelatorioLogsRelatorios]);
+  }, [modalDataFiltro, fecharModalFiltro, gerarRelatorioCompleto, gerarRelatorioUsuarios, gerarRelatorioLogsRelatorios, gerarRelatorioErros, gerarRelatorioAcessos]);
 
   return (
     <section>
@@ -716,6 +1075,66 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
             {generatingRelatorioLogs ? 'Gerando PDF...' : 'Gerar PDF'}
           </button>
         </div>
+
+        <div
+          style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '1.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h3 style={{ margin: 0 }}>Relatório de Erros do Sistema</h3>
+            <div className="tooltip-container">
+              <span className="tooltip-icon">?</span>
+              <div className="tooltip-text">
+                Este relatório mostra todos os erros registrados no sistema, incluindo data, hora, status HTTP, método, endpoint, mensagem de erro e usuário relacionado.
+              </div>
+            </div>
+          </div>
+          <button
+            className="primary"
+            type="button"
+            onClick={() => abrirModalFiltro('erros')}
+            disabled={generatingErros || erroLogs.length === 0}
+            style={{ marginTop: 'auto' }}
+          >
+            {generatingErros ? 'Gerando PDF...' : 'Gerar PDF'}
+          </button>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '1.5rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h3 style={{ margin: 0 }}>Relatório de Acessos ao Sistema</h3>
+            <div className="tooltip-container">
+              <span className="tooltip-icon">?</span>
+              <div className="tooltip-text">
+                Este relatório mostra todos os acessos ao sistema, incluindo quem entrou, data e hora de entrada, IP, data e hora de saída, e tempo de sessão.
+              </div>
+            </div>
+          </div>
+          <button
+            className="primary"
+            type="button"
+            onClick={() => abrirModalFiltro('acessos')}
+            disabled={generatingAcessos || acessoLogs.length === 0}
+            style={{ marginTop: 'auto' }}
+          >
+            {generatingAcessos ? 'Gerando PDF...' : 'Gerar PDF'}
+          </button>
+        </div>
       </div>
 
       {/* Modal de Seleção de Período */}
@@ -786,7 +1205,9 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
                   !modalDataFiltro.dataFim ||
                   generating ||
                   generatingUsuarios ||
-                  generatingRelatorioLogs
+                  generatingRelatorioLogs ||
+                  generatingErros ||
+                  generatingAcessos
                 }
               >
                 Gerar Relatório

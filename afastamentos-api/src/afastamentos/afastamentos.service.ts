@@ -10,7 +10,7 @@ import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
 
 type AfastamentoWithPolicial = Prisma.AfastamentoGetPayload<{
-  include: { policial: true; motivo: true };
+  include: { policial: { include: { funcao: true } }; motivo: true };
 }>;
 
 @Injectable()
@@ -237,7 +237,7 @@ export class AfastamentosService {
   }
 
   /**
-   * Valida regras específicas para férias
+   * Valida regras específicas para férias baseado no status do policial
    */
   private async validarRegrasFerias(
     policialId: number,
@@ -264,11 +264,36 @@ export class AfastamentosService {
       );
     }
 
-    // Regra 3: Mínimo de 5 dias por período
+    // Buscar o policial para verificar o status
+    const policial = await this.prisma.policial.findUnique({
+      where: { id: policialId },
+      select: { status: true },
+    });
+
+    if (!policial) {
+      throw new NotFoundException(`Policial ${policialId} não encontrado.`);
+    }
+
     const diasSolicitados = this.calcularDiasEntreDatas(dataInicio, dataFim);
-    if (diasSolicitados < 5) {
+    
+    // Aplicar regras diferentes baseado no status
+    const isComissionado = policial.status === PolicialStatus.COMISSIONADO;
+    const isAtivoPTTCouDesignado = 
+      policial.status === PolicialStatus.ATIVO ||
+      policial.status === PolicialStatus.PTTC ||
+      policial.status === PolicialStatus.DESIGNADO;
+
+    if (!isComissionado && !isAtivoPTTCouDesignado) {
       throw new BadRequestException(
-        `O período de férias deve ter no mínimo 5 dias. Período informado: ${diasSolicitados} dias.`,
+        `Policiais com status ${policial.status} não podem tirar férias.`,
+      );
+    }
+
+    // Regra 1: Mínimo de dias por período
+    const minimoDiasPorPeriodo = isComissionado ? 10 : 5;
+    if (diasSolicitados < minimoDiasPorPeriodo) {
+      throw new BadRequestException(
+        `O período de férias deve ter no mínimo ${minimoDiasPorPeriodo} dias para policiais ${isComissionado ? 'comissionados' : 'ativos, PTTC ou designados'}. Período informado: ${diasSolicitados} dias.`,
       );
     }
 
@@ -387,7 +412,7 @@ export class AfastamentosService {
       );
     }
 
-    // Regra 1: Não pode ultrapassar 30 dias por ano
+    // Calcular total de dias já usados no ano
     let totalDias = 0;
     for (const feriasExistente of feriasExistentes) {
       if (feriasExistente.dataFim) {
@@ -399,6 +424,7 @@ export class AfastamentosService {
       }
     }
 
+    // Regra: Não pode ultrapassar 30 dias por ano (válido para todos)
     const totalAposCadastro = totalDias + diasSolicitados;
     if (totalAposCadastro > 30) {
       const diasRestantes = 30 - totalDias;
@@ -407,38 +433,7 @@ export class AfastamentosService {
       );
     }
 
-    // Regra 2: Máximo de 3 períodos por ano e intervalo mínimo de 30 dias entre períodos
     const totalPeriodos = feriasExistentes.length;
-    if (totalPeriodos >= 3) {
-      throw new BadRequestException(
-        'O policial já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
-      );
-    }
-
-    // Regra adicional: Se já existem 2 períodos, o terceiro deve completar exatamente 30 dias
-    if (totalPeriodos === 2) {
-      // Calcular total de dias já usados nos 2 períodos existentes
-      let diasUsados = 0;
-      for (const feriasExistente of feriasExistentes) {
-        if (feriasExistente.dataFim) {
-          const dias = this.calcularDiasEntreDatas(
-            feriasExistente.dataInicio,
-            feriasExistente.dataFim,
-          );
-          diasUsados += dias;
-        }
-      }
-
-      // Calcular quantos dias restam para completar 30 dias
-      const diasRestantes = 30 - diasUsados;
-
-      // O terceiro período deve ter exatamente a quantidade de dias restantes
-      if (diasSolicitados !== diasRestantes) {
-        throw new BadRequestException(
-          `O policial já possui 2 períodos de férias cadastrados, totalizando ${diasUsados} dias. O terceiro período deve ter exatamente ${diasRestantes} dias para completar o total de 30 dias de férias.`,
-        );
-      }
-    }
 
     // Função auxiliar para calcular dias entre duas datas (sem incluir os dias finais)
     const calcularDiasEntre = (data1: Date, data2: Date): number => {
@@ -450,37 +445,78 @@ export class AfastamentosService {
       return Math.floor(diffTime / (1000 * 60 * 60 * 24));
     };
 
-    // Verificar intervalo mínimo de 30 dias entre períodos
-    for (const feriasExistente of feriasExistentes) {
-      if (!feriasExistente.dataFim) continue;
+    // REGRAS PARA POLICIAIS ATIVOS, PTTC OU DESIGNADOS
+    if (isAtivoPTTCouDesignado) {
+      // Máximo de 3 períodos por ano
+      if (totalPeriodos >= 3) {
+        throw new BadRequestException(
+          'O policial já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
+        );
+      }
 
-      // Calcular dias entre o fim do período existente e o início do novo período
-      const dataFimExistente = new Date(feriasExistente.dataFim);
-      const dataInicioNovo = new Date(dataInicio);
-      dataFimExistente.setHours(0, 0, 0, 0);
-      dataInicioNovo.setHours(0, 0, 0, 0);
+      // Para ATIVO/PTTC/DESIGNADO: sem intervalo mínimo entre períodos
+      // Não precisa validar intervalo entre períodos
+    }
 
-      // Se o novo período começa depois do existente
-      if (dataInicioNovo > dataFimExistente) {
-        const diasEntrePeriodos = calcularDiasEntre(dataFimExistente, dataInicioNovo);
-        if (diasEntrePeriodos < 30) {
-          throw new BadRequestException(
-            `O intervalo entre períodos de férias deve ser de no mínimo 30 dias. O período atual está a ${diasEntrePeriodos} dias do período anterior.`,
-          );
+    // REGRAS PARA POLICIAIS COMISSIONADOS
+    if (isComissionado) {
+      // Máximo de 3 períodos por ano
+      if (totalPeriodos >= 3) {
+        throw new BadRequestException(
+          'O policial já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
+        );
+      }
+
+      // Verificar intervalo mínimo de 30 dias entre períodos
+      for (const feriasExistente of feriasExistentes) {
+        if (!feriasExistente.dataFim) continue;
+
+        const dataFimExistente = new Date(feriasExistente.dataFim);
+        const dataInicioNovo = new Date(dataInicio);
+        dataFimExistente.setHours(0, 0, 0, 0);
+        dataInicioNovo.setHours(0, 0, 0, 0);
+
+        // Se o novo período começa depois do existente
+        if (dataInicioNovo > dataFimExistente) {
+          const diasEntrePeriodos = calcularDiasEntre(dataFimExistente, dataInicioNovo);
+          if (diasEntrePeriodos < 30) {
+            throw new BadRequestException(
+              `Para policiais comissionados, o intervalo entre períodos de férias deve ser de no mínimo 30 dias. O período atual está a ${diasEntrePeriodos} dias do período anterior.`,
+            );
+          }
+        }
+
+        // Se o novo período começa antes do existente
+        const dataFimNovo = new Date(dataFim!);
+        dataFimNovo.setHours(0, 0, 0, 0);
+        const dataInicioExistente = new Date(feriasExistente.dataInicio);
+        dataInicioExistente.setHours(0, 0, 0, 0);
+
+        if (dataFimNovo < dataInicioExistente) {
+          const diasEntrePeriodos = calcularDiasEntre(dataFimNovo, dataInicioExistente);
+          if (diasEntrePeriodos < 30) {
+            throw new BadRequestException(
+              `Para policiais comissionados, o intervalo entre períodos de férias deve ser de no mínimo 30 dias. O período atual está a ${diasEntrePeriodos} dias do período posterior.`,
+            );
+          }
         }
       }
 
-      // Se o novo período começa antes do existente
-      const dataFimNovo = new Date(dataFim);
-      dataFimNovo.setHours(0, 0, 0, 0);
-      const dataInicioExistente = new Date(feriasExistente.dataInicio);
-      dataInicioExistente.setHours(0, 0, 0, 0);
-
-      if (dataFimNovo < dataInicioExistente) {
-        const diasEntrePeriodos = calcularDiasEntre(dataFimNovo, dataInicioExistente);
-        if (diasEntrePeriodos < 30) {
+      // Validar se é possível dividir os dias restantes em períodos válidos (mínimo 10 dias cada)
+      // Só validar se ainda há períodos disponíveis após este cadastro
+      const totalDiasAposCadastro = totalDias + diasSolicitados;
+      const diasRestantes = 30 - totalDiasAposCadastro;
+      const periodosAposCadastro = totalPeriodos + 1;
+      const periodosRestantes = 3 - periodosAposCadastro; // Períodos que ainda podem ser cadastrados
+      
+      if (periodosRestantes > 0 && diasRestantes > 0) {
+        // Ainda há períodos disponíveis e dias restantes
+        // Verificar se é possível dividir os dias restantes em períodos de pelo menos 10 dias
+        const minimoParaProximosPeriodos = periodosRestantes * 10;
+        
+        if (diasRestantes < minimoParaProximosPeriodos) {
           throw new BadRequestException(
-            `O intervalo entre períodos de férias deve ser de no mínimo 30 dias. O período atual está a ${diasEntrePeriodos} dias do período posterior.`,
+            `Para policiais comissionados, não é possível dividir as férias em períodos válidos. Com ${totalDiasAposCadastro} dias já utilizados (${periodosAposCadastro} período(s)), restam ${diasRestantes} dias para ${periodosRestantes} período(s) restante(s), mas cada período precisa ter no mínimo 10 dias. É necessário ajustar o período atual para permitir a divisão correta das férias.`,
           );
         }
       }
@@ -602,7 +638,7 @@ export class AfastamentosService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { policial: true, motivo: true },
+      include: { policial: { include: { funcao: true } }, motivo: true },
     });
 
     await this.audit.record({
@@ -634,7 +670,7 @@ export class AfastamentosService {
     if (page === undefined && pageSize === undefined) {
       return this.prisma.afastamento.findMany({
         where: { status: AfastamentoStatus.ATIVO },
-        include: { policial: true, motivo: true },
+        include: { policial: { include: { funcao: true } }, motivo: true },
         orderBy: { dataInicio: 'desc' },
       });
     }
@@ -650,7 +686,7 @@ export class AfastamentosService {
     const [afastamentos, total] = await this.prisma.$transaction([
       this.prisma.afastamento.findMany({
         where,
-        include: { policial: true, motivo: true },
+        include: { policial: { include: { funcao: true } }, motivo: true },
         orderBy: { dataInicio: 'desc' },
         skip,
         take,
@@ -672,7 +708,7 @@ export class AfastamentosService {
 
     const afastamento = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { policial: true, motivo: true },
+      include: { policial: { include: { funcao: true } }, motivo: true },
     });
 
     if (!afastamento) {
@@ -691,7 +727,7 @@ export class AfastamentosService {
 
     return this.prisma.afastamento.findMany({
       where: { policialId, status: AfastamentoStatus.ATIVO },
-      include: { policial: true, motivo: true },
+      include: { policial: { include: { funcao: true } }, motivo: true },
       orderBy: { dataInicio: 'desc' },
     });
   }
@@ -703,7 +739,7 @@ export class AfastamentosService {
   ): Promise<AfastamentoWithPolicial> {
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { policial: true, motivo: true },
+      include: { policial: { include: { funcao: true } }, motivo: true },
     });
 
     if (!before) {
@@ -769,7 +805,7 @@ export class AfastamentosService {
     const updated = await this.prisma.afastamento.update({
       where: { id },
       data: updateData,
-      include: { policial: true, motivo: true },
+      include: { policial: { include: { funcao: true } }, motivo: true },
     });
 
     await this.markExpiredAfastamentos();
@@ -789,7 +825,7 @@ export class AfastamentosService {
   async remove(id: number, responsavelId?: number): Promise<void> {
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { policial: true, motivo: true },
+      include: { policial: { include: { funcao: true } }, motivo: true },
     });
 
     if (!before) {

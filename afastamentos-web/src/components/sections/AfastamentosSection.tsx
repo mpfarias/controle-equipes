@@ -6,10 +6,11 @@ import type {
   MotivoAfastamentoOption,
   Usuario,
 } from '../../types';
-import { STATUS_LABEL } from '../../constants';
+import { STATUS_LABEL, EQUIPE_FONETICA } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo } from '../../utils/dateUtils';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { Autocomplete, TextField } from '@mui/material';
+import { Autocomplete, TextField, Button } from '@mui/material';
+import ClearIcon from '@mui/icons-material/Clear';
 
 interface AfastamentosSectionProps {
   currentUser: Usuario;
@@ -39,6 +40,8 @@ export function AfastamentosSection({
   const [searchTerm, setSearchTerm] = useState('');
   const [motivoFiltro, setMotivoFiltro] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
+  const [dataInicioFiltro, setDataInicioFiltro] = useState<string>('');
+  const [dataFimFiltro, setDataFimFiltro] = useState<string>('');
   const [conflitosModal, setConflitosModal] = useState<{
     open: boolean;
     conflitos: Afastamento[];
@@ -502,11 +505,62 @@ export function AfastamentosSection({
   }, []);
 
   const afastamentosFiltrados = useMemo(() => {
-    const [year, month] = selectedMonth.split('-').map(Number);
+    let resultado = afastamentos;
 
-    const filtradoPorMes = !selectedMonth || Number.isNaN(year) || Number.isNaN(month)
-      ? afastamentos
-      : afastamentos.filter((afastamento) => {
+    // Filtrar por intervalo de datas (tem prioridade sobre o filtro por mês)
+    if (dataInicioFiltro || dataFimFiltro) {
+      resultado = resultado.filter((afastamento) => {
+        const inicioAfastamento = new Date(afastamento.dataInicio);
+        const fimAfastamento = afastamento.dataFim ? new Date(afastamento.dataFim) : null;
+
+        // Normalizar datas para comparação (apenas dia, mês, ano)
+        inicioAfastamento.setHours(0, 0, 0, 0);
+        if (fimAfastamento) {
+          fimAfastamento.setHours(0, 0, 0, 0);
+        }
+
+        if (dataInicioFiltro && dataFimFiltro) {
+          // Criar datas locais a partir de YYYY-MM-DD para evitar problemas de timezone
+          const [yearInicio, monthInicio, dayInicio] = dataInicioFiltro.split('-').map(Number);
+          const [yearFim, monthFim, dayFim] = dataFimFiltro.split('-').map(Number);
+          const filtroInicio = new Date(yearInicio, monthInicio - 1, dayInicio, 0, 0, 0, 0);
+          const filtroFim = new Date(yearFim, monthFim - 1, dayFim, 23, 59, 59, 999); // Fim do dia para incluir o último dia completo
+
+          // Verificar se há sobreposição entre o período do afastamento e o filtro
+          // Dois períodos [a, b] e [c, d] se sobrepõem se: a <= d && c <= b
+          if (fimAfastamento) {
+            // Afastamento tem fim: verificar sobreposição normal
+            const temSobreposicao = inicioAfastamento.getTime() <= filtroFim.getTime() && 
+                                   filtroInicio.getTime() <= fimAfastamento.getTime();
+            return temSobreposicao;
+          } else {
+            // Afastamento sem fim: verificar se começa antes ou durante o período do filtro
+            return inicioAfastamento.getTime() <= filtroFim.getTime();
+          }
+        } else if (dataInicioFiltro) {
+          // Apenas início: afastamento deve começar a partir dessa data
+          const [yearInicio, monthInicio, dayInicio] = dataInicioFiltro.split('-').map(Number);
+          const filtroInicio = new Date(yearInicio, monthInicio - 1, dayInicio, 0, 0, 0, 0);
+          return inicioAfastamento.getTime() >= filtroInicio.getTime() || (fimAfastamento && fimAfastamento.getTime() >= filtroInicio.getTime());
+        } else if (dataFimFiltro) {
+          // Apenas fim: afastamento deve terminar até essa data ou não ter fim
+          // Incluir TODO o último dia (23:59:59.999)
+          const [yearFim, monthFim, dayFim] = dataFimFiltro.split('-').map(Number);
+          const filtroFim = new Date(yearFim, monthFim - 1, dayFim, 23, 59, 59, 999);
+          if (fimAfastamento) {
+            return fimAfastamento.getTime() <= filtroFim.getTime() || inicioAfastamento.getTime() <= filtroFim.getTime();
+          } else {
+            return inicioAfastamento.getTime() <= filtroFim.getTime();
+          }
+        }
+
+        return true;
+      });
+    } else {
+      // Se não há filtro por intervalo de datas, usar o filtro por mês
+      const [year, month] = selectedMonth.split('-').map(Number);
+      if (selectedMonth && !Number.isNaN(year) && !Number.isNaN(month)) {
+        resultado = resultado.filter((afastamento) => {
           return periodoSobrepoeMes(
             afastamento.dataInicio,
             afastamento.dataFim,
@@ -514,12 +568,15 @@ export function AfastamentosSection({
             month,
           );
         });
+      }
+    }
 
-    const filtradoPorMotivo =
-      motivoFiltro
-        ? filtradoPorMes.filter((afastamento) => afastamento.motivo.nome === motivoFiltro)
-        : filtradoPorMes;
+    // Filtrar por motivo
+    const filtradoPorMotivo = motivoFiltro
+      ? resultado.filter((afastamento) => afastamento.motivo.nome === motivoFiltro)
+      : resultado;
 
+    // Filtrar por busca de nome
     if (!normalizedSearch) {
       return filtradoPorMotivo;
     }
@@ -527,9 +584,30 @@ export function AfastamentosSection({
     return filtradoPorMotivo.filter((afastamento) =>
       afastamento.policial.nome.includes(normalizedSearch),
     );
-  }, [afastamentos, motivoFiltro, normalizedSearch, selectedMonth, periodoSobrepoeMes]);
+  }, [afastamentos, motivoFiltro, normalizedSearch, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes]);
 
   const descricaoPeriodo = useMemo(() => {
+    // Prioridade para intervalo de datas
+    if (dataInicioFiltro || dataFimFiltro) {
+      if (dataInicioFiltro && dataFimFiltro) {
+        // Criar datas locais para formatação correta
+        const [yearInicio, monthInicio, dayInicio] = dataInicioFiltro.split('-').map(Number);
+        const [yearFim, monthFim, dayFim] = dataFimFiltro.split('-').map(Number);
+        const dataInicio = new Date(yearInicio, monthInicio - 1, dayInicio);
+        const dataFim = new Date(yearFim, monthFim - 1, dayFim);
+        return `${formatDate(dataInicio.toISOString())} a ${formatDate(dataFim.toISOString())}`;
+      } else if (dataInicioFiltro) {
+        const [yearInicio, monthInicio, dayInicio] = dataInicioFiltro.split('-').map(Number);
+        const dataInicio = new Date(yearInicio, monthInicio - 1, dayInicio);
+        return `A partir de ${formatDate(dataInicio.toISOString())}`;
+      } else if (dataFimFiltro) {
+        const [yearFim, monthFim, dayFim] = dataFimFiltro.split('-').map(Number);
+        const dataFim = new Date(yearFim, monthFim - 1, dayFim);
+        return `Até ${formatDate(dataFim.toISOString())}`;
+      }
+    }
+
+    // Se não há filtro por intervalo, usar o filtro por mês
     if (!selectedMonth) {
       return 'Todos os períodos';
     }
@@ -553,7 +631,7 @@ export function AfastamentosSection({
       month: 'long',
       year: 'numeric',
     }).format(dataReferencia);
-  }, [selectedMonth]);
+  }, [selectedMonth, dataInicioFiltro, dataFimFiltro]);
 
   return (
     <section>
@@ -746,19 +824,76 @@ export function AfastamentosSection({
             ))}
           </select>
           <input
+            type="date"
+            className="search-input"
+            value={dataInicioFiltro}
+            onChange={(event) => {
+              setDataInicioFiltro(event.target.value);
+              // Limpar filtro por mês quando usar intervalo de datas
+              if (event.target.value) {
+                setSelectedMonth('');
+              }
+            }}
+            placeholder="Data início"
+            title="Data início do período"
+          />
+          <input
+            type="date"
+            className="search-input"
+            value={dataFimFiltro}
+            onChange={(event) => {
+              setDataFimFiltro(event.target.value);
+              // Limpar filtro por mês quando usar intervalo de datas
+              if (event.target.value) {
+                setSelectedMonth('');
+              }
+            }}
+            placeholder="Data fim"
+            title="Data fim do período"
+            min={dataInicioFiltro || undefined}
+          />
+          <input
             type="month"
             className="search-input"
             value={selectedMonth}
-            onChange={(event) => setSelectedMonth(event.target.value)}
+            onChange={(event) => {
+              setSelectedMonth(event.target.value);
+              // Limpar intervalo de datas quando usar filtro por mês
+              if (event.target.value) {
+                setDataInicioFiltro('');
+                setDataFimFiltro('');
+              }
+            }}
+            title="Filtrar por mês"
           />
           <span className="badge badge-muted">{descricaoPeriodo}</span>
+          {(dataInicioFiltro || dataFimFiltro || selectedMonth) && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<ClearIcon />}
+              onClick={() => {
+                setDataInicioFiltro('');
+                setDataFimFiltro('');
+                setSelectedMonth('');
+              }}
+              title="Limpar todos os filtros de período"
+              sx={{
+                whiteSpace: 'nowrap',
+                textTransform: 'none',
+                minWidth: 'auto',
+              }}
+            >
+              Limpar
+            </Button>
+          )}
         </div>
         {loading ? (
           <p className="empty-state">Carregando afastamentos...</p>
         ) : afastamentosFiltrados.length === 0 ? (
           <p className="empty-state">
-            {selectedMonth
-              ? 'Nenhum afastamento registrado neste mês.'
+            {dataInicioFiltro || dataFimFiltro || selectedMonth
+              ? 'Nenhum afastamento encontrado no período selecionado.'
               : 'Nenhum afastamento cadastrado.'}
           </p>
         ) : (
@@ -812,7 +947,7 @@ export function AfastamentosSection({
       {/* Modal de Conflitos de Afastamento */}
       {conflitosModal.open && (
         <div className="modal-backdrop">
-          <div className="modal" style={{ maxWidth: '600px' }}>
+          <div className="modal" style={{ maxWidth: '1000px' }}>
             <h3>Conflito de Afastamentos</h3>
             <p>
               Existem {conflitosModal.conflitos.length} policial(is) já afastado(s) no período selecionado:
@@ -828,6 +963,8 @@ export function AfastamentosSection({
                 <thead>
                   <tr>
                     <th>Policial</th>
+                    <th>Função</th>
+                    <th>Equipe</th>
                     <th>Motivo</th>
                     <th>Período</th>
                     <th>Status</th>
@@ -839,6 +976,14 @@ export function AfastamentosSection({
                       <td>
                         <div>{afastamento.policial.nome}</div>
                         <small>{afastamento.policial.matricula}</small>
+                      </td>
+                      <td>
+                        {afastamento.policial.funcao?.nome || '-'}
+                      </td>
+                      <td>
+                        {afastamento.policial.equipe 
+                          ? `${EQUIPE_FONETICA[afastamento.policial.equipe]} (${afastamento.policial.equipe})`
+                          : '-'}
                       </td>
                       <td>
                         <div>{afastamento.motivo.nome}</div>
