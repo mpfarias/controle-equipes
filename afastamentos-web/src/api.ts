@@ -148,9 +148,75 @@ async function request<T>(
   }
 }
 
+const CACHE_TTL_MS = 30_000;
+const requestCache = new Map<string, { ts: number; data: unknown }>();
+
+function getCached<T>(key: string): T | null {
+  const cached = requestCache.get(key);
+  if (!cached) {
+    return null;
+  }
+  if (Date.now() - cached.ts > CACHE_TTL_MS) {
+    requestCache.delete(key);
+    return null;
+  }
+  return cached.data as T;
+}
+
+function setCached(key: string, data: unknown): void {
+  requestCache.set(key, { ts: Date.now(), data });
+}
+
+function clearCache(): void {
+  requestCache.clear();
+}
+
 export const api = {
+  async listUsuariosPaginated(params: {
+    page: number;
+    pageSize: number;
+  }): Promise<{
+    usuarios: Usuario[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    searchParams.append('page', String(params.page));
+    searchParams.append('pageSize', String(params.pageSize));
+    const query = searchParams.toString();
+    const path = `/usuarios?${query}`;
+    const cacheKey = `GET:${path}`;
+    const cached = getCached<{
+      usuarios: Usuario[];
+      total: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    }>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<{
+      usuarios: Usuario[];
+      total: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    }>(path);
+    setCached(cacheKey, data);
+    return data;
+  },
   async listUsuarios(): Promise<Usuario[]> {
-    return request('/usuarios');
+    const cacheKey = 'GET:/usuarios';
+    const cached = getCached<Usuario[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<Usuario[]>('/usuarios');
+    setCached(cacheKey, data);
+    return data;
   },
 
   async getUsuario(id: number): Promise<Usuario> {
@@ -158,28 +224,46 @@ export const api = {
   },
 
   async listUsuarioNiveis(): Promise<UsuarioNivelOption[]> {
-    return request('/usuarios/niveis');
+    const cacheKey = 'GET:/usuarios/niveis';
+    const cached = getCached<UsuarioNivelOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<UsuarioNivelOption[]>('/usuarios/niveis');
+    setCached(cacheKey, data);
+    return data;
   },
 
   async listFuncoes(): Promise<FuncaoOption[]> {
-    return request('/usuarios/funcoes');
+    const cacheKey = 'GET:/usuarios/funcoes';
+    const cached = getCached<FuncaoOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<FuncaoOption[]>('/usuarios/funcoes');
+    setCached(cacheKey, data);
+    return data;
   },
 
   async createUsuario(payload: CreateUsuarioInput): Promise<Usuario> {
-    return request('/usuarios', {
+    const data = await request<Usuario>('/usuarios', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async updateUsuario(
     id: number,
     payload: Partial<CreateUsuarioInput>,
   ): Promise<Usuario> {
-    return request(`/usuarios/${id}`, {
+    const data = await request<Usuario>(`/usuarios/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async login(payload: LoginInput): Promise<{ accessToken: string; usuario: Usuario; acessoId?: number }> {
@@ -242,12 +326,15 @@ export const api = {
     await request(`/usuarios/${id}`, {
       method: 'DELETE',
     });
+    clearCache();
   },
 
   async activateUsuario(id: number): Promise<Usuario> {
-    return request(`/usuarios/${id}/activate`, {
+    const data = await request<Usuario>(`/usuarios/${id}/activate`, {
       method: 'PATCH',
     });
+    clearCache();
+    return data;
   },
 
   async deleteUsuario(id: number, senha: string): Promise<void> {
@@ -255,10 +342,91 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ senha }),
     });
+    clearCache();
   },
 
-  async listPoliciais(): Promise<Policial[]> {
-    return request('/policiais');
+  async listPoliciais(params?: {
+    page?: number;
+    pageSize?: number;
+    includeAfastamentos?: boolean;
+    includeRestricoes?: boolean;
+  }): Promise<Policial[]> {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.append('page', String(params.page));
+    if (params?.pageSize) searchParams.append('pageSize', String(params.pageSize));
+    if (params?.includeAfastamentos !== undefined) {
+      searchParams.append('includeAfastamentos', String(params.includeAfastamentos));
+    }
+    if (params?.includeRestricoes !== undefined) {
+      searchParams.append('includeRestricoes', String(params.includeRestricoes));
+    }
+    const query = searchParams.toString();
+    const path = `/policiais${query ? `?${query}` : ''}`;
+    const cacheKey = `GET:${path}`;
+    const cached = getCached<Policial[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<Policial[]>(path);
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async listPoliciaisPaginated(params: {
+    page: number;
+    pageSize: number;
+    includeAfastamentos?: boolean;
+    includeRestricoes?: boolean;
+    search?: string;
+    equipe?: string;
+    status?: string;
+    funcaoId?: number;
+    orderBy?: 'nome' | 'matricula' | 'equipe';
+    orderDir?: 'asc' | 'desc';
+  }): Promise<{
+    Policiales: Policial[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    searchParams.append('page', String(params.page));
+    searchParams.append('pageSize', String(params.pageSize));
+    if (params.includeAfastamentos !== undefined) {
+      searchParams.append('includeAfastamentos', String(params.includeAfastamentos));
+    }
+    if (params.includeRestricoes !== undefined) {
+      searchParams.append('includeRestricoes', String(params.includeRestricoes));
+    }
+    if (params.search) searchParams.append('search', params.search);
+    if (params.equipe) searchParams.append('equipe', params.equipe);
+    if (params.status) searchParams.append('status', params.status);
+    if (params.funcaoId) searchParams.append('funcaoId', String(params.funcaoId));
+    if (params.orderBy) searchParams.append('orderBy', params.orderBy);
+    if (params.orderDir) searchParams.append('orderDir', params.orderDir);
+    const query = searchParams.toString();
+    const path = `/policiais?${query}`;
+    const cacheKey = `GET:${path}`;
+    const cached = getCached<{
+      Policiales: Policial[];
+      total: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    }>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<{
+      Policiales: Policial[];
+      total: number;
+      page: number;
+      pageSize: number;
+      totalPages: number;
+    }>(path);
+    setCached(cacheKey, data);
+    return data;
   },
 
   async getPolicial(id: number): Promise<Policial> {
@@ -266,32 +434,39 @@ export const api = {
   },
 
   async createPolicial(payload: CreatePolicialInput): Promise<Policial> {
-    return request('/policiais', {
+    const data = await request<Policial>('/policiais', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async updatePolicial(
     id: number,
     payload: Partial<CreatePolicialInput>,
   ): Promise<Policial> {
-    return request(`/policiais/${id}`, {
+    const data = await request<Policial>(`/policiais/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async removePolicial(id: number): Promise<void> {
     await request(`/policiais/${id}`, {
       method: 'DELETE',
     });
+    clearCache();
   },
 
   async activatePolicial(id: number): Promise<Policial> {
-    return request(`/policiais/${id}/activate`, {
+    const data = await request<Policial>(`/policiais/${id}/activate`, {
       method: 'PATCH',
     });
+    clearCache();
+    return data;
   },
 
   async deletePolicial(id: number, senha: string): Promise<void> {
@@ -299,52 +474,101 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ senha }),
     });
+    clearCache();
   },
 
   async listRestricoesMedicas(): Promise<RestricaoMedica[]> {
-    return request('/policiais/restricoes-medicas');
+    const cacheKey = 'GET:/policiais/restricoes-medicas';
+    const cached = getCached<RestricaoMedica[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<RestricaoMedica[]>('/policiais/restricoes-medicas');
+    setCached(cacheKey, data);
+    return data;
   },
 
   async updateRestricaoMedicaPolicial(
     id: number,
     restricaoMedicaId: number | null,
   ): Promise<Policial> {
-    return request(`/policiais/${id}/restricao-medica`, {
+    const data = await request<Policial>(`/policiais/${id}/restricao-medica`, {
       method: 'PATCH',
       body: JSON.stringify({ restricaoMedicaId }),
     });
+    clearCache();
+    return data;
   },
 
   async listMotivos(): Promise<MotivoAfastamentoOption[]> {
-    return request('/afastamentos/motivos');
+    const cacheKey = 'GET:/afastamentos/motivos';
+    const cached = getCached<MotivoAfastamentoOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<MotivoAfastamentoOption[]>('/afastamentos/motivos');
+    setCached(cacheKey, data);
+    return data;
   },
 
-  async listAfastamentos(policialId?: number): Promise<Afastamento[]> {
-    const url = policialId ? `/afastamentos?policialId=${policialId}` : '/afastamentos';
-    return request(url);
+  async listAfastamentos(
+    params?: number | {
+      policialId?: number;
+      page?: number;
+      pageSize?: number;
+      equipe?: string;
+      motivoId?: number;
+      status?: string;
+      dataInicio?: string;
+      dataFim?: string;
+      includePolicialFuncao?: boolean;
+    },
+  ): Promise<Afastamento[]> {
+    if (typeof params === 'number') {
+      return request(`/afastamentos?policialId=${params}`);
+    }
+    const searchParams = new URLSearchParams();
+    if (params?.policialId) searchParams.append('policialId', String(params.policialId));
+    if (params?.page) searchParams.append('page', String(params.page));
+    if (params?.pageSize) searchParams.append('pageSize', String(params.pageSize));
+    if (params?.equipe) searchParams.append('equipe', params.equipe);
+    if (params?.motivoId) searchParams.append('motivoId', String(params.motivoId));
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.dataInicio) searchParams.append('dataInicio', params.dataInicio);
+    if (params?.dataFim) searchParams.append('dataFim', params.dataFim);
+    if (params?.includePolicialFuncao !== undefined) {
+      searchParams.append('includePolicialFuncao', String(params.includePolicialFuncao));
+    }
+    const query = searchParams.toString();
+    return request(`/afastamentos${query ? `?${query}` : ''}`);
   },
 
   async createAfastamento(payload: CreateAfastamentoInput): Promise<Afastamento> {
-    return request('/afastamentos', {
+    const data = await request<Afastamento>('/afastamentos', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async updateAfastamento(
     id: number,
     payload: Partial<CreateAfastamentoInput>,
   ): Promise<Afastamento> {
-    return request(`/afastamentos/${id}`, {
+    const data = await request<Afastamento>(`/afastamentos/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async removeAfastamento(id: number): Promise<void> {
     await request(`/afastamentos/${id}`, {
       method: 'DELETE',
     });
+    clearCache();
   },
 
   async uploadFile(file: File): Promise<ProcessFileResponse> {
@@ -358,10 +582,12 @@ export const api = {
   },
 
   async createPoliciaisBulk(payload: CreatePoliciaisBulkInput): Promise<BulkCreateResponse> {
-    return request('/policiais/bulk', {
+    const data = await request<BulkCreateResponse>('/policiais/bulk', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    clearCache();
+    return data;
   },
 
   async listAuditLogs(limit?: number, offset?: number, dataInicio?: string, dataFim?: string): Promise<AuditLogsResponse> {

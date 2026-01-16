@@ -50,7 +50,30 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const carregarAfastamentos = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await api.listAfastamentos();
+      const temFiltroDeDatas = (dataInicioFiltro && dataInicioFiltro.trim() !== '') ||
+        (dataFimFiltro && dataFimFiltro.trim() !== '');
+      const params: Parameters<typeof api.listAfastamentos>[0] = {};
+
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      }
+
+      if (temFiltroDeDatas) {
+        if (dataInicioFiltro) params.dataInicio = dataInicioFiltro;
+        if (dataFimFiltro) params.dataFim = dataFimFiltro;
+      } else if (selectedMonth) {
+        const [year, month] = selectedMonth.split('-').map(Number);
+        if (!Number.isNaN(year) && !Number.isNaN(month)) {
+          const primeiroDia = `${year}-${String(month).padStart(2, '0')}-01`;
+          const ultimoDia = new Date(year, month, 0);
+          const ultimoDiaStr = `${ultimoDia.getFullYear()}-${String(ultimoDia.getMonth() + 1).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
+          params.dataInicio = primeiroDia;
+          params.dataFim = ultimoDiaStr;
+        }
+      }
+
+      params.includePolicialFuncao = false;
+      const data = await api.listAfastamentos(params);
       
       let filtrados = data;
       
@@ -78,7 +101,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     } finally {
       setLoading(false);
     }
-    }, [currentUser.equipe, usuarioPodeVerTodos]);
+    }, [currentUser.equipe, usuarioPodeVerTodos, dataInicioFiltro, dataFimFiltro, selectedMonth]);
 
   useEffect(() => {
     void carregarAfastamentos();

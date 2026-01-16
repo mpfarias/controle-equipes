@@ -49,6 +49,10 @@ export function UsuariosSection({
   const [usuarioNiveis, setUsuarioNiveis] = useState<UsuarioNivelOption[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [loading, setLoading] = useState(false);
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [itensPorPagina, setItensPorPagina] = useState(20);
+  const [totalUsuarios, setTotalUsuarios] = useState(0);
+  const [totalPaginas, setTotalPaginas] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -78,11 +82,20 @@ export function UsuariosSection({
     loading: false,
   });
 
-  const carregarUsuarios = useCallback(async () => {
+  const carregarUsuarios = useCallback(async (page: number, pageSize: number) => {
     try {
       setLoading(true);
-      const data = await api.listUsuarios();
-      setUsuarios(data);
+      const data = await api.listUsuariosPaginated({
+        page,
+        pageSize,
+      });
+      setUsuarios(data.usuarios);
+      const totalPages = Math.max(1, data.totalPages);
+      setTotalUsuarios(data.total);
+      setTotalPaginas(totalPages);
+      if (page > totalPages) {
+        setPaginaAtual(totalPages);
+      }
       setError(null);
     } catch (err) {
       setError(
@@ -267,10 +280,13 @@ export function UsuariosSection({
   }, [usuarios, loading, error]);
 
   useEffect(() => {
-    void carregarUsuarios();
+    void carregarUsuarios(paginaAtual, itensPorPagina);
+  }, [carregarUsuarios, paginaAtual, itensPorPagina]);
+
+  useEffect(() => {
     void carregarNiveis();
     void carregarFuncoes();
-  }, [carregarUsuarios, carregarNiveis, carregarFuncoes]);
+  }, [carregarNiveis, carregarFuncoes]);
 
   // Quando os níveis forem carregados, definir o primeiro como padrão se não houver seleção
   useEffect(() => {
@@ -450,7 +466,7 @@ export function UsuariosSection({
       await api.createUsuario(payload);
       resetForm();
       setSuccess('Usuário cadastrado com sucesso.');
-      await carregarUsuarios();
+      await carregarUsuarios(paginaAtual, itensPorPagina);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Não foi possível criar o usuário.',
@@ -612,7 +628,7 @@ export function UsuariosSection({
           await api.updateUsuario(editingUsuario.id, payload);
           setSuccess('Usuário atualizado com sucesso.');
           resetEditForm();
-          await carregarUsuarios();
+          await carregarUsuarios(paginaAtual, itensPorPagina);
           
           // Se o usuário editado for o usuário logado, atualizar currentUser
           if (editingUsuario.id === currentUser.id && onCurrentUserUpdate) {
@@ -649,7 +665,7 @@ export function UsuariosSection({
             resetEditForm();
           }
           setSuccess('Usuário desativado.');
-          await carregarUsuarios();
+          await carregarUsuarios(paginaAtual, itensPorPagina);
         } catch (err) {
           setError(
             err instanceof Error
@@ -674,7 +690,7 @@ export function UsuariosSection({
             resetEditForm();
           }
           setSuccess('Usuário ativado.');
-          await carregarUsuarios();
+          await carregarUsuarios(paginaAtual, itensPorPagina);
         } catch (err) {
           setError(
             err instanceof Error
@@ -729,7 +745,7 @@ export function UsuariosSection({
       
       setSuccess('Usuário excluído permanentemente.');
       handleCloseDeleteModal();
-      await carregarUsuarios();
+      await carregarUsuarios(paginaAtual, itensPorPagina);
     } catch (err) {
       let errorMessage = 'Não foi possível excluir o usuário.';
       if (err instanceof Error) {
@@ -768,6 +784,10 @@ export function UsuariosSection({
     
     return usuariosFiltrados;
   }, [usuarios, normalizedSearch, currentUserIsAdmin, isUsuarioAdministrador]);
+
+  const totalVisivel = normalizedSearch ? filteredUsuarios.length : totalUsuarios;
+  const registroInicio = totalVisivel === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
+  const registroFim = totalVisivel === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalVisivel);
 
   return (
     <section>
@@ -991,6 +1011,20 @@ export function UsuariosSection({
           onChange={(event) => setSearchTerm(event.target.value.toUpperCase())}
           placeholder="Pesquisar por nome"
         />
+        <select
+          value={itensPorPagina}
+          onChange={(event) => {
+            setItensPorPagina(Number(event.target.value));
+            setPaginaAtual(1);
+          }}
+          style={{ maxWidth: '140px' }}
+          aria-label="Itens por página"
+        >
+          <option value={10}>10 / página</option>
+          <option value={20}>20 / página</option>
+          <option value={50}>50 / página</option>
+          <option value={100}>100 / página</option>
+        </select>
       </div>
       {loading ? (
         <p className="empty-state">Carregando usuários...</p>
@@ -1064,6 +1098,66 @@ export function UsuariosSection({
             ))}
           </tbody>
         </table>
+      )}
+
+      {totalPaginas > 1 && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '16px',
+            padding: '12px',
+            backgroundColor: '#f8f9fa',
+            borderRadius: '8px',
+            border: '1px solid #e9ecef',
+          }}
+        >
+          <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+            Mostrando {registroInicio} a {registroFim} de {totalVisivel} registro(s)
+          </div>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setPaginaAtual(1)}
+              disabled={paginaAtual === 1}
+              style={{ padding: '6px 12px' }}
+            >
+              ««
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setPaginaAtual((prev) => Math.max(1, prev - 1))}
+              disabled={paginaAtual === 1}
+              style={{ padding: '6px 12px' }}
+            >
+              ‹ Anterior
+            </button>
+            <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+              Página {paginaAtual} de {totalPaginas}
+            </span>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setPaginaAtual((prev) => Math.min(totalPaginas, prev + 1))}
+              disabled={paginaAtual === totalPaginas}
+              style={{ padding: '6px 12px' }}
+            >
+              Próxima ›
+            </button>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setPaginaAtual(totalPaginas)}
+              disabled={paginaAtual === totalPaginas}
+              style={{ padding: '6px 12px' }}
+            >
+              »»
+            </button>
+          </div>
+        </div>
       )}
 
       {editingUsuario && (

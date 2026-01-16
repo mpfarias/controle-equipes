@@ -86,6 +86,8 @@ export function MostrarEquipeSection({
   } | null>(null);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
+  const [totalPoliciais, setTotalPoliciais] = useState(0);
+  const [totalPaginas, setTotalPaginas] = useState(1);
  
   const getPolicialStatusClass = (status: PolicialStatus) => {
     switch (status) {
@@ -121,11 +123,48 @@ export function MostrarEquipeSection({
     }
   };
 
-  const carregarPoliciais = useCallback(async () => {
+  const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
       setLoading(true);
-      const data = await api.listPoliciais();
-      setPoliciais(data);
+      const nivelNome = currentUser.nivel?.nome;
+      const usuarioPodeVerTodos =
+        nivelNome === 'ADMINISTRADOR' ||
+        nivelNome === 'SAD' ||
+        nivelNome === 'COMANDO' ||
+        currentUser.isAdmin === true;
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page,
+        pageSize,
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      };
+      const busca = searchTerm.trim();
+      if (busca) {
+        params.search = busca;
+      }
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      } else if (filtroEquipe) {
+        params.equipe = filtroEquipe;
+      }
+      if (filtroStatus) {
+        params.status = filtroStatus;
+      }
+      if (filtroFuncao) {
+        params.funcaoId = filtroFuncao;
+      }
+      if (ordenacao) {
+        params.orderBy = ordenacao.campo;
+        params.orderDir = ordenacao.direcao;
+      }
+      const data = await api.listPoliciaisPaginated(params);
+      setPoliciais(data.Policiales);
+      const totalPages = Math.max(1, data.totalPages);
+      setTotalPoliciais(data.total);
+      setTotalPaginas(totalPages);
+      if (page > totalPages) {
+        setPaginaAtual(totalPages);
+      }
       setError(null);
     } catch (err) {
       setError(
@@ -136,7 +175,7 @@ export function MostrarEquipeSection({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentUser, filtroEquipe, filtroFuncao, filtroStatus, ordenacao, searchTerm]);
 
   const carregarFuncoes = useCallback(async () => {
     try {
@@ -165,10 +204,13 @@ export function MostrarEquipeSection({
   }, [funcoes]);
  
   useEffect(() => {
-    void carregarPoliciais();
+    void carregarPoliciais(paginaAtual, itensPorPagina);
+  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey]);
+
+  useEffect(() => {
     void carregarFuncoes();
     void carregarRestricoesMedicas();
-  }, [carregarPoliciais, carregarFuncoes, carregarRestricoesMedicas, refreshKey]);
+  }, [carregarFuncoes, carregarRestricoesMedicas]);
 
   const openEditModal = (policial: Policial) => {
     setEditingPolicial(policial);
@@ -279,7 +321,7 @@ export function MostrarEquipeSection({
           await api.updatePolicial(editingPolicial.id, payload);
           setSuccess('Policial atualizado com sucesso.');
           closeEditModal();
-          await carregarPoliciais();
+          await carregarPoliciais(paginaAtual, itensPorPagina);
           onChanged?.();
         } catch (err) {
           setEditError(
@@ -303,7 +345,7 @@ export function MostrarEquipeSection({
         try {
           await api.removePolicial(policial.id);
           setSuccess('Policial desativado.');
-          await carregarPoliciais();
+          await carregarPoliciais(paginaAtual, itensPorPagina);
           onChanged?.();
         } catch (err) {
           setError(
@@ -325,7 +367,7 @@ export function MostrarEquipeSection({
         try {
           await api.activatePolicial(policial.id);
           setSuccess('Policial reativado com sucesso.');
-          await carregarPoliciais();
+          await carregarPoliciais(paginaAtual, itensPorPagina);
           onChanged?.();
         } catch (err) {
           setError(
@@ -381,7 +423,7 @@ export function MostrarEquipeSection({
       
       setSuccess('Policial excluído permanentemente.');
       handleCloseDeleteModal();
-      await carregarPoliciais();
+      await carregarPoliciais(paginaAtual, itensPorPagina);
       onChanged?.();
     } catch (err) {
       let errorMessage = 'Não foi possível excluir o policial.';
@@ -510,17 +552,12 @@ export function MostrarEquipeSection({
     return resultado;
   }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao]);
 
-  // Calcular itens paginados
-  const policiaisPaginados = useMemo(() => {
-    const inicio = (paginaAtual - 1) * itensPorPagina;
-    const fim = inicio + itensPorPagina;
-    return filteredPoliciales.slice(inicio, fim);
-  }, [filteredPoliciales, paginaAtual, itensPorPagina]);
+  const registroInicio = totalPoliciais === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
+  const registroFim = totalPoliciais === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalPoliciais);
 
-  // Calcular total de páginas
-  const totalPaginas = useMemo(() => {
-    return Math.ceil(filteredPoliciales.length / itensPorPagina);
-  }, [filteredPoliciales.length, itensPorPagina]);
+  const policiaisPaginados = useMemo(() => {
+    return filteredPoliciales;
+  }, [filteredPoliciales]);
 
   // Calcular totais de dias por tipo de afastamento para a modal de visualização
   const resumoDiasPorTipo = useMemo(() => {
@@ -599,7 +636,11 @@ export function MostrarEquipeSection({
         >
           {filtrosAberto ? 'Ocultar filtros' : 'Mostrar filtros'}
         </button>
-        <button className="ghost" type="button" onClick={() => void carregarPoliciais()}>
+        <button
+          className="ghost"
+          type="button"
+          onClick={() => void carregarPoliciais(paginaAtual, itensPorPagina)}
+        >
           Atualizar lista
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
@@ -638,7 +679,7 @@ export function MostrarEquipeSection({
             Total do efetivo:
           </Typography>
           <Chip 
-            label={policiaisDaEquipe.length} 
+            label={totalPoliciais} 
             size="small" 
             sx={{ fontWeight: 600, backgroundColor: '#3b82f6', color: 'white' }}
           />
@@ -649,7 +690,7 @@ export function MostrarEquipeSection({
               Com filtros aplicados:
             </Typography>
             <Chip 
-              label={filteredPoliciales.length} 
+              label={totalPoliciais} 
               size="small" 
               sx={{ fontWeight: 600, backgroundColor: '#10b981', color: 'white' }}
             />
@@ -725,7 +766,7 @@ export function MostrarEquipeSection({
 
       {loading ? (
         <p className="empty-state">Carregando policiais...</p>
-      ) : filteredPoliciales.length === 0 ? (
+      ) : totalPoliciais === 0 ? (
         <p className="empty-state">Nenhum policial cadastrado.</p>
       ) : (
         <>
@@ -826,7 +867,10 @@ export function MostrarEquipeSection({
                       // Carregar afastamentos do policial
                       try {
                         setLoadingAfastamentos(true);
-                        const afastamentosData = await api.listAfastamentos(policial.id);
+                        const afastamentosData = await api.listAfastamentos({
+                          policialId: policial.id,
+                          includePolicialFuncao: false,
+                        });
                         setViewingAfastamentos(afastamentosData);
                       } catch (err) {
                         console.error('Erro ao carregar afastamentos:', err);
@@ -963,7 +1007,7 @@ export function MostrarEquipeSection({
             border: '1px solid #e9ecef'
           }}>
             <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
-              Mostrando {((paginaAtual - 1) * itensPorPagina) + 1} a {Math.min(paginaAtual * itensPorPagina, filteredPoliciales.length)} de {filteredPoliciales.length} registro(s)
+              Mostrando {registroInicio} a {registroFim} de {totalPoliciais} registro(s)
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -1726,7 +1770,7 @@ export function MostrarEquipeSection({
                     setViewingPolicial(updatedPolicial);
                     
                     // Recarregar lista de policiais
-                    await carregarPoliciais();
+                    await carregarPoliciais(paginaAtual, itensPorPagina);
 
                     setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
                   } catch (err) {

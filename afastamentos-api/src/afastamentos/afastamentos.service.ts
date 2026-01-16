@@ -675,7 +675,16 @@ export class AfastamentosService {
     return created;
   }
 
-  async findAll(options?: { page?: number; pageSize?: number }): Promise<
+  async findAll(options?: {
+    page?: number;
+    pageSize?: number;
+    equipe?: string;
+    motivoId?: number;
+    status?: string;
+    dataInicio?: string;
+    dataFim?: string;
+    includePolicialFuncao?: boolean;
+  }): Promise<
     | AfastamentoWithPolicial[]
     | {
         afastamentos: AfastamentoWithPolicial[];
@@ -687,13 +696,53 @@ export class AfastamentosService {
   > {
     await this.markExpiredAfastamentos();
 
-    const { page, pageSize } = options || {};
+    const {
+      page,
+      pageSize,
+      equipe,
+      motivoId,
+      status,
+      dataInicio,
+      dataFim,
+      includePolicialFuncao,
+    } = options || {};
 
     // Se não fornecer paginação, retornar todos (compatibilidade com código existente)
+    const baseWhere: Prisma.AfastamentoWhereInput = {
+      status: (status as AfastamentoStatus) ?? AfastamentoStatus.ATIVO,
+      ...(motivoId ? { motivoId } : {}),
+      ...(equipe ? { policial: { equipe: equipe as any } } : {}),
+    };
+
+    const hasDataInicio = Boolean(dataInicio);
+    const hasDataFim = Boolean(dataFim);
+    if (hasDataInicio || hasDataFim) {
+      const inicio = hasDataInicio ? new Date(dataInicio as string) : undefined;
+      const fim = hasDataFim ? new Date(dataFim as string) : undefined;
+      baseWhere.AND = [
+        ...(inicio ? [{ dataInicio: { lte: fim ?? new Date('9999-12-31') } }] : []),
+        ...(fim
+          ? [
+              {
+                OR: [
+                  { dataFim: null },
+                  { dataFim: { gte: inicio ?? new Date('1970-01-01') } },
+                ],
+              },
+            ]
+          : []),
+      ];
+    }
+
+    const include = {
+      policial: includePolicialFuncao === false ? true : { include: { funcao: true } },
+      motivo: true,
+    };
+
     if (page === undefined && pageSize === undefined) {
       return this.prisma.afastamento.findMany({
-        where: { status: AfastamentoStatus.ATIVO },
-        include: { policial: { include: { funcao: true } }, motivo: true },
+        where: baseWhere,
+        include,
         orderBy: { dataInicio: 'desc' },
       });
     }
@@ -704,12 +753,12 @@ export class AfastamentosService {
     const skip = (currentPage - 1) * currentPageSize;
     const take = currentPageSize;
 
-    const where = { status: AfastamentoStatus.ATIVO };
+    const where = baseWhere;
 
     const [afastamentos, total] = await this.prisma.$transaction([
       this.prisma.afastamento.findMany({
         where,
-        include: { policial: { include: { funcao: true } }, motivo: true },
+        include,
         orderBy: { dataInicio: 'desc' },
         skip,
         take,
@@ -743,14 +792,20 @@ export class AfastamentosService {
 
   async findByPolicial(
     policialId: number,
+    options?: { includePolicialFuncao?: boolean },
   ): Promise<AfastamentoWithPolicial[]> {
     await this.ensurePolicialExists(policialId);
 
     await this.markExpiredAfastamentos();
 
+    const include = {
+      policial: options?.includePolicialFuncao === false ? true : { include: { funcao: true } },
+      motivo: true,
+    };
+
     return this.prisma.afastamento.findMany({
       where: { policialId, status: AfastamentoStatus.ATIVO },
-      include: { policial: { include: { funcao: true } }, motivo: true },
+      include,
       orderBy: { dataInicio: 'desc' },
     });
   }

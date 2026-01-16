@@ -30,17 +30,36 @@ export class AfastamentosController {
     @Query('policialId') policialId?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('equipe') equipe?: string,
+    @Query('motivoId') motivoId?: string,
+    @Query('status') status?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+    @Query('includePolicialFuncao') includePolicialFuncao?: string,
   ) {
+    const includePolicialFuncaoParsed = includePolicialFuncao !== 'false';
     if (policialId) {
       const id = Number.parseInt(policialId, 10);
       if (Number.isNaN(id)) {
         throw new BadRequestException('O policialId deve ser numérico.');
       }
-      return this.afastamentosService.findByPolicial(id);
+      return this.afastamentosService.findByPolicial(id, {
+        includePolicialFuncao: includePolicialFuncaoParsed,
+      });
+    }
+    const motivoIdParsed = motivoId ? Number.parseInt(motivoId, 10) : undefined;
+    if (motivoId && Number.isNaN(motivoIdParsed)) {
+      throw new BadRequestException('O motivoId deve ser numérico.');
     }
     return this.afastamentosService.findAll({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      equipe: equipe || undefined,
+      motivoId: motivoIdParsed,
+      status: status || undefined,
+      dataInicio: dataInicio || undefined,
+      dataFim: dataFim || undefined,
+      includePolicialFuncao: includePolicialFuncaoParsed,
     });
   }
 

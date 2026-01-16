@@ -40,10 +40,40 @@ export class PoliciaisController {
   findAll(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('includeAfastamentos') includeAfastamentos?: string,
+    @Query('includeRestricoes') includeRestricoes?: string,
+    @Query('search') search?: string,
+    @Query('equipe') equipe?: string,
+    @Query('status') status?: string,
+    @Query('funcaoId') funcaoId?: string,
+    @Query('orderBy') orderBy?: string,
+    @Query('orderDir') orderDir?: string,
   ) {
+    const includeAfastamentosParsed = includeAfastamentos === 'true';
+    const includeRestricoesParsed = includeRestricoes === 'true';
+    const funcaoIdParsed = funcaoId ? Number.parseInt(funcaoId, 10) : undefined;
+    if (funcaoId && Number.isNaN(funcaoIdParsed)) {
+      throw new BadRequestException('O funcaoId deve ser numérico.');
+    }
+    const orderByAllowed = orderBy === 'nome' || orderBy === 'matricula' || orderBy === 'equipe';
+    if (orderBy && !orderByAllowed) {
+      throw new BadRequestException('O orderBy deve ser nome, matricula ou equipe.');
+    }
+    const orderDirAllowed = orderDir === 'asc' || orderDir === 'desc';
+    if (orderDir && !orderDirAllowed) {
+      throw new BadRequestException('O orderDir deve ser asc ou desc.');
+    }
     return this.policiaisService.findAll({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      includeAfastamentos: includeAfastamentosParsed,
+      includeRestricoes: includeRestricoesParsed,
+      search: search || undefined,
+      equipe: equipe || undefined,
+      status: status || undefined,
+      funcaoId: funcaoIdParsed,
+      orderBy: orderByAllowed ? (orderBy as 'nome' | 'matricula' | 'equipe') : undefined,
+      orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
     });
   }
 

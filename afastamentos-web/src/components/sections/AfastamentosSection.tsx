@@ -56,16 +56,22 @@ export function AfastamentosSection({
   const carregarDados = useCallback(async () => {
     try {
       setLoading(true);
+      const nivelUsuario = currentUser.nivel?.nome;
+      const equipeAtual = currentUser.equipe;
+      const params: Parameters<typeof api.listAfastamentos>[0] = {};
+      if (nivelUsuario === 'OPERAÇÕES' && equipeAtual) {
+        params.equipe = equipeAtual;
+      }
+
       const [afastamentosData, policiaisData, motivosData] = await Promise.all([
-        api.listAfastamentos(),
-        api.listPoliciais(),
+        api.listAfastamentos(params),
+        api.listPoliciais({ includeAfastamentos: false, includeRestricoes: false }),
         api.listMotivos(),
       ]);
       
       setMotivos(motivosData);
       
-      const equipeAtual = currentUser.equipe;
-      const nivelUsuario = currentUser.nivel?.nome;
+      // equipeAtual e nivelUsuario já definidos acima
       
       // Filtrar policiais para exibição na lista: 
       // - Nível OPERAÇÕES: apenas da equipe do usuário
@@ -97,7 +103,7 @@ export function AfastamentosSection({
     } finally {
       setLoading(false);
     }
-  }, [currentUser.equipe]);
+  }, [currentUser.equipe, currentUser.nivel?.nome]);
 
   useEffect(() => {
     void carregarDados();

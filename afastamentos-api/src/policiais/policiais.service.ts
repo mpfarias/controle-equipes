@@ -152,7 +152,18 @@ export class PoliciaisService {
     return created;
   }
 
-  async findAll(options?: { page?: number; pageSize?: number }): Promise<
+  async findAll(options?: {
+    page?: number;
+    pageSize?: number;
+    includeAfastamentos?: boolean;
+    includeRestricoes?: boolean;
+    search?: string;
+    equipe?: string;
+    status?: string;
+    funcaoId?: number;
+    orderBy?: 'nome' | 'matricula' | 'equipe';
+    orderDir?: 'asc' | 'desc';
+  }): Promise<
     | PolicialWithRelations[]
     | {
         Policiales: PolicialWithRelations[];
@@ -162,13 +173,49 @@ export class PoliciaisService {
         totalPages: number;
       }
   > {
-    const { page, pageSize } = options || {};
+    const {
+      page,
+      pageSize,
+      includeAfastamentos,
+      includeRestricoes,
+      search,
+      equipe,
+      status,
+      funcaoId,
+      orderBy,
+      orderDir,
+    } = options || {};
+    const include = {
+      afastamentos: includeAfastamentos === true,
+      funcao: true,
+      restricaoMedica: includeRestricoes === true,
+    };
+    const where: Prisma.PolicialWhereInput = {};
+
+    if (equipe) {
+      where.equipe = equipe as Equipe;
+    }
+    if (status) {
+      where.status = status as PolicialStatus;
+    }
+    if (funcaoId) {
+      where.funcaoId = funcaoId;
+    }
+    if (search) {
+      where.OR = [
+        { nome: { contains: search, mode: 'insensitive' } },
+        { matricula: { contains: search, mode: 'insensitive' } },
+        { funcao: { nome: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+    const orderByClause = orderBy ? { [orderBy]: orderDir ?? 'asc' } : { nome: 'asc' };
 
     // Se nÃ£o fornecer paginaÃ§Ã£o, retornar todos (incluindo desativados)
     if (page === undefined && pageSize === undefined) {
       return this.prisma.policial.findMany({
-        orderBy: { nome: 'asc' },
-        include: { afastamentos: true, funcao: true, restricaoMedica: true },
+        where,
+        orderBy: orderByClause,
+        include,
       });
     }
 
@@ -178,13 +225,11 @@ export class PoliciaisService {
     const skip = (currentPage - 1) * currentPageSize;
     const take = currentPageSize;
 
-    const where = {}; // Removido filtro de desativados para mostrar todos
-
     const [Policiales, total] = await this.prisma.$transaction([
       this.prisma.policial.findMany({
         where,
-        orderBy: { nome: 'asc' },
-        include: { afastamentos: true, funcao: true, restricaoMedica: true },
+        orderBy: orderByClause,
+        include,
         skip,
         take,
       }),
