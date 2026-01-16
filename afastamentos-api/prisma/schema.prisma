@@ -42,6 +42,7 @@ model Afastamento {
   policial      Policial          @relation(fields: [policialId], references: [id], onDelete: Cascade)
   motivoId      Int
   motivo        MotivoAfastamento @relation(fields: [motivoId], references: [id])
+  seiNumero     String
   descricao     String?
   dataInicio    DateTime
   dataFim       DateTime?

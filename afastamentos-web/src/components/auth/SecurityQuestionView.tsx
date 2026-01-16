@@ -39,8 +39,13 @@ export function SecurityQuestionView({
       return;
     }
 
-    if (novaSenha.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres.');
+    if (novaSenha.length < 8) {
+      setError('A senha deve ter pelo menos 8 caracteres.');
+      return;
+    }
+
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(novaSenha)) {
+      setError('A senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número.');
       return;
     }
 
@@ -139,10 +144,10 @@ export function SecurityQuestionView({
           <PasswordInput
             value={novaSenha}
             onChange={setNovaSenha}
-            placeholder="Mínimo de 6 caracteres"
+            placeholder="Mínimo de 8 caracteres"
             autoComplete="new-password"
             required
-            minLength={6}
+            minLength={8}
           />
         </label>
         <label>
@@ -153,7 +158,7 @@ export function SecurityQuestionView({
             placeholder="Digite a senha novamente"
             autoComplete="new-password"
             required
-            minLength={6}
+            minLength={8}
           />
         </label>
         <div style={{ display: 'flex', gap: '0.5rem' }}>

@@ -1,8 +1,10 @@
 import { Controller, Post, Get, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RelatoriosService } from './relatorios.service';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('relatorios')
+@Roles('ADMINISTRADOR', 'COMANDO')
 export class RelatoriosController {
   constructor(private readonly relatoriosService: RelatoriosService) {}
 

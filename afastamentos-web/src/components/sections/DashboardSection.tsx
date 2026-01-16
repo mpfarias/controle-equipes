@@ -24,6 +24,23 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const [dataInicioFiltro, setDataInicioFiltro] = useState<string>('');
   const [dataFimFiltro, setDataFimFiltro] = useState<string>('');
 
+  const getPolicialStatusClass = (status: Afastamento['policial']['status']) => {
+    switch (status) {
+      case 'ATIVO':
+        return 'badge policial-status-ativo';
+      case 'COMISSIONADO':
+        return 'badge policial-status-comissionado';
+      case 'DESIGNADO':
+        return 'badge policial-status-designado';
+      case 'PTTC':
+        return 'badge policial-status-pttc';
+      case 'DESATIVADO':
+        return 'badge policial-status-desativado';
+      default:
+        return 'badge badge-muted';
+    }
+  };
+
   // Verificar se o usuário pode ver todos os afastamentos (ADMINISTRADOR, COMANDO, SAD)
   const usuarioPodeVerTodos = useMemo(() => {
     const nivelNome = currentUser.nivel?.nome;
@@ -484,7 +501,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                   <small>{afastamento.policial.matricula}</small>
                 </td>
                 <td>
-                  <span className="badge badge-muted">
+                  <span className={getPolicialStatusClass(afastamento.policial.status)}>
                     {
                       POLICIAL_STATUS_OPTIONS.find(
                         (option) => option.value === afastamento.policial.status,

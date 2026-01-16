@@ -12,6 +12,7 @@ import { RelatoriosModule } from './relatorios/relatorios.module';
 import { ErrosModule } from './erros/erros.module';
 import { AcessosModule } from './acessos/acessos.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
+import { RolesGuard } from './auth/roles.guard';
 import { APP_FILTER } from '@nestjs/core';
 import { HttpExceptionFilter } from './erros/http-exception.filter';
 
@@ -38,6 +39,10 @@ import { HttpExceptionFilter } from './erros/http-exception.filter';
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_GUARD,

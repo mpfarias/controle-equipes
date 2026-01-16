@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -22,6 +23,26 @@ export class AfastamentosService {
 
   private sanitizeTexto(value: string): string {
     return value.trim();
+  }
+
+  private async assertPodeGerenciarAfastamentos(userId?: number): Promise<void> {
+    if (!userId) {
+      throw new ForbiddenException('Usuário inválido.');
+    }
+
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+      include: { nivel: true },
+    });
+
+    if (!usuario) {
+      throw new ForbiddenException('Usuário não encontrado.');
+    }
+
+    const nivelNome = usuario.nivel?.nome;
+    if (nivelNome === 'COMANDO' || nivelNome === 'OPERAÇÕES') {
+      throw new ForbiddenException('Seu nível não tem permissão para gerenciar afastamentos.');
+    }
   }
 
   /**
@@ -602,6 +623,7 @@ export class AfastamentosService {
     data: Omit<CreateAfastamentoDto, 'responsavelId'>,
     responsavelId?: number,
   ): Promise<AfastamentoWithPolicial> {
+    await this.assertPodeGerenciarAfastamentos(responsavelId);
     const actor = await this.audit.resolveActor(responsavelId);
 
     // Verificar se o policial existe
@@ -629,6 +651,7 @@ export class AfastamentosService {
       data: {
         policial: { connect: { id: data.policialId } },
         motivo: { connect: { id: data.motivoId } },
+        seiNumero: data.seiNumero.trim(),
         descricao: data.descricao ? data.descricao.trim() : null,
         dataInicio,
         dataFim,
@@ -737,6 +760,7 @@ export class AfastamentosService {
     data: UpdateAfastamentoDto,
     responsavelId?: number,
   ): Promise<AfastamentoWithPolicial> {
+    await this.assertPodeGerenciarAfastamentos(responsavelId);
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
       include: { policial: { include: { funcao: true } }, motivo: true },
@@ -786,6 +810,10 @@ export class AfastamentosService {
       updateData.motivo = { connect: { id: data.motivoId } };
     }
 
+    if (data.seiNumero !== undefined) {
+      updateData.seiNumero = data.seiNumero.trim();
+    }
+
     if (data.descricao !== undefined) {
       updateData.descricao = data.descricao?.trim() || null;
     }
@@ -823,6 +851,7 @@ export class AfastamentosService {
   }
 
   async remove(id: number, responsavelId?: number): Promise<void> {
+    await this.assertPodeGerenciarAfastamentos(responsavelId);
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
       include: { policial: { include: { funcao: true } }, motivo: true },

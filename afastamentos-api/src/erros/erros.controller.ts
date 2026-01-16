@@ -1,7 +1,9 @@
 import { Controller, Get, Query, ParseIntPipe } from '@nestjs/common';
 import { ErrosService } from './erros.service';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('erros')
+@Roles('ADMINISTRADOR', 'COMANDO')
 export class ErrosController {
   constructor(private readonly errosService: ErrosService) {}
 

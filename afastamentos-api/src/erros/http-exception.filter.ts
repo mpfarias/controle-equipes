@@ -15,6 +15,39 @@ import type { Usuario } from '@prisma/client';
 export class HttpExceptionFilter implements ExceptionFilter {
   constructor(private readonly errosService: ErrosService) {}
 
+  private static readonly SENSITIVE_KEYS = new Set([
+    'senha',
+    'password',
+    'novaSenha',
+    'respostaSeguranca',
+    'token',
+    'accessToken',
+    'refreshToken',
+  ]);
+
+  private maskSensitive(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.maskSensitive(item));
+    }
+
+    if (value && typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      const sanitized: Record<string, unknown> = {};
+
+      Object.entries(obj).forEach(([key, val]) => {
+        if (HttpExceptionFilter.SENSITIVE_KEYS.has(key)) {
+          sanitized[key] = '[REDACTED]';
+        } else {
+          sanitized[key] = this.maskSensitive(val);
+        }
+      });
+
+      return sanitized;
+    }
+
+    return value;
+  }
+
   async catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -61,7 +94,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const metodo = request.method;
     const ip = request.ip || request.headers['x-forwarded-for'] || request.socket.remoteAddress || null;
     const userAgent = request.headers['user-agent'] || null;
-    const requestBody = request.body ? JSON.parse(JSON.stringify(request.body)) : null;
+    const requestBodyRaw = request.body ? JSON.parse(JSON.stringify(request.body)) : null;
+    const requestBody = this.maskSensitive(requestBodyRaw);
 
     // Preparar dados do erro para registro
     const erroData: Record<string, unknown> = {};

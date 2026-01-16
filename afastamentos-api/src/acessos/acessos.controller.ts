@@ -1,5 +1,6 @@
 import { Controller, Get, Query, Post, Body } from '@nestjs/common';
 import { AcessosService } from './acessos.service';
+import { Roles } from '../auth/roles.decorator';
 
 @Controller('acessos')
 export class AcessosController {
@@ -19,6 +20,7 @@ export class AcessosController {
   }
 
   @Get()
+  @Roles('ADMINISTRADOR', 'COMANDO')
   findAll(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,

@@ -14,12 +14,21 @@ import { AcessosModule } from '../acessos/acessos.module';
     AcessosModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET') || 'temporary-secret-change-in-production',
-        signOptions: {
-          expiresIn: '24h',
-        },
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const jwtSecret = configService.get<string>('JWT_SECRET');
+        const isProduction = configService.get<string>('NODE_ENV') === 'production';
+
+        if (isProduction && !jwtSecret) {
+          throw new Error('JWT_SECRET deve ser configurado em produção.');
+        }
+
+        return {
+          secret: jwtSecret || 'temporary-secret-change-in-production',
+          signOptions: {
+            expiresIn: '24h',
+          },
+        };
+      },
       inject: [ConfigService],
     }),
   ],

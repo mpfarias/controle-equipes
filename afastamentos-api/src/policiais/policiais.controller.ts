@@ -20,6 +20,7 @@ import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Roles } from '../auth/roles.decorator';
 import type { Usuario } from '@prisma/client';
 
 @Controller('policiais')
@@ -30,6 +31,7 @@ export class PoliciaisController {
   ) {}
 
   @Post()
+  @Roles('ADMINISTRADOR', 'SAD')
   create(@Body() createPolicialDto: CreatePolicialDto, @CurrentUser() user: Usuario) {
     return this.policiaisService.create(createPolicialDto, user.id);
   }
@@ -56,6 +58,7 @@ export class PoliciaisController {
   }
 
   @Patch(':id')
+  @Roles('ADMINISTRADOR', 'SAD')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() updatePolicialDto: UpdatePolicialDto,
@@ -65,17 +68,38 @@ export class PoliciaisController {
   }
 
   @Delete(':id')
+  @Roles('ADMINISTRADOR', 'SAD')
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
     return this.policiaisService.remove(id, user.id);
   }
 
   @Patch(':id/activate')
+  @Roles('ADMINISTRADOR', 'SAD')
   activate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
     return this.policiaisService.activate(id, user.id);
   }
 
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  @Roles('ADMINISTRADOR', 'SAD')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (_req, file, callback) => {
+        const fileName = file.originalname.toLowerCase();
+        const isAllowed =
+          fileName.endsWith('.pdf') ||
+          fileName.endsWith('.xlsx') ||
+          fileName.endsWith('.xls');
+        if (!isAllowed) {
+          return callback(
+            new BadRequestException('Tipo de arquivo inválido. Envie um arquivo PDF ou Excel (.xlsx, .xls).'),
+            false,
+          );
+        }
+        return callback(null, true);
+      },
+    }),
+  )
   async uploadFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Arquivo não fornecido');
@@ -84,11 +108,13 @@ export class PoliciaisController {
   }
 
   @Post('bulk')
+  @Roles('ADMINISTRADOR', 'SAD')
   async createBulk(@Body() createBulkDto: CreatePoliciaisBulkDto, @CurrentUser() user: Usuario) {
     return this.policiaisService.createBulk(createBulkDto, user.id);
   }
 
   @Post(':id/delete-permanent')
+  @Roles('ADMINISTRADOR', 'SAD')
   delete(
     @Param('id', ParseIntPipe) id: number,
     @Body() deletePolicialDto: DeletePolicialDto,
@@ -102,6 +128,7 @@ export class PoliciaisController {
   }
 
   @Patch(':id/restricao-medica')
+  @Roles('ADMINISTRADOR', 'SAD')
   updateRestricaoMedica(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { restricaoMedicaId: number | null },

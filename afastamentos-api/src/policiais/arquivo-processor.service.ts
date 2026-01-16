@@ -12,6 +12,9 @@ const PDFParseClass = pdfParseLib.PDFParse || pdfParseLib.default || pdfParseLib
 export class ArquivoProcessorService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private static readonly MAX_POLICIAIS = 2000;
+  private static readonly MAX_TEXTO = 150;
+
   /**
    * Normaliza o nome da função: se terminar com "-", concatena "AUXILIAR"
    */
@@ -35,6 +38,47 @@ export class ArquivoProcessorService {
     }
   }
 
+  private isMatriculaValida(matricula: string): boolean {
+    const cleaned = matricula.trim().toUpperCase();
+    if (!cleaned || cleaned.length > 10) {
+      return false;
+    }
+    return /^[0-9X]+$/.test(cleaned);
+  }
+
+  private validarPoliciaisExtraidos(
+    policiais: Array<{ matricula: string; nome: string; funcaoNome: string }>,
+  ): void {
+    if (!policiais.length) {
+      throw new BadRequestException('Nenhum registro válido encontrado no arquivo.');
+    }
+
+    if (policiais.length > ArquivoProcessorService.MAX_POLICIAIS) {
+      throw new BadRequestException(
+        `Arquivo muito grande. Limite de ${ArquivoProcessorService.MAX_POLICIAIS} registros.`,
+      );
+    }
+
+    const invalidos = policiais.filter((policial) => {
+      if (!this.isMatriculaValida(policial.matricula)) {
+        return true;
+      }
+      if (!policial.nome || policial.nome.length > ArquivoProcessorService.MAX_TEXTO) {
+        return true;
+      }
+      if (!policial.funcaoNome || policial.funcaoNome.length > ArquivoProcessorService.MAX_TEXTO) {
+        return true;
+      }
+      return false;
+    });
+
+    if (invalidos.length > 0) {
+      throw new BadRequestException(
+        `Foram encontrados ${invalidos.length} registros inválidos. Verifique matrícula, nome e função.`,
+      );
+    }
+  }
+
   private async processarPDF(buffer: Buffer): Promise<ProcessarArquivoResponseDto> {
     try {
       const parser = new PDFParseClass({ data: buffer });
@@ -43,6 +87,7 @@ export class ArquivoProcessorService {
       
       // Extrair dados do PDF (matrícula, nome, função)
       const policiais = this.extrairDadosDoPDF(texto);
+      this.validarPoliciaisExtraidos(policiais);
       
       // Mapear e criar funções
       return await this.mapearFuncoes(policiais);
@@ -59,6 +104,7 @@ export class ArquivoProcessorService {
       
       // Extrair dados do Excel
       const policiais = this.extrairDadosDoExcel(dados);
+      this.validarPoliciaisExtraidos(policiais);
       
       // Mapear e criar funções
       return await this.mapearFuncoes(policiais);

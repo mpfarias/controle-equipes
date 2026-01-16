@@ -21,8 +21,18 @@ import type {
   AcessoLog,
 } from './types.ts';
 
+const envApiUrl = import.meta.env.VITE_API_URL;
+const fallbackApiUrl = `${window.location.protocol}//${window.location.hostname}:3002`;
+const apiUrlFromEnv = envApiUrl?.trim();
+const isEnvLocalhost =
+  apiUrlFromEnv?.includes('localhost') || apiUrlFromEnv?.includes('127.0.0.1');
+const isBrowserRemoteHost =
+  window.location.hostname !== 'localhost' &&
+  window.location.hostname !== '127.0.0.1';
 const API_URL =
-  import.meta.env.VITE_API_URL ?? 'http://10.95.91.53:3002';
+  isBrowserRemoteHost && isEnvLocalhost
+    ? fallbackApiUrl
+    : apiUrlFromEnv ?? fallbackApiUrl;
 
 const TOKEN_STORAGE_KEY = 'afastamentos-web:token';
 const ACESSO_ID_STORAGE_KEY = 'afastamentos-web:acessoId';
@@ -139,11 +149,8 @@ async function request<T>(
 }
 
 export const api = {
-  async listUsuarios(currentUserId?: number): Promise<Usuario[]> {
-    const url = currentUserId
-      ? `/usuarios?currentUserId=${currentUserId}`
-      : '/usuarios';
-    return request(url);
+  async listUsuarios(): Promise<Usuario[]> {
+    return request('/usuarios');
   },
 
   async getUsuario(id: number): Promise<Usuario> {
@@ -215,15 +222,6 @@ export const api = {
     });
   },
 
-  async resetPassword(
-    token: string,
-    novaSenha: string,
-  ): Promise<{ message: string }> {
-    return request('/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ token, novaSenha }),
-    });
-  },
 
   async resetPasswordBySecurityQuestion(
     matricula: string,

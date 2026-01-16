@@ -24,6 +24,7 @@ export function AfastamentosSection({
   const initialForm = {
     policialId: '',
     motivoId: 0,
+    seiNumero: '',
     descricao: '',
     dataInicio: '',
     dataFim: '',
@@ -247,6 +248,7 @@ export function AfastamentosSection({
       await api.createAfastamento({
         policialId: Number(form.policialId),
         motivoId: form.motivoId,
+        seiNumero: form.seiNumero.trim(),
         descricao: form.descricao.trim() || undefined,
         dataInicio: form.dataInicio,
         dataFim: form.dataFim || undefined,
@@ -259,6 +261,7 @@ export function AfastamentosSection({
       setForm({
         policialId: '',
         motivoId: motivoIdPadrao,
+        seiNumero: '',
         descricao: '',
         dataInicio: '',
         dataFim: '',
@@ -288,6 +291,11 @@ export function AfastamentosSection({
 
     if (!form.motivoId || form.motivoId === 0) {
       setError('Selecione um motivo do afastamento.');
+      return;
+    }
+
+    if (!form.seiNumero.trim()) {
+      setError('Informe o SEI nº.');
       return;
     }
 
@@ -760,6 +768,22 @@ export function AfastamentosSection({
           </label>
         </div>
         <label>
+          SEI nº
+          <input
+            inputMode="numeric"
+            pattern="\d*"
+            value={form.seiNumero}
+            onChange={(event) =>
+              setForm((prev) => ({
+                ...prev,
+                seiNumero: event.target.value.replace(/\D/g, ''),
+              }))
+            }
+            placeholder="Somente números"
+            required
+          />
+        </label>
+        <label>
           Descrição (opcional)
           <textarea
             rows={3}
@@ -902,6 +926,7 @@ export function AfastamentosSection({
               <tr>
                 <th>Policial</th>
                 <th>Motivo</th>
+                <th>SEI nº</th>
                 <th>Período</th>
                 <th>Status</th>
                 <th>Ações</th>
@@ -920,6 +945,7 @@ export function AfastamentosSection({
                       <small>{afastamento.descricao}</small>
                     )}
                   </td>
+                  <td>{afastamento.seiNumero}</td>
                   <td>
                     {formatPeriodo(afastamento.dataInicio, afastamento.dataFim)}
                   </td>
@@ -966,6 +992,7 @@ export function AfastamentosSection({
                     <th>Função</th>
                     <th>Equipe</th>
                     <th>Motivo</th>
+                    <th>SEI nº</th>
                     <th>Período</th>
                     <th>Status</th>
                   </tr>
@@ -991,6 +1018,7 @@ export function AfastamentosSection({
                           <small>{afastamento.descricao}</small>
                         )}
                       </td>
+                      <td>{afastamento.seiNumero}</td>
                       <td>
                         {formatPeriodo(afastamento.dataInicio, afastamento.dataFim)}
                       </td>

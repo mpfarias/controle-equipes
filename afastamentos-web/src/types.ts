@@ -90,6 +90,7 @@ export interface Afastamento {
   policial: Policial;
   motivoId: number;
   motivo: { id: number; nome: string; descricao?: string | null };
+  seiNumero: string;
   descricao?: string | null;
   dataInicio: string;
   dataFim?: string | null;
@@ -101,6 +102,7 @@ export interface Afastamento {
 export interface CreateAfastamentoInput {
   policialId: number;
   motivoId: number;
+  seiNumero: string;
   descricao?: string;
   dataInicio: string;
   dataFim?: string;

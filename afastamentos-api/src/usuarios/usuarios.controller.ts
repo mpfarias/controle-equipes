@@ -14,9 +14,11 @@ import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { DeleteUsuarioDto } from './dto/delete-usuario.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Roles } from '../auth/roles.decorator';
 import type { Usuario } from '@prisma/client';
 
 @Controller('usuarios')
+@Roles('ADMINISTRADOR', 'SAD')
 export class UsuariosController {
   constructor(private readonly usuariosService: UsuariosService) {}
 
@@ -27,13 +29,12 @@ export class UsuariosController {
 
   @Get()
   findAll(
-    @Query('currentUserId') currentUserId?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @CurrentUser() user?: Usuario,
   ) {
-    const userId = currentUserId ? Number(currentUserId) : undefined;
     return this.usuariosService.findAll(
-      userId && !Number.isNaN(userId) ? userId : undefined,
+      user?.id,
       {
         page: page ? parseInt(page, 10) : undefined,
         pageSize: pageSize ? parseInt(pageSize, 10) : undefined,

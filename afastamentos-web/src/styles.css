@@ -38,6 +38,19 @@ header {
   gap: 16px;
 }
 
+.auth-header {
+  justify-content: center;
+  text-align: center;
+}
+
+.auth-header h1 {
+  width: 100%;
+}
+
+.auth-header p {
+  width: 100%;
+}
+
 header h1 {
   margin: 0;
   font-size: 1.9rem;
@@ -71,6 +84,14 @@ header p {
 .logout-button:hover {
   background: #1d4ed8;
   color: white;
+}
+
+.app-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #64748b;
 }
 
 .login-card {
@@ -291,6 +312,31 @@ button:disabled {
 .badge-muted {
   background: #e2e8f0;
   color: #1e293b;
+}
+
+.policial-status-ativo {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.policial-status-comissionado {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.policial-status-designado {
+  background: #fef9c3;
+  color: #92400e;
+}
+
+.policial-status-pttc {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.policial-status-desativado {
+  background: #fee2e2;
+  color: #991b1b;
 }
 
 .feedback {

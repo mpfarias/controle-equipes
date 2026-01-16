@@ -15,8 +15,26 @@ async function bootstrap() {
   app.use(json({ limit: '10mb' }));
   
   // Configurar Helmet para adicionar headers de segurança
+  const isProduction = process.env.NODE_ENV === 'production';
+  const frontendUrl = process.env.FRONTEND_URL;
+  const apiUrl = process.env.API_URL;
+  const connectSrc = ["'self'"];
+  if (frontendUrl) connectSrc.push(frontendUrl);
+  if (apiUrl) connectSrc.push(apiUrl);
   app.use(helmet({
-    contentSecurityPolicy: false, // Desabilitar CSP para permitir flexibilidade (pode ser configurado depois)
+    contentSecurityPolicy: isProduction ? {
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        fontSrc: ["'self'", 'data:'],
+        connectSrc,
+      },
+    } : false, // Em desenvolvimento manter flexível
     crossOriginEmbedderPolicy: false, // Desabilitar para permitir recursos externos se necessário
   }));
   
@@ -27,15 +45,14 @@ async function bootstrap() {
     'http://127.0.0.1:5173',
     'http://127.0.0.1:4173',
   ];
-  
+
   // Adicionar origem customizada se definida em variável de ambiente
-  const frontendUrl = process.env.FRONTEND_URL;
   if (frontendUrl) {
     allowedOrigins.push(frontendUrl);
   }
-  
+
   app.enableCors({
-    origin: allowedOrigins,
+    origin: isProduction ? allowedOrigins : true,
     credentials: true, // Permite cookies e headers de autenticação
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

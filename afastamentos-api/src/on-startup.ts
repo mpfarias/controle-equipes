@@ -5,6 +5,13 @@ const prisma = new PrismaClient();
 
 export async function ensureInitialUser() {
   try {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && (!process.env.ADMIN_MATRICULA || !process.env.ADMIN_SENHA)) {
+      throw new Error(
+        'ADMIN_MATRICULA e ADMIN_SENHA devem ser configurados em produção.',
+      );
+    }
+
     // Garantir que os níveis existam
     const nivelAdmin = await prisma.usuarioNivel.upsert({
       where: { nome: 'ADMINISTRADOR' },

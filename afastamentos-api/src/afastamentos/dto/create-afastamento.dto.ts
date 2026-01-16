@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -16,6 +17,14 @@ export class CreateAfastamentoDto {
   @IsInt()
   @Min(1)
   motivoId: number;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(20)
+  @Matches(/^\d+$/, {
+    message: 'O SEI nº deve conter apenas números.',
+  })
+  seiNumero: string;
 
   @IsOptional()
   @IsString()

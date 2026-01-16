@@ -87,6 +87,40 @@ export function MostrarEquipeSection({
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
  
+  const getPolicialStatusClass = (status: PolicialStatus) => {
+    switch (status) {
+      case 'ATIVO':
+        return 'badge policial-status-ativo';
+      case 'COMISSIONADO':
+        return 'badge policial-status-comissionado';
+      case 'DESIGNADO':
+        return 'badge policial-status-designado';
+      case 'PTTC':
+        return 'badge policial-status-pttc';
+      case 'DESATIVADO':
+        return 'badge policial-status-desativado';
+      default:
+        return 'badge badge-muted';
+    }
+  };
+
+  const getPolicialStatusChipSx = (status: PolicialStatus) => {
+    switch (status) {
+      case 'ATIVO':
+        return { backgroundColor: '#dcfce7', color: '#166534' };
+      case 'COMISSIONADO':
+        return { backgroundColor: '#fee2e2', color: '#991b1b' };
+      case 'DESIGNADO':
+        return { backgroundColor: '#fef9c3', color: '#92400e' };
+      case 'PTTC':
+        return { backgroundColor: '#dbeafe', color: '#1d4ed8' };
+      case 'DESATIVADO':
+        return { backgroundColor: '#fee2e2', color: '#991b1b' };
+      default:
+        return { backgroundColor: '#e2e8f0', color: '#1e293b' };
+    }
+  };
+
   const carregarPoliciais = useCallback(async () => {
     try {
       setLoading(true);
@@ -820,13 +854,7 @@ export function MostrarEquipeSection({
                 </td>
                 <td>{policial.matricula}</td>
                 <td>
-                  <span 
-                    className={policial.status === 'DESATIVADO' ? 'badge' : 'badge badge-muted'}
-                    style={policial.status === 'DESATIVADO' ? { 
-                      backgroundColor: '#ef4444', 
-                      color: 'white' 
-                    } : {}}
-                  >
+                  <span className={getPolicialStatusClass(policial.status)}>
                     {
                       POLICIAL_STATUS_OPTIONS.find(
                         (option) => option.value === policial.status,
@@ -1385,7 +1413,7 @@ export function MostrarEquipeSection({
                             }
                             size="small"
                             color="default"
-                            sx={{ fontWeight: 500 }}
+                            sx={{ fontWeight: 500, ...getPolicialStatusChipSx(viewingPolicial.status) }}
                           />
                         </Box>
                       </Box>

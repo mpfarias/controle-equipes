@@ -1,28 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, getToken, removeToken } from './api.ts';
 import type { Usuario } from './types.ts';
 import { TABS, type TabKey } from './constants';
 import {
   LoginView,
   ForgotPasswordView,
-  ResetPasswordView,
   SecurityQuestionView,
 } from './components/auth';
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
-import { DashboardSection } from './components/sections/DashboardSection';
-import { MostrarEquipeSection } from './components/sections/MostrarEquipeSection';
-import { PoliciaisSection } from './components/sections/PoliciaisSection';
-import { AfastamentosSection } from './components/sections/AfastamentosSection';
-import { UsuariosSection } from './components/sections/UsuariosSection';
-import { RelatoriosSection } from './components/sections/RelatoriosSection';
+const DashboardSection = lazy(() => import('./components/sections/DashboardSection').then((m) => ({ default: m.DashboardSection })));
+const MostrarEquipeSection = lazy(() =>
+  import('./components/sections/MostrarEquipeSection').then((m) => ({ default: m.MostrarEquipeSection })),
+);
+const PoliciaisSection = lazy(() => import('./components/sections/PoliciaisSection').then((m) => ({ default: m.PoliciaisSection })));
+const AfastamentosSection = lazy(() =>
+  import('./components/sections/AfastamentosSection').then((m) => ({ default: m.AfastamentosSection })),
+);
+const UsuariosSection = lazy(() => import('./components/sections/UsuariosSection').then((m) => ({ default: m.UsuariosSection })));
+const RelatoriosSection = lazy(() =>
+  import('./components/sections/RelatoriosSection').then((m) => ({ default: m.RelatoriosSection })),
+);
 
-type AuthView = 'login' | 'forgot-password' | 'reset-password' | 'security-question';
+type AuthView = 'login' | 'forgot-password' | 'security-question';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard'); // Sempre inicia no dashboard (Afastamentos do mês)
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null);
   const [authView, setAuthView] = useState<AuthView>('login');
-  const [resetToken, setResetToken] = useState<string | null>(null);
   const [securityQuestionData, setSecurityQuestionData] = useState<{
     matricula: string;
     pergunta: string;
@@ -64,15 +68,6 @@ export default function App() {
 
     void loadUser();
 
-    // Verificar se há token na URL (reset de senha)
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    if (token) {
-      setResetToken(token);
-      setAuthView('reset-password');
-      // Limpar a URL
-      window.history.replaceState({}, '', window.location.pathname);
-    }
   }, []);
 
   const handleLoginSuccess = (loginResponse: { accessToken: string; usuario: Usuario }) => {
@@ -192,7 +187,6 @@ export default function App() {
 
     const handleBackToLogin = () => {
       setAuthView('login');
-      setResetToken(null);
       setSecurityQuestionData(null);
     };
 
@@ -203,17 +197,15 @@ export default function App() {
 
     const handleResetSuccess = () => {
       setAuthView('login');
-      setResetToken(null);
     };
 
     return (
       <div className="app-container">
-        <header>
+        <header className="auth-header">
           <h1>Sistema de Gestão de Unidade - COPOM</h1>
           <p>
-            {authView === 'login' && 'Informe sua matrícula e senha para acessar o painel.'}
+            {authView === 'login'}
             {authView === 'forgot-password' && 'Recupere sua senha informando sua matrícula.'}
-            {authView === 'reset-password' && 'Defina uma nova senha para sua conta.'}
           </p>
         </header>
         {authView === 'login' && (
@@ -233,13 +225,9 @@ export default function App() {
             onSuccess={handleResetSuccess}
           />
         )}
-        {authView === 'reset-password' && (
-          <ResetPasswordView
-            token={resetToken || undefined}
-            onBack={handleBackToLogin}
-            onSuccess={handleResetSuccess}
-          />
-        )}
+        <footer className="app-footer">
+          Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
+        </footer>
       </div>
     );
   }
@@ -283,45 +271,50 @@ export default function App() {
         ))}
       </ul>
 
-      {activeTab === 'dashboard' && <DashboardSection currentUser={currentUser} />}
-      {activeTab === 'afastamentos' && (
-        <AfastamentosSection
-          currentUser={currentUser}
-          openConfirm={openConfirm}
-        />
-      )}
-      {activeTab === 'policiais' && (
-         <PoliciaisSection
-           currentUser={currentUser}
-           onChanged={notifyPoliciaisChanged}
-         />
-       )}
-       {activeTab === 'equipe' && (
-         <MostrarEquipeSection
-           currentUser={currentUser}
-           openConfirm={openConfirm}
-           onChanged={notifyPoliciaisChanged}
-           refreshKey={policiaisVersion}
-         />
-       )}
-      {activeTab === 'usuarios' && (
-        <UsuariosSection
-          currentUser={currentUser}
-          openConfirm={openConfirm}
-          onCurrentUserUpdate={(updatedUser) => {
-            setCurrentUser(updatedUser);
-          }}
-        />
-      )}
-      {activeTab === 'relatorios' && (
-        <RelatoriosSection currentUser={currentUser} />
-      )}
+      <Suspense fallback={<p className="empty-state">Carregando...</p>}>
+        {activeTab === 'dashboard' && <DashboardSection currentUser={currentUser} />}
+        {activeTab === 'afastamentos' && (
+          <AfastamentosSection
+            currentUser={currentUser}
+            openConfirm={openConfirm}
+          />
+        )}
+        {activeTab === 'policiais' && (
+          <PoliciaisSection
+            currentUser={currentUser}
+            onChanged={notifyPoliciaisChanged}
+          />
+        )}
+        {activeTab === 'equipe' && (
+          <MostrarEquipeSection
+            currentUser={currentUser}
+            openConfirm={openConfirm}
+            onChanged={notifyPoliciaisChanged}
+            refreshKey={policiaisVersion}
+          />
+        )}
+        {activeTab === 'usuarios' && (
+          <UsuariosSection
+            currentUser={currentUser}
+            openConfirm={openConfirm}
+            onCurrentUserUpdate={(updatedUser) => {
+              setCurrentUser(updatedUser);
+            }}
+          />
+        )}
+        {activeTab === 'relatorios' && (
+          <RelatoriosSection currentUser={currentUser} />
+        )}
+      </Suspense>
 
       <ConfirmDialog
         config={confirmDialog}
         onCancel={closeConfirm}
         onConfirm={handleConfirmDialog}
       />
+      <footer className="app-footer">
+        Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
+      </footer>
     </div>
   );
 }

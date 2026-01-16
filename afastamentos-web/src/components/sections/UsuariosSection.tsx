@@ -81,9 +81,7 @@ export function UsuariosSection({
   const carregarUsuarios = useCallback(async () => {
     try {
       setLoading(true);
-      // Passar o ID do usuário logado para o backend verificar se é admin
-      const userId = currentUser?.id;
-      const data = await api.listUsuarios(userId);
+      const data = await api.listUsuarios();
       setUsuarios(data);
       setError(null);
     } catch (err) {
@@ -93,7 +91,7 @@ export function UsuariosSection({
     } finally {
       setLoading(false);
     }
-  }, [currentUser?.id]);
+  }, []);
 
   const carregarNiveis = useCallback(async () => {
     try {
