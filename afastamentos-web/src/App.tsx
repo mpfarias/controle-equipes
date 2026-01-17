@@ -20,6 +20,9 @@ const UsuariosSection = lazy(() => import('./components/sections/UsuariosSection
 const RelatoriosSection = lazy(() =>
   import('./components/sections/RelatoriosSection').then((m) => ({ default: m.RelatoriosSection })),
 );
+const GerarRestricaoAfastamentoSection = lazy(() =>
+  import('./components/sections/GerarRestricaoAfastamentoSection').then((m) => ({ default: m.GerarRestricaoAfastamentoSection })),
+);
 
 type AuthView = 'login' | 'forgot-password' | 'security-question';
 
@@ -304,6 +307,9 @@ export default function App() {
         )}
         {activeTab === 'relatorios' && (
           <RelatoriosSection currentUser={currentUser} />
+        )}
+        {activeTab === 'restricao-afastamento' && (
+          <GerarRestricaoAfastamentoSection openConfirm={openConfirm} />
         )}
       </Suspense>
 

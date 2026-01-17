@@ -189,3 +189,29 @@ model RestricaoMedica {
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
 }
+
+model TipoRestricaoAfastamento {
+  id                Int                      @id @default(autoincrement())
+  nome              String                   @unique
+  descricao         String?
+  restricoes        RestricaoAfastamento[]
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+}
+
+model RestricaoAfastamento {
+  id                      Int                        @id @default(autoincrement())
+  tipoRestricaoId         Int
+  tipoRestricao           TipoRestricaoAfastamento   @relation(fields: [tipoRestricaoId], references: [id])
+  ano                     Int                        // Ano da restrição (ex: 2026, 2027)
+  dataInicio              DateTime
+  dataFim                 DateTime
+  motivosRestritos        Int[]                      // Array de IDs de MotivoAfastamento
+  ativo                   Boolean                    @default(true)
+  createdById             Int?
+  createdByName           String?
+  updatedById             Int?
+  updatedByName           String?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+}

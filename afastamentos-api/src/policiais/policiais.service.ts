@@ -9,7 +9,7 @@ import { DeletePolicialDto } from './dto/delete-policial.dto';
 import * as bcrypt from 'bcryptjs';
 
 type PolicialWithRelations = Prisma.PolicialGetPayload<{
-  include: { afastamentos: true; funcao: true; restricaoMedica: true };
+  include: { afastamentos?: true; funcao?: true; restricaoMedica?: true };
 }>;
 
 @Injectable()
@@ -185,11 +185,19 @@ export class PoliciaisService {
       orderBy,
       orderDir,
     } = options || {};
-    const include = {
-      afastamentos: includeAfastamentos === true,
+    const include: {
+      afastamentos?: boolean;
+      funcao?: boolean;
+      restricaoMedica?: boolean;
+    } = {
       funcao: true,
-      restricaoMedica: includeRestricoes === true,
     };
+    if (includeAfastamentos === true) {
+      include.afastamentos = true;
+    }
+    if (includeRestricoes === true) {
+      include.restricaoMedica = true;
+    }
     const where: Prisma.PolicialWhereInput = {};
 
     if (equipe) {
@@ -208,7 +216,9 @@ export class PoliciaisService {
         { funcao: { nome: { contains: search, mode: 'insensitive' } } },
       ];
     }
-    const orderByClause = orderBy ? { [orderBy]: orderDir ?? 'asc' } : { nome: 'asc' };
+    const orderByClause: Prisma.PolicialOrderByWithRelationInput = orderBy 
+      ? ({ [orderBy as keyof Prisma.PolicialOrderByWithRelationInput]: orderDir ?? 'asc' } as Prisma.PolicialOrderByWithRelationInput)
+      : { nome: 'asc' };
 
     // Se nÃ£o fornecer paginaÃ§Ã£o, retornar todos (incluindo desativados)
     if (page === undefined && pageSize === undefined) {

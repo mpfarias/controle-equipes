@@ -63,6 +63,9 @@ async function main() {
     { nome: 'Prisão', descricao: 'Afastamento por prisão' },
     { nome: 'Licença Casamento', descricao: 'Licença por casamento' },
     { nome: 'Dispensa Luto', descricao: 'Dispensa por falecimento de familiar' },
+    { nome: 'Licença Maternidade', descricao: 'Licença para mãe após o nascimento do filho' },
+    { nome: 'Licença Paternidade', descricao: 'Licença para pai após o nascimento do filho' },
+    { nome: 'LTSPF', descricao: 'Licença para Tratamento de Saúde da Pessoa Dependente' },
     { nome: 'Outro', descricao: 'Outros motivos não listados' },
   ];
 

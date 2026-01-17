@@ -80,7 +80,7 @@ export interface CreatePolicialInput {
   nome: string;
   matricula: string;
   status: PolicialStatus;
-  equipe?: Equipe;
+  equipe?: Equipe | null;
   funcaoId?: number;
 }
 
@@ -240,4 +240,43 @@ export interface AcessoLogsResponse {
   page?: number;
   pageSize?: number;
   totalPages?: number;
+}
+
+export interface TipoRestricaoAfastamento {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RestricaoAfastamento {
+  id: number;
+  tipoRestricaoId: number;
+  tipoRestricao: TipoRestricaoAfastamento;
+  ano: number;
+  dataInicio: string;
+  dataFim: string;
+  motivosRestritos: number[];
+  ativo: boolean;
+  createdById?: number | null;
+  createdByName?: string | null;
+  updatedById?: number | null;
+  updatedByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateRestricaoAfastamentoInput {
+  tipoRestricaoId: number;
+  ano: number;
+  dataInicio: string;
+  dataFim: string;
+}
+
+export interface UpdateRestricaoAfastamentoInput {
+  tipoRestricaoId?: number;
+  ano?: number;
+  dataInicio?: string;
+  dataFim?: string;
 }

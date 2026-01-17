@@ -3,12 +3,15 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { AuditAction, AfastamentoStatus, PolicialStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
+import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
 
 type AfastamentoWithPolicial = Prisma.AfastamentoGetPayload<{
   include: { policial: { include: { funcao: true } }; motivo: true };
@@ -19,6 +22,8 @@ export class AfastamentosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Inject(forwardRef(() => RestricoesAfastamentoService))
+    private readonly restricoesAfastamentoService: RestricoesAfastamentoService,
   ) {}
 
   private sanitizeTexto(value: string): string {
@@ -647,6 +652,26 @@ export class AfastamentosService {
       dataFim,
     );
 
+    // Validar restrições de afastamento
+    const restricao = await this.restricoesAfastamentoService.verificarRestricaoPeriodo(
+      dataInicio,
+      dataFim,
+      data.motivoId,
+    );
+
+    if (restricao.bloqueado && restricao.restricao) {
+      // Buscar o nome do motivo para a mensagem de erro
+      const motivo = await this.prisma.motivoAfastamento.findUnique({
+        where: { id: data.motivoId },
+      });
+      const motivoNome = motivo?.nome || 'este tipo de afastamento';
+      const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+      
+      throw new BadRequestException(
+        `Não é possível cadastrar ${motivoNome} no período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
+      );
+    }
+
     const created = await this.prisma.afastamento.create({
       data: {
         policial: { connect: { id: data.policialId } },
@@ -734,8 +759,11 @@ export class AfastamentosService {
       ];
     }
 
-    const include = {
-      policial: includePolicialFuncao === false ? true : { include: { funcao: true } },
+    const include: {
+      policial: { include: { funcao: true } };
+      motivo: true;
+    } = {
+      policial: { include: { funcao: true } },
       motivo: true,
     };
 
@@ -798,8 +826,11 @@ export class AfastamentosService {
 
     await this.markExpiredAfastamentos();
 
-    const include = {
-      policial: options?.includePolicialFuncao === false ? true : { include: { funcao: true } },
+    const include: {
+      policial: { include: { funcao: true } };
+      motivo: true;
+    } = {
+      policial: { include: { funcao: true } },
       motivo: true,
     };
 
@@ -855,6 +886,26 @@ export class AfastamentosService {
       dataFimFinal,
       id, // Excluir este afastamento do cálculo
     );
+
+    // Validar restrições de afastamento
+    const restricao = await this.restricoesAfastamentoService.verificarRestricaoPeriodo(
+      dataInicioFinal,
+      dataFimFinal,
+      motivoIdFinal,
+    );
+
+    if (restricao.bloqueado && restricao.restricao) {
+      // Buscar o nome do motivo para a mensagem de erro
+      const motivo = await this.prisma.motivoAfastamento.findUnique({
+        where: { id: motivoIdFinal },
+      });
+      const motivoNome = motivo?.nome || 'este tipo de afastamento';
+      const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+      
+      throw new BadRequestException(
+        `Não é possível atualizar o afastamento (${motivoNome}) para o período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
+      );
+    }
 
     const updateData: Prisma.AfastamentoUpdateInput = {
       updatedById: actor?.id ?? null,

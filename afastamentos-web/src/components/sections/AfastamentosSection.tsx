@@ -53,6 +53,21 @@ export function AfastamentosSection({
     dataVerificada: '',
   });
 
+  // Ordenar motivos alfabeticamente, com "Outro" sempre no final
+  const motivosOrdenados = useMemo(() => {
+    const outros = motivos.filter((m) => 
+      m.nome.toLowerCase() === 'outro' || m.nome.toLowerCase() === 'outros'
+    );
+    const outrosDemais = motivos.filter((m) => 
+      m.nome.toLowerCase() !== 'outro' && m.nome.toLowerCase() !== 'outros'
+    );
+    
+    return [
+      ...outrosDemais.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })),
+      ...outros,
+    ];
+  }, [motivos]);
+
   const carregarDados = useCallback(async () => {
     try {
       setLoading(true);
@@ -765,7 +780,7 @@ export function AfastamentosSection({
               required
             >
               <option value="">Selecione</option>
-              {motivos.map((motivo) => (
+              {motivosOrdenados.map((motivo) => (
                 <option key={motivo.id} value={motivo.id}>
                   {motivo.nome}
                 </option>
@@ -847,7 +862,7 @@ export function AfastamentosSection({
             onChange={(event) => setMotivoFiltro(event.target.value)}
           >
             <option value="">Todos os motivos</option>
-            {motivos.map((motivo) => (
+            {motivosOrdenados.map((motivo) => (
               <option key={motivo.id} value={motivo.nome}>
                 {motivo.nome}
               </option>

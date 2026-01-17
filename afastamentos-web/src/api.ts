@@ -19,6 +19,10 @@ import type {
   ErroLog,
   AcessoLogsResponse,
   AcessoLog,
+  RestricaoAfastamento,
+  TipoRestricaoAfastamento,
+  CreateRestricaoAfastamentoInput,
+  UpdateRestricaoAfastamentoInput,
 } from './types.ts';
 
 const envApiUrl = import.meta.env.VITE_API_URL;
@@ -660,5 +664,47 @@ export const api = {
     }
     
     return response;
+  },
+
+  async listTiposRestricaoAfastamento(): Promise<TipoRestricaoAfastamento[]> {
+    return request('/restricoes-afastamento/tipos');
+  },
+
+  async listRestricoesAfastamento(): Promise<RestricaoAfastamento[]> {
+    return request('/restricoes-afastamento');
+  },
+
+  async getRestricaoAfastamento(id: number): Promise<RestricaoAfastamento> {
+    return request(`/restricoes-afastamento/${id}`);
+  },
+
+  async createRestricaoAfastamento(
+    payload: CreateRestricaoAfastamentoInput,
+  ): Promise<RestricaoAfastamento> {
+    const data = await request<RestricaoAfastamento>('/restricoes-afastamento', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateRestricaoAfastamento(
+    id: number,
+    payload: UpdateRestricaoAfastamentoInput,
+  ): Promise<RestricaoAfastamento> {
+    const data = await request<RestricaoAfastamento>(`/restricoes-afastamento/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteRestricaoAfastamento(id: number): Promise<void> {
+    await request(`/restricoes-afastamento/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
   },
 };

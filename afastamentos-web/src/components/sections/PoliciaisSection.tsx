@@ -310,7 +310,7 @@ export function PoliciaisSection({
         matricula, 
         status: form.status,
         funcaoId: form.funcaoId,
-        equipe: equipeFinal === null ? undefined : equipeFinal,
+        equipe: equipeFinal === null ? null : (equipeFinal || undefined),
       });
       setSuccess('Policial cadastrado com sucesso.');
 
@@ -475,7 +475,7 @@ export function PoliciaisSection({
         nome: form.nome.trim(),
         status: form.status,
         funcaoId: form.funcaoId,
-        equipe: equipeFinalReativar === null ? undefined : equipeFinalReativar,
+        equipe: equipeFinalReativar === null ? null : (equipeFinalReativar || undefined),
       });
 
       setSuccess('Policial reativado e atualizado com sucesso.');

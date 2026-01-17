@@ -1476,7 +1476,7 @@ export function MostrarEquipeSection({
                         </>
                       )}
 
-                      {viewingPolicial.equipe && (
+                      {viewingPolicial.equipe && viewingPolicial.equipe !== 'SEM_EQUIPE' && (
                         <>
                           <Divider />
                           <Box>

@@ -115,6 +115,21 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     })();
   }, [carregarAfastamentos]);
 
+  // Ordenar motivos alfabeticamente, com "Outro" sempre no final
+  const motivosOrdenados = useMemo(() => {
+    const outros = motivos.filter((m) => 
+      m.nome.toLowerCase() === 'outro' || m.nome.toLowerCase() === 'outros'
+    );
+    const outrosDemais = motivos.filter((m) => 
+      m.nome.toLowerCase() !== 'outro' && m.nome.toLowerCase() !== 'outros'
+    );
+    
+    return [
+      ...outrosDemais.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })),
+      ...outros,
+    ];
+  }, [motivos]);
+
   // Função para verificar se um período de afastamento se sobrepõe com um mês específico
   const periodoSobrepoeMes = useCallback((
     dataInicio: string,
@@ -383,7 +398,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
           onChange={(event) => setMotivoFiltro(event.target.value)}
         >
           <option value="">Todos os motivos</option>
-          {motivos.map((motivo) => (
+          {motivosOrdenados.map((motivo) => (
             <option key={motivo.id} value={motivo.nome}>
               {motivo.nome}
             </option>
