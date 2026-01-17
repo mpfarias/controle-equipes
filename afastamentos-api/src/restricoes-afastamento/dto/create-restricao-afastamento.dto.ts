@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsDateString,
   IsBoolean,
+  IsArray,
   Min,
   Max,
 } from 'class-validator';
@@ -27,4 +28,9 @@ export class CreateRestricaoAfastamentoDto {
   @IsDateString()
   @IsNotEmpty()
   dataFim: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  motivosAdicionais?: number[];
 }

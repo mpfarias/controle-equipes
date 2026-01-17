@@ -8,7 +8,15 @@ import type {
 } from '../../types';
 import { formatDate } from '../../utils/dateUtils';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { Chip, IconButton } from '@mui/material';
+import { 
+  Chip, 
+  IconButton, 
+  FormControlLabel, 
+  Checkbox, 
+  Box, 
+  Typography,
+  Paper
+} from '@mui/material';
 import { Edit, Delete } from '@mui/icons-material';
 
 interface GerarRestricaoAfastamentoSectionProps {
@@ -31,9 +39,12 @@ export function GerarRestricaoAfastamentoSection({
     ano: new Date().getFullYear(), // Será calculado automaticamente a partir da dataInicio
     dataInicio: '',
     dataFim: '',
+    motivosAdicionais: [],
   };
   
   const [form, setForm] = useState<CreateRestricaoAfastamentoInput>(initialForm);
+  const [mostrarMotivosAdicionais, setMostrarMotivosAdicionais] = useState(false);
+  const [motivosAdicionaisSelecionados, setMotivosAdicionaisSelecionados] = useState<number[]>([]);
 
   const carregarDados = useCallback(async () => {
     try {
@@ -99,13 +110,18 @@ export function GerarRestricaoAfastamentoSection({
 
     try {
       setLoading(true);
-      // Remover campos que não devem ser enviados ao backend
-      const payload = {
+      // Construir payload com motivos adicionais se houver
+      const payload: CreateRestricaoAfastamentoInput = {
         tipoRestricaoId: form.tipoRestricaoId,
         ano: anoCalculado,
         dataInicio: form.dataInicio,
         dataFim: form.dataFim,
       };
+      
+      // Adicionar motivos adicionais se houver selecionados
+      if (motivosAdicionaisSelecionados.length > 0) {
+        payload.motivosAdicionais = motivosAdicionaisSelecionados;
+      }
       
       if (editingId) {
         await api.updateRestricaoAfastamento(editingId, payload);
@@ -116,6 +132,8 @@ export function GerarRestricaoAfastamentoSection({
       }
       setForm(initialForm);
       setEditingId(null);
+      setMotivosAdicionaisSelecionados([]);
+      setMostrarMotivosAdicionais(false);
       await carregarDados();
     } catch (err) {
       setError(
@@ -165,8 +183,33 @@ export function GerarRestricaoAfastamentoSection({
   const handleCancelEdit = () => {
     setForm(initialForm);
     setEditingId(null);
+    setMotivosAdicionaisSelecionados([]);
+    setMostrarMotivosAdicionais(false);
     setError(null);
     setSuccess(null);
+  };
+
+  // Filtrar motivos: excluir os 3 padrões (Férias, Abono, Dispensa recompensa)
+  const motivosAdicionaisDisponiveis = motivos.filter(
+    (motivo) => !['Férias', 'Abono', 'Dispensa recompensa'].includes(motivo.nome)
+  );
+
+  const toggleMostrarMotivosAdicionais = () => {
+    if (mostrarMotivosAdicionais) {
+      // Ao ocultar, limpar seleções
+      setMotivosAdicionaisSelecionados([]);
+    }
+    setMostrarMotivosAdicionais(!mostrarMotivosAdicionais);
+  };
+
+  const handleToggleMotivoAdicional = (motivoId: number) => {
+    setMotivosAdicionaisSelecionados((prev) => {
+      if (prev.includes(motivoId)) {
+        return prev.filter((id) => id !== motivoId);
+      } else {
+        return [...prev, motivoId];
+      }
+    });
   };
 
   const getMotivoNome = (motivoId: number) => {
@@ -180,6 +223,33 @@ export function GerarRestricaoAfastamentoSection({
       setForm((prev) => ({ ...prev, dataInicio, ano }));
     } else {
       setForm((prev) => ({ ...prev, dataInicio }));
+    }
+  };
+
+  // Handler para mudança do tipo de restrição
+  const handleTipoRestricaoChange = (tipoRestricaoId: number) => {
+    const tipoSelecionado = tiposRestricao.find((t) => t.id === tipoRestricaoId);
+    
+    // Se for "Mês de Dezembro", definir automaticamente as datas
+    if (tipoSelecionado?.nome === 'Mês de Dezembro') {
+      // Usar o ano do formulário ou o ano atual
+      const anoAtual = form.ano || new Date().getFullYear();
+      // Garantir formato YYYY-MM-DD com zero à esquerda
+      const dataInicio = `${anoAtual}-12-01`;
+      const dataFim = `${anoAtual}-12-31`;
+      
+      setForm({
+        tipoRestricaoId,
+        ano: anoAtual,
+        dataInicio,
+        dataFim,
+      });
+    } else {
+      // Para outros tipos, apenas atualizar o tipoRestricaoId
+      setForm((prev) => ({
+        ...prev,
+        tipoRestricaoId,
+      }));
     }
   };
 
@@ -234,12 +304,7 @@ export function GerarRestricaoAfastamentoSection({
             Tipo de restrição *
             <select
               value={form.tipoRestricaoId || ''}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  tipoRestricaoId: Number(e.target.value),
-                }))
-              }
+              onChange={(e) => handleTipoRestricaoChange(Number(e.target.value))}
               required
               disabled={editingId !== null}
             >
@@ -260,6 +325,10 @@ export function GerarRestricaoAfastamentoSection({
                 value={form.dataInicio}
                 onChange={(e) => handleDataInicioChange(e.target.value)}
                 required
+                disabled={
+                  editingId === null &&
+                  tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
+                }
               />
             </label>
 
@@ -273,6 +342,10 @@ export function GerarRestricaoAfastamentoSection({
                 }
                 required
                 min={form.dataInicio || undefined}
+                disabled={
+                  editingId === null &&
+                  tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
+                }
               />
             </label>
           </div>
@@ -289,6 +362,79 @@ export function GerarRestricaoAfastamentoSection({
               <strong> Afastamentos restritos:</strong> Férias, Abono e Dispensa recompensa serão bloqueados automaticamente no período selecionado.
             </p>
           </div>
+
+          <Box sx={{ marginTop: '16px', marginBottom: '16px' }}>
+            <button
+              type="button"
+              onClick={toggleMostrarMotivosAdicionais}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#2563eb',
+                cursor: 'pointer',
+                textDecoration: 'underline',
+                fontSize: '0.875rem',
+                padding: 0,
+              }}
+            >
+              {mostrarMotivosAdicionais ? 'Ocultar opções de afastamento' : 'Adicionar mais afastamentos'}
+            </button>
+
+            {mostrarMotivosAdicionais && motivosAdicionaisDisponiveis.length > 0 && (
+              <Paper
+                elevation={0}
+                sx={{
+                  marginTop: '12px',
+                  padding: '16px',
+                  backgroundColor: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                }}
+              >
+                <Typography
+                  variant="body2"
+                  sx={{
+                    marginBottom: '16px',
+                    fontWeight: 500,
+                    color: '#374151',
+                  }}
+                >
+                  Selecione os afastamentos adicionais que também serão bloqueados:
+                </Typography>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: {
+                      xs: 'repeat(2, 1fr)',
+                      sm: 'repeat(3, 1fr)',
+                      md: 'repeat(5, 1fr)',
+                    },
+                    gap: '16px 24px',
+                    alignItems: 'start',
+                  }}
+                >
+                  {motivosAdicionaisDisponiveis.map((motivo) => (
+                    <FormControlLabel
+                      key={motivo.id}
+                      control={
+                        <Checkbox
+                          checked={motivosAdicionaisSelecionados.includes(motivo.id)}
+                          onChange={() => handleToggleMotivoAdicional(motivo.id)}
+                          size="small"
+                        />
+                      }
+                      label={motivo.nome}
+                      sx={{
+                        margin: 0,
+                        '& .MuiFormControlLabel-label': {
+                          fontSize: '0.875rem',
+                        },
+                      }}
+                    />
+                  ))}
+                </Box>
+              </Paper>
+            )}
+          </Box>
 
           <div className="form-actions">
             {editingId ? (

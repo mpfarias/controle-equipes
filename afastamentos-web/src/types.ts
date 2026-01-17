@@ -272,6 +272,7 @@ export interface CreateRestricaoAfastamentoInput {
   ano: number;
   dataInicio: string;
   dataFim: string;
+  motivosAdicionais?: number[];
 }
 
 export interface UpdateRestricaoAfastamentoInput {

@@ -57,25 +57,67 @@ export class RestricoesAfastamentoService {
     }
 
     // Validar que dataInicio <= dataFim
-    const dataInicio = new Date(data.dataInicio);
-    const dataFim = new Date(data.dataFim);
+    // Garantir que as datas sejam interpretadas corretamente sem problemas de timezone
+    const dataInicioStr = data.dataInicio.split('T')[0]; // Garantir apenas a data, sem hora
+    const dataFimStr = data.dataFim.split('T')[0]; // Garantir apenas a data, sem hora
+    
+    const [anoInicio, mesInicio, diaInicio] = dataInicioStr.split('-').map(Number);
+    const [anoFim, mesFim, diaFim] = dataFimStr.split('-').map(Number);
+    
+    // Criar datas no timezone local às 00:00:00 para evitar problemas de conversão
+    const dataInicio = new Date(anoInicio, mesInicio - 1, diaInicio, 0, 0, 0, 0);
+    const dataFim = new Date(anoFim, mesFim - 1, diaFim, 23, 59, 59, 999); // Final do dia
+
+    // Validação especial para "Mês de Dezembro": deve ser obrigatoriamente 01/12 a 31/12
+    if (tipoRestricao.nome === 'Mês de Dezembro') {
+      if (mesInicio !== 12 || diaInicio !== 1 || mesFim !== 12 || diaFim !== 31 || anoInicio !== data.ano || anoFim !== data.ano) {
+        throw new BadRequestException(
+          `Para o tipo "Mês de Dezembro", as datas devem ser obrigatoriamente 01/12/${data.ano} a 31/12/${data.ano}.`
+        );
+      }
+    }
 
     if (dataInicio > dataFim) {
       throw new BadRequestException('A data de início deve ser anterior ou igual à data de término.');
     }
 
     // Validar que o ano corresponde às datas
-    const anoInicio = dataInicio.getFullYear();
-    const anoFim = dataFim.getFullYear();
-    if (anoInicio !== data.ano || anoFim !== data.ano) {
+    const anoInicioCalculado = dataInicio.getFullYear();
+    const anoFimCalculado = dataFim.getFullYear();
+    if (anoInicioCalculado !== data.ano || anoFimCalculado !== data.ano) {
       throw new BadRequestException(`O ano informado (${data.ano}) não corresponde às datas selecionadas.`);
     }
 
     // Buscar automaticamente os IDs dos motivos restritos (Férias, Abono, Dispensa recompensa)
-    const motivosRestritos = await this.buscarMotivosRestritosAutomaticos();
+    const motivosRestritosAutomaticos = await this.buscarMotivosRestritosAutomaticos();
 
-    if (motivosRestritos.length === 0) {
+    if (motivosRestritosAutomaticos.length === 0) {
       throw new BadRequestException('Não foi possível encontrar os motivos de afastamento para restrição (Férias, Abono, Dispensa recompensa).');
+    }
+
+    // Combinar os 3 motivos automáticos com os motivos adicionais (se houver)
+    const motivosRestritos = [...motivosRestritosAutomaticos];
+    
+    if (data.motivosAdicionais && data.motivosAdicionais.length > 0) {
+      // Validar que os motivos adicionais existem e não duplicar os automáticos
+      const motivosAdicionaisValidos = data.motivosAdicionais.filter(
+        (id) => !motivosRestritosAutomaticos.includes(id)
+      );
+      
+      // Verificar se os motivos adicionais existem no banco
+      const motivosExistentes = await this.prisma.motivoAfastamento.findMany({
+        where: { id: { in: motivosAdicionaisValidos } },
+        select: { id: true },
+      });
+      
+      const idsExistentes = motivosExistentes.map((m) => m.id);
+      const idsInvalidos = motivosAdicionaisValidos.filter((id) => !idsExistentes.includes(id));
+      
+      if (idsInvalidos.length > 0) {
+        throw new BadRequestException(`Motivos de afastamento inválidos: ${idsInvalidos.join(', ')}`);
+      }
+      
+      motivosRestritos.push(...idsExistentes);
     }
 
     const created = await this.prisma.restricaoAfastamento.create({
@@ -161,10 +203,54 @@ export class RestricoesAfastamentoService {
       }
     }
 
+    // Buscar tipo de restrição final (novo ou existente)
+    const tipoRestricaoIdFinal = data.tipoRestricaoId ?? before.tipoRestricaoId;
+    const tipoRestricaoFinal = await this.prisma.tipoRestricaoAfastamento.findUnique({
+      where: { id: tipoRestricaoIdFinal },
+    });
+
     // Validar datas se ambas foram fornecidas
-    const dataInicioFinal = data.dataInicio ? new Date(data.dataInicio) : before.dataInicio;
-    const dataFimFinal = data.dataFim ? new Date(data.dataFim) : before.dataFim;
+    // Garantir que as datas sejam interpretadas corretamente sem problemas de timezone
+    let dataInicioFinal: Date;
+    let dataFimFinal: Date;
+    
+    if (data.dataInicio) {
+      const dataInicioStr = data.dataInicio.split('T')[0];
+      const [ano, mes, dia] = dataInicioStr.split('-').map(Number);
+      // Criar data no timezone local às 00:00:00
+      dataInicioFinal = new Date(ano, mes - 1, dia, 0, 0, 0, 0);
+    } else {
+      dataInicioFinal = before.dataInicio;
+    }
+    
+    if (data.dataFim) {
+      const dataFimStr = data.dataFim.split('T')[0];
+      const [ano, mes, dia] = dataFimStr.split('-').map(Number);
+      // Criar data no timezone local no final do dia
+      dataFimFinal = new Date(ano, mes - 1, dia, 23, 59, 59, 999);
+    } else {
+      dataFimFinal = before.dataFim;
+    }
+    
     const anoFinal = data.ano ?? before.ano;
+
+    // Validação especial para "Mês de Dezembro": deve ser obrigatoriamente 01/12 a 31/12
+    if (tipoRestricaoFinal?.nome === 'Mês de Dezembro') {
+      if (data.dataInicio || data.dataFim || data.ano !== undefined) {
+        // Se está atualizando datas ou ano, validar
+        const dataInicioStr = data.dataInicio ? data.dataInicio.split('T')[0] : before.dataInicio.toISOString().split('T')[0];
+        const dataFimStr = data.dataFim ? data.dataFim.split('T')[0] : before.dataFim.toISOString().split('T')[0];
+        
+        const [anoInicio, mesInicio, diaInicio] = dataInicioStr.split('-').map(Number);
+        const [anoFim, mesFim, diaFim] = dataFimStr.split('-').map(Number);
+        
+        if (mesInicio !== 12 || diaInicio !== 1 || mesFim !== 12 || diaFim !== 31 || anoInicio !== anoFinal || anoFim !== anoFinal) {
+          throw new BadRequestException(
+            `Para o tipo "Mês de Dezembro", as datas devem ser obrigatoriamente 01/12/${anoFinal} a 31/12/${anoFinal}.`
+          );
+        }
+      }
+    }
 
     if (dataInicioFinal > dataFimFinal) {
       throw new BadRequestException('A data de início deve ser anterior ou igual à data de término.');
@@ -178,10 +264,40 @@ export class RestricoesAfastamentoService {
     }
 
     // Buscar automaticamente os IDs dos motivos restritos (sempre os mesmos 3: Férias, Abono, Dispensa recompensa)
-    const motivosRestritos = await this.buscarMotivosRestritosAutomaticos();
+    const motivosRestritosAutomaticos = await this.buscarMotivosRestritosAutomaticos();
 
-    if (motivosRestritos.length === 0) {
+    if (motivosRestritosAutomaticos.length === 0) {
       throw new BadRequestException('Não foi possível encontrar os motivos de afastamento para restrição (Férias, Abono, Dispensa recompensa).');
+    }
+
+    // Combinar os 3 motivos automáticos com os motivos adicionais (se houver)
+    let motivosRestritos = [...motivosRestritosAutomaticos];
+    
+    if (data.motivosAdicionais !== undefined) {
+      if (data.motivosAdicionais && data.motivosAdicionais.length > 0) {
+        // Validar que os motivos adicionais existem e não duplicar os automáticos
+        const motivosAdicionaisValidos = data.motivosAdicionais.filter(
+          (id) => !motivosRestritosAutomaticos.includes(id)
+        );
+        
+        // Verificar se os motivos adicionais existem no banco
+        const motivosExistentes = await this.prisma.motivoAfastamento.findMany({
+          where: { id: { in: motivosAdicionaisValidos } },
+          select: { id: true },
+        });
+        
+        const idsExistentes = motivosExistentes.map((m) => m.id);
+        const idsInvalidos = motivosAdicionaisValidos.filter((id) => !idsExistentes.includes(id));
+        
+        if (idsInvalidos.length > 0) {
+          throw new BadRequestException(`Motivos de afastamento inválidos: ${idsInvalidos.join(', ')}`);
+        }
+        
+        motivosRestritos = [...motivosRestritosAutomaticos, ...idsExistentes];
+      } else {
+        // Se motivosAdicionais for array vazio, usar apenas os automáticos
+        motivosRestritos = [...motivosRestritosAutomaticos];
+      }
     }
 
     const updateData: Prisma.RestricaoAfastamentoUpdateInput = {};
@@ -193,10 +309,16 @@ export class RestricoesAfastamentoService {
       updateData.ano = data.ano;
     }
     if (data.dataInicio !== undefined) {
-      updateData.dataInicio = new Date(data.dataInicio);
+      // Criar data no timezone local às 00:00:00
+      const dataInicioStr = data.dataInicio.split('T')[0];
+      const [ano, mes, dia] = dataInicioStr.split('-').map(Number);
+      updateData.dataInicio = new Date(ano, mes - 1, dia, 0, 0, 0, 0);
     }
     if (data.dataFim !== undefined) {
-      updateData.dataFim = new Date(data.dataFim);
+      // Criar data no timezone local no final do dia
+      const dataFimStr = data.dataFim.split('T')[0];
+      const [ano, mes, dia] = dataFimStr.split('-').map(Number);
+      updateData.dataFim = new Date(ano, mes - 1, dia, 23, 59, 59, 999);
     }
     // Sempre atualizar os motivos restritos para os 3 automáticos
     updateData.motivosRestritos = motivosRestritos;
