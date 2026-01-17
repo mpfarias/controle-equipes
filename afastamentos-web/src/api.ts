@@ -504,6 +504,18 @@ export const api = {
     return data;
   },
 
+  async removeRestricaoMedicaPolicial(
+    id: number,
+    senha: string,
+  ): Promise<Policial> {
+    const data = await request<Policial>(`/policiais/${id}/restricao-medica`, {
+      method: 'DELETE',
+      body: JSON.stringify({ senha }),
+    });
+    clearCache();
+    return data;
+  },
+
   async listMotivos(): Promise<MotivoAfastamentoOption[]> {
     const cacheKey = 'GET:/afastamentos/motivos';
     const cached = getCached<MotivoAfastamentoOption[]>(cacheKey);

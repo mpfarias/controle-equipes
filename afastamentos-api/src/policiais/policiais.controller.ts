@@ -19,6 +19,7 @@ import { CreatePolicialDto } from './dto/create-policial.dto';
 import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
+import { RemoveRestricaoMedicaDto } from './dto/remove-restricao-medica.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import type { Usuario } from '@prisma/client';
@@ -169,5 +170,15 @@ export class PoliciaisController {
       body.restricaoMedicaId,
       user.id,
     );
+  }
+
+  @Delete(':id/restricao-medica')
+  @Roles('ADMINISTRADOR', 'SAD')
+  removeRestricaoMedica(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: RemoveRestricaoMedicaDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.removeRestricaoMedica(id, body.senha, user.id);
   }
 }

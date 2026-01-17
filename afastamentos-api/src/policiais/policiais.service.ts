@@ -8,9 +8,33 @@ import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
 import * as bcrypt from 'bcryptjs';
 
-type PolicialWithRelations = Prisma.PolicialGetPayload<{
-  include: { afastamentos?: true; funcao?: true; restricaoMedica?: true };
+type PolicialBase = Prisma.PolicialGetPayload<{
+  include: { 
+    afastamentos?: true; 
+    funcao?: true; 
+    restricaoMedica?: true;
+  };
 }>;
+
+type PolicialWithHistorico = PolicialBase & {
+  restricoesMedicasHistorico?: Array<{
+    id: number;
+    policialId: number;
+    restricaoMedicaId: number;
+    restricaoMedica: {
+      id: number;
+      nome: string;
+      descricao: string | null;
+    };
+    dataInicio: Date;
+    dataFim: Date;
+    removidoPorId: number | null;
+    removidoPorNome: string | null;
+    createdAt: Date;
+  }>;
+};
+
+type PolicialWithRelations = PolicialBase | PolicialWithHistorico;
 
 @Injectable()
 export class PoliciaisService {
@@ -258,7 +282,15 @@ export class PoliciaisService {
   async findOne(id: number): Promise<PolicialWithRelations> {
     const policial = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { 
+        afastamentos: true, 
+        funcao: true, 
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
+      },
     });
 
     if (!policial) {
@@ -669,14 +701,112 @@ export class PoliciaisService {
       }
     }
 
+    const updateData: Prisma.PolicialUpdateInput = {
+      restricaoMedica: restricaoMedicaId 
+        ? { connect: { id: restricaoMedicaId } }
+        : restricaoMedicaId === null 
+          ? { disconnect: true }
+          : undefined,
+      updatedById: actor?.id ?? null,
+      updatedByName: actor?.nome ?? null,
+    };
+
     const updated = await this.prisma.policial.update({
       where: { id },
-      data: {
-        restricaoMedicaId: restricaoMedicaId,
-        updatedById: actor?.id ?? null,
-        updatedByName: actor?.nome ?? null,
+      data: updateData,
+      include: { 
+        afastamentos: true, 
+        funcao: true, 
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
       },
+    });
+
+    await this.audit.record({
+      entity: 'Policial',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async removeRestricaoMedica(
+    id: number,
+    senha: string,
+    responsavelId?: number,
+  ): Promise<PolicialWithRelations> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    if (!actor) {
+      throw new UnauthorizedException('Usuário responsável não encontrado.');
+    }
+
+    // Verificar senha do usuário
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: actor.id },
+    });
+
+    if (!usuario) {
+      throw new UnauthorizedException('Usuário não encontrado.');
+    }
+
+    const senhaValida = await bcrypt.compare(senha, usuario.senhaHash);
+    if (!senhaValida) {
+      throw new UnauthorizedException('Senha incorreta.');
+    }
+
+    // Verificar se o policial existe
+    const before = await this.prisma.policial.findUnique({
+      where: { id },
       include: { afastamentos: true, funcao: true, restricaoMedica: true },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Policial ${id} não encontrado.`);
+    }
+
+    if (!before.restricaoMedicaId) {
+      throw new BadRequestException('Este policial não possui restrição médica para remover.');
+    }
+
+    // Salvar histórico na tabela antes de remover
+    await this.prisma.restricaoMedicaHistorico.create({
+      data: {
+        policialId: id,
+        restricaoMedicaId: before.restricaoMedicaId!,
+        dataInicio: before.restricaoMedicaId ? before.updatedAt : new Date(),
+        dataFim: new Date(),
+        removidoPorId: actor.id,
+        removidoPorNome: actor.nome,
+      },
+    });
+
+    // Remover a restrição do policial
+    const updateData: Prisma.PolicialUpdateInput = {
+      restricaoMedica: { disconnect: true },
+      updatedById: actor.id,
+      updatedByName: actor.nome,
+    };
+
+    const updated = await this.prisma.policial.update({
+      where: { id },
+      data: updateData,
+      include: { 
+        afastamentos: true, 
+        funcao: true, 
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
+      },
     });
 
     await this.audit.record({

@@ -8,23 +8,24 @@ datasource db {
 }
 
 model Policial {
-  id                Int              @id @default(autoincrement())
-  nome              String
-  matricula         String           @unique
-  equipe            Equipe?
-  status            PolicialStatus   @default(ATIVO)
-  funcaoId          Int?
-  funcao            Funcao?          @relation(fields: [funcaoId], references: [id])
-  restricaoMedicaId Int?
-  restricaoMedica   RestricaoMedica? @relation(fields: [restricaoMedicaId], references: [id])
-  fotoUrl           String?
-  afastamentos      Afastamento[]
-  createdById       Int?
-  createdByName     String?
-  updatedById       Int?
-  updatedByName     String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                            Int                        @id @default(autoincrement())
+  nome                          String
+  matricula                     String                     @unique
+  equipe                        Equipe?
+  status                        PolicialStatus             @default(ATIVO)
+  funcaoId                      Int?
+  funcao                        Funcao?                    @relation(fields: [funcaoId], references: [id])
+  restricaoMedicaId             Int?
+  restricaoMedica               RestricaoMedica?           @relation(fields: [restricaoMedicaId], references: [id])
+  restricoesMedicasHistorico    RestricaoMedicaHistorico[]
+  fotoUrl                       String?
+  afastamentos                  Afastamento[]
+  createdById                   Int?
+  createdByName                 String?
+  updatedById                   Int?
+  updatedByName                 String?
+  createdAt                     DateTime                   @default(now())
+  updatedAt                     DateTime                   @updatedAt
 }
 
 model MotivoAfastamento {
@@ -186,8 +187,22 @@ model RestricaoMedica {
   nome      String     @unique
   descricao String?
   policiais Policial[]
+  historico RestricaoMedicaHistorico[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+}
+
+model RestricaoMedicaHistorico {
+  id                        Int              @id @default(autoincrement())
+  policialId                Int
+  policial                  Policial         @relation(fields: [policialId], references: [id], onDelete: Cascade)
+  restricaoMedicaId         Int
+  restricaoMedica           RestricaoMedica  @relation(fields: [restricaoMedicaId], references: [id])
+  dataInicio                DateTime         // Quando a restrição foi colocada
+  dataFim                   DateTime         // Quando a restrição foi removida
+  removidoPorId             Int?
+  removidoPorNome           String?
+  createdAt                 DateTime         @default(now())
 }
 
 model TipoRestricaoAfastamento {

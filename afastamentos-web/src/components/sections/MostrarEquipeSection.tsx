@@ -62,6 +62,19 @@ export function MostrarEquipeSection({
     error: null,
     loading: false,
   });
+  const [removeRestricaoModal, setRemoveRestricaoModal] = useState<{
+    open: boolean;
+    policial: Policial | null;
+    senha: string;
+    error: string | null;
+    loading: boolean;
+  }>({
+    open: false,
+    policial: null,
+    senha: '',
+    error: null,
+    loading: false,
+  });
   const [editForm, setEditForm] = useState({
     nome: '',
     matricula: '',
@@ -136,7 +149,7 @@ export function MostrarEquipeSection({
         page,
         pageSize,
         includeAfastamentos: false,
-        includeRestricoes: false,
+        includeRestricoes: true,
       };
       const busca = searchTerm.trim();
       if (busca) {
@@ -893,7 +906,22 @@ export function MostrarEquipeSection({
                     }}
                     title="Clique para ver detalhes"
                   >
-                    {policial.nome}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      {policial.restricaoMedica && (
+                        <span
+                          style={{
+                            color: '#ef4444',
+                            fontSize: '1.1rem',
+                            fontWeight: 'bold',
+                            lineHeight: 1,
+                          }}
+                          title={`Restrição médica: ${policial.restricaoMedica.nome}`}
+                        >
+                          ⚠
+                        </span>
+                      )}
+                      {policial.nome}
+                    </span>
                   </a>
                 </td>
                 <td>{policial.matricula}</td>
@@ -1380,9 +1408,42 @@ export function MostrarEquipeSection({
                   Informações do Policial
                 </Typography>
                 {viewingPolicial.restricaoMedica && (
-                  <Typography variant="body1" sx={{ mt: 1, color: 'error.main', fontWeight: 500 }}>
-                    Restrição: {viewingPolicial.restricaoMedica.nome}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
+                    <Typography variant="body1" sx={{ color: 'error.main', fontWeight: 500 }}>
+                      Policial com restrição: {viewingPolicial.restricaoMedica.nome}
+                    </Typography>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRemoveRestricaoModal({
+                          open: true,
+                          policial: viewingPolicial,
+                          senha: '',
+                          error: null,
+                          loading: false,
+                        });
+                      }}
+                      style={{
+                        backgroundColor: '#ef4444',
+                        border: '1px solid #ef4444',
+                        color: '#ffffff',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        cursor: 'pointer',
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        transition: 'background-color 0.2s ease-in-out',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#dc2626';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#ef4444';
+                      }}
+                    >
+                      Retirar restrição
+                    </button>
+                  </Box>
                 )}
               </Box>
 
@@ -1486,6 +1547,63 @@ export function MostrarEquipeSection({
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
                               {EQUIPE_FONETICA[viewingPolicial.equipe]} ({viewingPolicial.equipe})
                             </Typography>
+                          </Box>
+                        </>
+                      )}
+
+                      {(viewingPolicial.restricaoMedica || (viewingPolicial.restricoesMedicasHistorico && viewingPolicial.restricoesMedicasHistorico.length > 0)) && (
+                        <>
+                          <Divider />
+                          <Box>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1, display: 'block' }}>
+                              Restrições Médicas
+                            </Typography>
+                            
+                            {/* Restrição Ativa */}
+                            {viewingPolicial.restricaoMedica && (
+                              <Box sx={{ mb: 2, p: 1.5, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main', mb: 0.5 }}>
+                                  Ativa: {viewingPolicial.restricaoMedica.nome}
+                                </Typography>
+                                {viewingPolicial.updatedAt && (
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
+                                    Adicionada em: {new Date(viewingPolicial.updatedAt).toLocaleDateString('pt-BR')}
+                                  </Typography>
+                                )}
+                              </Box>
+                            )}
+
+                            {/* Histórico de Restrições Removidas */}
+                            {viewingPolicial.restricoesMedicasHistorico && viewingPolicial.restricoesMedicasHistorico.length > 0 && (
+                              <Box sx={{ mt: 2 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary', mb: 1.5 }}>
+                                  Histórico de Restrições
+                                </Typography>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                  {viewingPolicial.restricoesMedicasHistorico.map((historico) => (
+                                    <Box 
+                                      key={historico.id}
+                                      sx={{ p: 1.5, backgroundColor: '#f9fafb', borderRadius: 1, border: '1px solid #e5e7eb' }}
+                                    >
+                                      <Typography variant="body2" sx={{ fontSize: '0.875rem', color: 'text.secondary', mb: 0.75, fontWeight: 500 }}>
+                                        {historico.restricaoMedica.nome}
+                                      </Typography>
+                                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
+                                        Colocada em: {new Date(historico.dataInicio).toLocaleDateString('pt-BR')}
+                                      </Typography>
+                                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
+                                        Removida em: {new Date(historico.dataFim).toLocaleDateString('pt-BR')}
+                                      </Typography>
+                                      {historico.removidoPorNome && (
+                                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
+                                          Removida por: {historico.removidoPorNome}
+                                        </Typography>
+                                      )}
+                                    </Box>
+                                  ))}
+                                </Box>
+                              </Box>
+                            )}
                           </Box>
                         </>
                       )}
@@ -1783,6 +1901,119 @@ export function MostrarEquipeSection({
                 }}
               >
                 {restricaoModal.loading ? 'Salvando...' : 'Salvar'}
+              </button>
+            </Box>
+          </Box>
+        </div>
+      )}
+
+      {/* Modal de Remover Restrição Médica */}
+      {removeRestricaoModal.open && removeRestricaoModal.policial && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => {
+          setRemoveRestricaoModal({ open: false, policial: null, senha: '', error: null, loading: false });
+        }}>
+          <Box
+            component="div"
+            onClick={(e) => e.stopPropagation()}
+            sx={{
+              position: 'relative',
+              width: '90%',
+              maxWidth: '500px',
+              backgroundColor: 'white',
+              borderRadius: 2,
+              boxShadow: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
+              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                Retirar Restrição Médica
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
+                {removeRestricaoModal.policial.nome}
+              </Typography>
+            </Box>
+
+            <Box sx={{ p: 3 }}>
+              <Typography variant="body1" sx={{ mb: 3 }}>
+                Tem certeza que deseja retirar a restrição médica <strong>{removeRestricaoModal.policial.restricaoMedica?.nome}</strong> deste policial?
+              </Typography>
+
+              {removeRestricaoModal.error && (
+                <Box sx={{ mb: 2, p: 2, backgroundColor: 'error.light', borderRadius: 1, color: 'error.dark' }}>
+                  {removeRestricaoModal.error}
+                </Box>
+              )}
+
+              <label style={{ display: 'block', marginBottom: '16px' }}>
+                <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Digite sua senha para confirmar *</span>
+                <input
+                  type="password"
+                  value={removeRestricaoModal.senha}
+                  onChange={(e) => {
+                    setRemoveRestricaoModal((prev) => ({
+                      ...prev,
+                      senha: e.target.value,
+                      error: null,
+                    }));
+                  }}
+                  disabled={removeRestricaoModal.loading}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    fontSize: '1rem',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '8px',
+                  }}
+                  autoFocus
+                />
+              </label>
+            </Box>
+
+            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setRemoveRestricaoModal({ open: false, policial: null, senha: '', error: null, loading: false });
+                }}
+                disabled={removeRestricaoModal.loading}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="primary"
+                disabled={removeRestricaoModal.loading || !removeRestricaoModal.senha}
+                onClick={async () => {
+                  if (!removeRestricaoModal.policial || !removeRestricaoModal.senha) return;
+
+                  try {
+                    setRemoveRestricaoModal((prev) => ({ ...prev, loading: true, error: null }));
+                    const updatedPolicial = await api.removeRestricaoMedicaPolicial(
+                      removeRestricaoModal.policial.id,
+                      removeRestricaoModal.senha,
+                    );
+
+                    // Atualizar o policial na visualização
+                    setViewingPolicial(updatedPolicial);
+                    
+                    // Recarregar lista de policiais
+                    await carregarPoliciais(paginaAtual, itensPorPagina);
+
+                    setRemoveRestricaoModal({ open: false, policial: null, senha: '', error: null, loading: false });
+                  } catch (err) {
+                    setRemoveRestricaoModal((prev) => ({
+                      ...prev,
+                      loading: false,
+                      error: err instanceof Error ? err.message : 'Erro ao remover restrição médica',
+                    }));
+                  }
+                }}
+              >
+                {removeRestricaoModal.loading ? 'Removendo...' : 'Confirmar'}
               </button>
             </Box>
           </Box>

@@ -61,6 +61,18 @@ export interface RestricaoMedica {
   updatedAt: string;
 }
 
+export interface RestricaoMedicaHistorico {
+  id: number;
+  policialId: number;
+  restricaoMedicaId: number;
+  restricaoMedica: RestricaoMedica;
+  dataInicio: string;
+  dataFim: string;
+  removidoPorId?: number | null;
+  removidoPorNome?: string | null;
+  createdAt: string;
+}
+
 export interface Policial {
   id: number;
   nome: string;
@@ -71,6 +83,7 @@ export interface Policial {
   funcao?: { id: number; nome: string; descricao?: string | null } | null;
   restricaoMedicaId?: number | null;
   restricaoMedica?: RestricaoMedica | null;
+  restricoesMedicasHistorico?: RestricaoMedicaHistorico[];
   fotoUrl?: string | null;
   createdAt: string;
   updatedAt: string;
