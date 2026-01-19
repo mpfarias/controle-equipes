@@ -22,6 +22,7 @@ export function MostrarEquipeSection({
   refreshKey,
 }: MostrarEquipeSectionProps) {
   const [policiais, setPoliciais] = useState<Policial[]>([]);
+  const [totalPoliciaisGeral, setTotalPoliciaisGeral] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -93,6 +94,28 @@ export function MostrarEquipeSection({
   const [filtroEquipe, setFiltroEquipe] = useState<Equipe | ''>('');
   const [filtroStatus, setFiltroStatus] = useState<PolicialStatus | ''>('');
   const [filtroFuncao, setFiltroFuncao] = useState<number | ''>('');
+
+  // Aplicar filtros do Dashboard quando o componente montar
+  useEffect(() => {
+    const dashboardFilters = sessionStorage.getItem('dashboard-filters');
+    if (dashboardFilters) {
+      try {
+        const filters = JSON.parse(dashboardFilters);
+        if (filters.equipe) {
+          setFiltroEquipe(filters.equipe as Equipe);
+          setFiltrosAberto(true);
+        }
+        if (filters.funcaoId) {
+          setFiltroFuncao(filters.funcaoId);
+          setFiltrosAberto(true);
+        }
+        // Limpar filtros após aplicá-los
+        sessionStorage.removeItem('dashboard-filters');
+      } catch (error) {
+        console.error('Erro ao aplicar filtros do Dashboard:', error);
+      }
+    }
+  }, []);
   const [ordenacao, setOrdenacao] = useState<{
     campo: 'nome' | 'matricula' | 'equipe';
     direcao: 'asc' | 'desc';
@@ -135,6 +158,33 @@ export function MostrarEquipeSection({
         return { backgroundColor: '#e2e8f0', color: '#1e293b' };
     }
   };
+
+  // Carregar total geral de policiais (sem filtros)
+  const carregarTotalGeral = useCallback(async () => {
+    try {
+      const nivelNome = currentUser.nivel?.nome;
+      const usuarioPodeVerTodos =
+        nivelNome === 'ADMINISTRADOR' ||
+        nivelNome === 'SAD' ||
+        nivelNome === 'COMANDO' ||
+        currentUser.isAdmin === true;
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page: 1,
+        pageSize: 1, // Apenas precisamos do total
+        includeAfastamentos: false,
+        includeRestricoes: false,
+        // Não passar nenhum filtro para pegar o total geral
+      };
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe; // Usuário só pode ver sua equipe
+      }
+      const data = await api.listPoliciaisPaginated(params);
+      setTotalPoliciaisGeral(data.total);
+    } catch (err) {
+      console.error('Erro ao carregar total geral de policiais:', err);
+      setTotalPoliciaisGeral(0);
+    }
+  }, [currentUser]);
 
   const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
@@ -216,6 +266,10 @@ export function MostrarEquipeSection({
     return [...funcoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
   }, [funcoes]);
  
+  useEffect(() => {
+    void carregarTotalGeral();
+  }, [carregarTotalGeral, refreshKey]);
+
   useEffect(() => {
     void carregarPoliciais(paginaAtual, itensPorPagina);
   }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey]);
@@ -692,7 +746,7 @@ export function MostrarEquipeSection({
             Total do efetivo:
           </Typography>
           <Chip 
-            label={totalPoliciais} 
+            label={totalPoliciaisGeral} 
             size="small" 
             sx={{ fontWeight: 600, backgroundColor: '#3b82f6', color: 'white' }}
           />

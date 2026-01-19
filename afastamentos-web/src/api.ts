@@ -70,6 +70,10 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
+  // Debug: log para verificar requisições
+  if (path.includes('/policiais') && path.includes('equipe')) {
+    console.log('API Request:', path, options);
+  }
   const headers = new Headers(options.headers ?? {});
   if (!(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
@@ -420,6 +424,7 @@ export const api = {
       totalPages: number;
     }>(cacheKey);
     if (cached) {
+      console.log('Cache hit para:', cacheKey, cached);
       return cached;
     }
     const data = await request<{
@@ -429,6 +434,7 @@ export const api = {
       pageSize: number;
       totalPages: number;
     }>(path);
+    console.log('Dados recebidos do servidor para:', cacheKey, data);
     setCached(cacheKey, data);
     return data;
   },

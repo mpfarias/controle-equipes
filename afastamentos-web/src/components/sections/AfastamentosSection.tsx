@@ -9,17 +9,19 @@ import type {
 import { STATUS_LABEL, EQUIPE_FONETICA } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo } from '../../utils/dateUtils';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { Autocomplete, TextField, Button } from '@mui/material';
+import { Autocomplete, TextField, Button, Checkbox, Box, Typography } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
 
 interface AfastamentosSectionProps {
   currentUser: Usuario;
   openConfirm: (config: ConfirmConfig) => void;
+  onChanged?: () => void;
 }
 
 export function AfastamentosSection({
   currentUser,
   openConfirm,
+  onChanged,
 }: AfastamentosSectionProps) {
   const initialForm = {
     policialId: '',
@@ -52,6 +54,36 @@ export function AfastamentosSection({
     conflitos: [],
     dataVerificada: '',
   });
+  const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
+  const [quantidadeDias, setQuantidadeDias] = useState<string>('');
+
+  // Calcular dias automaticamente quando as datas são selecionadas
+  const diasCalculados = useMemo(() => {
+    if (!calcularPeriodo && form.dataInicio && form.dataFim) {
+      return calcularDiasEntreDatas(form.dataInicio, form.dataFim);
+    }
+    return null;
+  }, [calcularPeriodo, form.dataInicio, form.dataFim]);
+
+  // Calcular data de término quando "Calcular período" estiver marcado
+  const dataTerminoCalculada = useMemo(() => {
+    if (calcularPeriodo && form.dataInicio && quantidadeDias) {
+      const dias = parseInt(quantidadeDias, 10);
+      if (!isNaN(dias) && dias > 0) {
+        // Criar data a partir da string YYYY-MM-DD
+        const [year, month, day] = form.dataInicio.split('-').map(Number);
+        const dataInicio = new Date(year, month - 1, day);
+        // Adicionar dias (subtrair 1 porque o primeiro dia já conta)
+        dataInicio.setDate(dataInicio.getDate() + dias - 1);
+        // Formatar como DD/MM/YYYY
+        const dayFormatted = String(dataInicio.getDate()).padStart(2, '0');
+        const monthFormatted = String(dataInicio.getMonth() + 1).padStart(2, '0');
+        const yearFormatted = dataInicio.getFullYear();
+        return `${dayFormatted}/${monthFormatted}/${yearFormatted}`;
+      }
+    }
+    return null;
+  }, [calcularPeriodo, form.dataInicio, quantidadeDias]);
 
   // Ordenar motivos alfabeticamente, com "Outro" sempre no final
   const motivosOrdenados = useMemo(() => {
@@ -266,13 +298,30 @@ export function AfastamentosSection({
   const submeterAfastamento = useCallback(async () => {
     try {
       setSubmitting(true);
+      
+      // Se calcularPeriodo estiver marcado, calcular dataFim baseada na quantidade de dias
+      let dataFimFinal = form.dataFim;
+      if (calcularPeriodo && form.dataInicio && quantidadeDias) {
+        const dataInicio = new Date(form.dataInicio);
+        const dias = parseInt(quantidadeDias, 10);
+        if (!isNaN(dias) && dias > 0) {
+          // Adicionar dias (subtrair 1 porque o primeiro dia já conta)
+          dataInicio.setDate(dataInicio.getDate() + dias - 1);
+          // Formatar como YYYY-MM-DD
+          const year = dataInicio.getFullYear();
+          const month = String(dataInicio.getMonth() + 1).padStart(2, '0');
+          const day = String(dataInicio.getDate()).padStart(2, '0');
+          dataFimFinal = `${year}-${month}-${day}`;
+        }
+      }
+      
       await api.createAfastamento({
         policialId: Number(form.policialId),
         motivoId: form.motivoId,
         seiNumero: form.seiNumero.trim(),
         descricao: form.descricao.trim() || undefined,
         dataInicio: form.dataInicio,
-        dataFim: form.dataFim || undefined,
+        dataFim: dataFimFinal || undefined,
       });
       setSuccess('Afastamento cadastrado com sucesso.');
       
@@ -289,6 +338,7 @@ export function AfastamentosSection({
       });
       
       await carregarDados();
+      onChanged?.();
     } catch (err) {
       setError(
         err instanceof Error
@@ -335,6 +385,21 @@ export function AfastamentosSection({
 
     // PRIMEIRO: Verificar se o próprio policial já tem afastamento no período
     const policialId = Number(form.policialId);
+    
+    // Calcular dataFim para validação (se calcularPeriodo estiver marcado)
+    let dataFimParaValidacao = form.dataFim;
+    if (calcularPeriodo && form.dataInicio && quantidadeDias) {
+      const dataInicio = new Date(form.dataInicio);
+      const dias = parseInt(quantidadeDias, 10);
+      if (!isNaN(dias) && dias > 0) {
+        dataInicio.setDate(dataInicio.getDate() + dias - 1);
+        const year = dataInicio.getFullYear();
+        const month = String(dataInicio.getMonth() + 1).padStart(2, '0');
+        const day = String(dataInicio.getDate()).padStart(2, '0');
+        dataFimParaValidacao = `${year}-${month}-${day}`;
+      }
+    }
+    
     const afastamentosDoMesmoPolicial = afastamentos.filter(
       (afastamento) =>
         afastamento.policialId === policialId &&
@@ -345,7 +410,7 @@ export function AfastamentosSection({
     for (const afastamentoExistente of afastamentosDoMesmoPolicial) {
       const haSobreposicao = periodosSobrepostos(
         form.dataInicio,
-        form.dataFim || null,
+        dataFimParaValidacao || null,
         afastamentoExistente.dataInicio,
         afastamentoExistente.dataFim || null,
       );
@@ -359,14 +424,14 @@ export function AfastamentosSection({
     }
 
     // SEGUNDO: Verificar conflitos de afastamentos de OUTROS policiais no intervalo de dias
-    const conflitos = verificarConflitos(form.dataInicio, form.dataFim || null, policialId);
+    const conflitos = verificarConflitos(form.dataInicio, dataFimParaValidacao || null, policialId);
     
     if (conflitos.length > 0) {
       // Mostrar modal de conflitos informando sobre outros policiais afastados
       setConflitosModal({
         open: true,
         conflitos,
-        dataVerificada: form.dataFim ? `${form.dataInicio} e ${form.dataFim}` : form.dataInicio,
+        dataVerificada: dataFimParaValidacao ? `${form.dataInicio} e ${dataFimParaValidacao}` : form.dataInicio,
       });
       return;
     }
@@ -386,9 +451,17 @@ export function AfastamentosSection({
 
     // Validar férias e abono
     if (motivoNome === 'Férias' || motivoNome === 'Abono') {
-      if (!form.dataFim) {
-        setError('Para férias e abono, é necessário informar a data de término.');
-        return;
+      // Se calcularPeriodo estiver marcado, validar quantidadeDias
+      if (calcularPeriodo) {
+        if (!quantidadeDias || parseInt(quantidadeDias, 10) <= 0) {
+          setError('Para férias e abono, é necessário informar a quantidade de dias.');
+          return;
+        }
+      } else {
+        if (!form.dataFim) {
+          setError('Para férias e abono, é necessário informar a data de término.');
+          return;
+        }
       }
 
       const policialId = Number(form.policialId);
@@ -425,7 +498,14 @@ export function AfastamentosSection({
 
       const dataInicio = new Date(form.dataInicio);
       const ano = dataInicio.getFullYear();
-      const diasSolicitados = calcularDiasEntreDatas(form.dataInicio, form.dataFim || undefined);
+      
+      // Calcular dias solicitados
+      let diasSolicitados = 0;
+      if (calcularPeriodo && quantidadeDias) {
+        diasSolicitados = parseInt(quantidadeDias, 10);
+      } else {
+        diasSolicitados = calcularDiasEntreDatas(form.dataInicio, form.dataFim || undefined);
+      }
       const diasUsados = calcularDiasUsadosNoAno(policialId, form.motivoId, ano);
       const limiteDias = motivoNome === 'Férias' ? 30 : 5;
       const totalAposCadastro = diasUsados + diasSolicitados;
@@ -473,6 +553,7 @@ export function AfastamentosSection({
           await api.removeAfastamento(afastamento.id);
           setSuccess('Afastamento removido.');
           await carregarDados();
+          onChanged?.();
         } catch (err) {
           setError(
             err instanceof Error
@@ -816,27 +897,100 @@ export function AfastamentosSection({
           />
         </label>
         <div className="grid two-columns">
-          <label>
-            Data de início
-            <input
-              type="date"
-              value={form.dataInicio}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, dataInicio: event.target.value }))
-              }
-              required
-            />
-          </label>
-          <label>
-            Data de término
-            <input
-              type="date"
-              value={form.dataFim}
-              onChange={(event) =>
-                setForm((prev) => ({ ...prev, dataFim: event.target.value }))
-              }
-            />
-          </label>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <label>
+              Data de início
+              <input
+                type="date"
+                value={form.dataInicio}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, dataInicio: event.target.value }))
+                }
+                required
+              />
+            </label>
+            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 1 }}>
+              <Checkbox
+                checked={calcularPeriodo}
+                onChange={(event) => setCalcularPeriodo(event.target.checked)}
+                size="small"
+              />
+              <span style={{ fontSize: '0.95rem' }}>Calcular período</span>
+            </Box>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ flex: 1 }}>
+                <label>
+                  {calcularPeriodo ? 'Insira a quantidade de dias' : 'Data de término'}
+                  {calcularPeriodo ? (
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      pattern="\d*"
+                      min="1"
+                      value={quantidadeDias}
+                      onChange={(event) => {
+                        const value = event.target.value.replace(/\D/g, '');
+                        setQuantidadeDias(value);
+                      }}
+                      placeholder="Digite o número de dias"
+                    />
+                  ) : (
+                    <input
+                      type="date"
+                      value={form.dataFim}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, dataFim: event.target.value }))
+                      }
+                    />
+                  )}
+                </label>
+              </div>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  setForm((prev) => ({ ...prev, dataInicio: '', dataFim: '' }));
+                  setQuantidadeDias('');
+                  setCalcularPeriodo(false);
+                }}
+                sx={{
+                  textTransform: 'none',
+                  mt: '20px',
+                  height: '40px',
+                }}
+              >
+                Limpar
+              </Button>
+            </div>
+            {calcularPeriodo && dataTerminoCalculada && (
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  mt: 1, 
+                  color: 'text.secondary', 
+                  fontSize: '0.875rem',
+                  fontStyle: 'italic'
+                }}
+              >
+                Data de término: {dataTerminoCalculada}
+              </Typography>
+            )}
+            {!calcularPeriodo && diasCalculados !== null && (
+              <Typography 
+                variant="body2" 
+                sx={{ 
+                  mt: 1, 
+                  color: 'text.secondary', 
+                  fontSize: '0.875rem',
+                  fontStyle: 'italic'
+                }}
+              >
+                Período: {diasCalculados} {diasCalculados === 1 ? 'dia' : 'dias'}
+              </Typography>
+            )}
+          </div>
         </div>
         <div className="form-actions">
           <button className="primary" type="submit" disabled={submitting}>

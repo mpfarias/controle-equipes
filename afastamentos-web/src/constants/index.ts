@@ -1,9 +1,10 @@
 import type { AfastamentoStatus, Equipe, PolicialStatus } from '../types';
 
-export type TabKey = 'dashboard' | 'afastamentos' | 'policiais' | 'equipe' | 'usuarios' | 'relatorios' | 'restricao-afastamento';
+export type TabKey = 'dashboard' | 'afastamentos-mes' | 'afastamentos' | 'policiais' | 'equipe' | 'usuarios' | 'relatorios' | 'restricao-afastamento';
 
 export const TABS: { key: TabKey; label: string }[] = [
-  { key: 'dashboard', label: 'Afastamentos do mês' },
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'afastamentos-mes', label: 'Afastamentos do mês' },
   { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
   { key: 'policiais', label: 'Cadastrar Policial' },

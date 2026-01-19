@@ -744,14 +744,34 @@ export class AfastamentosService {
     if (hasDataInicio || hasDataFim) {
       const inicio = hasDataInicio ? new Date(dataInicio as string) : undefined;
       const fim = hasDataFim ? new Date(dataFim as string) : undefined;
+      
+      // Normalizar datas para início e fim do dia
+      if (inicio) {
+        inicio.setHours(0, 0, 0, 0);
+      }
+      if (fim) {
+        fim.setHours(23, 59, 59, 999);
+      }
+      
       baseWhere.AND = [
+        // Afastamento começa antes ou durante o período filtrado
         ...(inicio ? [{ dataInicio: { lte: fim ?? new Date('9999-12-31') } }] : []),
-        ...(fim
+        // E (afastamento não tem fim OU termina depois ou durante o período filtrado)
+        ...(fim && inicio
           ? [
               {
                 OR: [
                   { dataFim: null },
-                  { dataFim: { gte: inicio ?? new Date('1970-01-01') } },
+                  { dataFim: { gte: inicio } },
+                ],
+              },
+            ]
+          : fim
+          ? [
+              {
+                OR: [
+                  { dataFim: null },
+                  { dataFim: { gte: new Date('1970-01-01') } },
                 ],
               },
             ]

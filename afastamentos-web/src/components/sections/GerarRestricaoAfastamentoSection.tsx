@@ -403,13 +403,9 @@ export function GerarRestricaoAfastamentoSection({
                 <Box
                   sx={{
                     display: 'grid',
-                    gridTemplateColumns: {
-                      xs: 'repeat(2, 1fr)',
-                      sm: 'repeat(3, 1fr)',
-                      md: 'repeat(5, 1fr)',
-                    },
-                    gap: '16px 24px',
-                    alignItems: 'start',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '12px 24px',
+                    width: '100%',
                   }}
                 >
                   {motivosAdicionaisDisponiveis.map((motivo) => (
@@ -422,12 +418,13 @@ export function GerarRestricaoAfastamentoSection({
                           size="small"
                         />
                       }
-                      label={motivo.nome}
+                      label={
+                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                          {motivo.nome}
+                        </Typography>
+                      }
                       sx={{
                         margin: 0,
-                        '& .MuiFormControlLabel-label': {
-                          fontSize: '0.875rem',
-                        },
                       }}
                     />
                   ))}

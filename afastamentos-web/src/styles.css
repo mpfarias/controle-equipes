@@ -30,6 +30,10 @@ body {
   gap: 24px;
 }
 
+.app-container-dashboard {
+  max-width: 1800px;
+}
+
 header {
   display: flex;
   flex-wrap: wrap;

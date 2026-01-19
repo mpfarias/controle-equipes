@@ -8,6 +8,7 @@ import {
   SecurityQuestionView,
 } from './components/auth';
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
+const DashboardHomeSection = lazy(() => import('./components/sections/DashboardHomeSection').then((m) => ({ default: m.DashboardHomeSection })));
 const DashboardSection = lazy(() => import('./components/sections/DashboardSection').then((m) => ({ default: m.DashboardSection })));
 const MostrarEquipeSection = lazy(() =>
   import('./components/sections/MostrarEquipeSection').then((m) => ({ default: m.MostrarEquipeSection })),
@@ -27,7 +28,7 @@ const GerarRestricaoAfastamentoSection = lazy(() =>
 type AuthView = 'login' | 'forgot-password' | 'security-question';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>('dashboard'); // Sempre inicia no dashboard (Afastamentos do mês)
+  const [activeTab, setActiveTab] = useState<TabKey>('dashboard'); // Sempre inicia no Dashboard
   const [currentUser, setCurrentUser] = useState<Usuario | null>(null);
   const [authView, setAuthView] = useState<AuthView>('login');
   const [securityQuestionData, setSecurityQuestionData] = useState<{
@@ -40,6 +41,7 @@ export default function App() {
     message: '',
   });
   const [policiaisVersion, setPoliciaisVersion] = useState(0);
+  const [afastamentosVersion, setAfastamentosVersion] = useState(0);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -98,6 +100,10 @@ export default function App() {
     setPoliciaisVersion((value) => value + 1);
   }, []);
 
+  const notifyAfastamentosChanged = useCallback(() => {
+    setAfastamentosVersion((value) => value + 1);
+  }, []);
+
   const closeConfirm = useCallback(() => {
     setConfirmDialog((prev) => ({
       ...prev,
@@ -151,6 +157,10 @@ export default function App() {
       if (tab.key === 'afastamentos') {
         return nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
       }
+      // Afastamentos do mês - mesmo controle de acesso que afastamentos
+      if (tab.key === 'afastamentos-mes') {
+        return nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
+      }
       // A aba de usuários só está disponível para SAD e ADMINISTRADOR
       if (tab.key === 'usuarios') {
         return usuarioTemAcessoUsuarios;
@@ -179,6 +189,9 @@ export default function App() {
       setActiveTab('dashboard');
     }
     if (activeTab === 'afastamentos' && !temAcessoAfastamentos) {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'afastamentos-mes' && !temAcessoAfastamentos) {
       setActiveTab('dashboard');
     }
   }, [currentUser, activeTab, usuarioTemAcessoUsuarios]);
@@ -236,7 +249,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${activeTab === 'dashboard' ? 'app-container-dashboard' : ''}`}>
       <header>
         <div>
           <h1>
@@ -275,11 +288,20 @@ export default function App() {
       </ul>
 
       <Suspense fallback={<p className="empty-state">Carregando...</p>}>
-        {activeTab === 'dashboard' && <DashboardSection currentUser={currentUser} />}
+        {activeTab === 'dashboard' && (
+          <DashboardHomeSection
+            currentUser={currentUser}
+            onTabChange={setActiveTab}
+            refreshKeyPoliciais={policiaisVersion}
+            refreshKeyAfastamentos={afastamentosVersion}
+          />
+        )}
+        {activeTab === 'afastamentos-mes' && <DashboardSection currentUser={currentUser} />}
         {activeTab === 'afastamentos' && (
           <AfastamentosSection
             currentUser={currentUser}
             openConfirm={openConfirm}
+            onChanged={notifyAfastamentosChanged}
           />
         )}
         {activeTab === 'policiais' && (

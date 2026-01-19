@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
-import type { Afastamento, MotivoAfastamentoOption, Usuario } from '../../types';
-import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS } from '../../constants';
+import type { Afastamento, MotivoAfastamentoOption, Usuario, PolicialStatus, Equipe } from '../../types';
+import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, EQUIPE_OPTIONS, EQUIPE_FONETICA } from '../../constants';
 import { formatPeriodo, formatDate } from '../../utils/dateUtils';
-import { Button } from '@mui/material';
+import { Button, Box, Checkbox, Collapse, Typography, Paper, Grid, Divider } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 
 interface DashboardSectionProps {
   currentUser: Usuario;
@@ -16,13 +18,34 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [motivoFiltro, setMotivoFiltro] = useState<string>('');
+  const [motivosSelecionados, setMotivosSelecionados] = useState<string[]>([]);
+  const [statusSelecionados, setStatusSelecionados] = useState<PolicialStatus[]>([]);
+  const [equipesSelecionadas, setEquipesSelecionadas] = useState<Equipe[]>([]);
+  const [filtrosExpanded, setFiltrosExpanded] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [dataInicioFiltro, setDataInicioFiltro] = useState<string>('');
   const [dataFimFiltro, setDataFimFiltro] = useState<string>('');
+
+  // Aplicar filtros do Dashboard quando o componente montar
+  useEffect(() => {
+    const dashboardFilters = sessionStorage.getItem('dashboard-filters');
+    if (dashboardFilters) {
+      try {
+        const filters = JSON.parse(dashboardFilters);
+        if (filters.motivo) {
+          setMotivosSelecionados([filters.motivo]);
+          setFiltrosExpanded(true);
+        }
+        // Limpar filtros após aplicá-los
+        sessionStorage.removeItem('dashboard-filters');
+      } catch (error) {
+        console.error('Erro ao aplicar filtros do Dashboard:', error);
+      }
+    }
+  }, []);
 
   const getPolicialStatusClass = (status: Afastamento['policial']['status']) => {
     switch (status) {
@@ -306,12 +329,33 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
       }
     }
 
-    // TERCEIRO: Filtrar por motivo
-    if (motivoFiltro && motivoFiltro.trim() !== '') {
-      resultado = resultado.filter((afastamento) => afastamento.motivo.nome === motivoFiltro);
+    // TERCEIRO: Filtrar por motivos (múltipla seleção)
+    if (motivosSelecionados.length > 0) {
+      resultado = resultado.filter((afastamento) => 
+        motivosSelecionados.includes(afastamento.motivo.nome)
+      );
     }
 
-    // QUARTO: Filtrar por busca de nome
+    // QUARTO: Filtrar por status do policial (múltipla seleção)
+    if (statusSelecionados.length > 0) {
+      resultado = resultado.filter((afastamento) => 
+        statusSelecionados.includes(afastamento.policial.status)
+      );
+    }
+
+    // QUINTO: Filtrar por equipe (múltipla seleção)
+    if (equipesSelecionadas.length > 0) {
+      resultado = resultado.filter((afastamento) => {
+        const equipePolicial = afastamento.policial.equipe;
+        // Se o policial não tem equipe, não incluir se o filtro está ativo
+        if (!equipePolicial) {
+          return false;
+        }
+        return equipesSelecionadas.includes(equipePolicial);
+      });
+    }
+
+    // SEXTO: Filtrar por busca de nome
     if (normalizedSearch) {
       resultado = resultado.filter((afastamento) =>
         afastamento.policial.nome.toUpperCase().includes(normalizedSearch),
@@ -319,7 +363,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     }
 
     return resultado;
-  }, [afastamentos, searchTerm, motivoFiltro, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
+  }, [afastamentos, searchTerm, motivosSelecionados, statusSelecionados, equipesSelecionadas, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -392,18 +436,19 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
           onChange={(event) => setSearchTerm(event.target.value.toUpperCase())}
           placeholder="Pesquisar por nome"
         />
-        <select
-          className="search-input"
-          value={motivoFiltro}
-          onChange={(event) => setMotivoFiltro(event.target.value)}
+        <Button
+          variant="outlined"
+          size="small"
+          endIcon={filtrosExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          onClick={() => setFiltrosExpanded(!filtrosExpanded)}
+          sx={{
+            whiteSpace: 'nowrap',
+            textTransform: 'none',
+            minWidth: 'auto',
+          }}
         >
-          <option value="">Todos os motivos</option>
-          {motivosOrdenados.map((motivo) => (
-            <option key={motivo.id} value={motivo.nome}>
-              {motivo.nome}
-            </option>
-          ))}
-        </select>
+          Filtros Avançados
+        </Button>
         <input
           type="date"
           className="search-input"
@@ -498,6 +543,271 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
         </button>
       </div>
 
+      <Collapse in={filtrosExpanded}>
+        <Paper
+          elevation={2}
+          sx={{
+            p: 3,
+            mb: 3,
+            mt: 2,
+            backgroundColor: '#ffffff',
+          }}
+        >
+          <Grid container spacing={3} direction="column">
+            {/* Seção de Motivos */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                Filtrar por Motivos
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.ceil(motivosOrdenados.length / 2)}, 1fr)`,
+                  gap: '8px 16px',
+                  mb: 2,
+                }}
+              >
+                {motivosOrdenados.map((motivo) => (
+                  <Box key={motivo.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={motivosSelecionados.includes(motivo.nome)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setMotivosSelecionados([...motivosSelecionados, motivo.nome]);
+                        } else {
+                          setMotivosSelecionados(motivosSelecionados.filter((m) => m !== motivo.nome));
+                        }
+                      }}
+                      size="small"
+                      sx={{
+                        '& .MuiSvgIcon-root': {
+                          fontSize: '1.25rem',
+                        },
+                      }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {motivo.nome}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setMotivosSelecionados(motivosOrdenados.map((m) => m.nome))}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Selecionar Todos
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setMotivosSelecionados([])}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Limpar
+                </Button>
+                {motivosSelecionados.length > 0 && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      ml: 'auto',
+                      alignSelf: 'center',
+                      color: 'text.secondary',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {motivosSelecionados.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
+
+            {/* Seção de Status */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                Filtrar por Status do Policial
+              </Typography>
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 1,
+                  mb: 2,
+                  alignItems: 'center',
+                }}
+              >
+                {POLICIAL_STATUS_OPTIONS.map((status) => (
+                  <Box key={status.value} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={statusSelecionados.includes(status.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setStatusSelecionados([...statusSelecionados, status.value]);
+                        } else {
+                          setStatusSelecionados(statusSelecionados.filter((s) => s !== status.value));
+                        }
+                      }}
+                      size="small"
+                      sx={{
+                        '& .MuiSvgIcon-root': {
+                          fontSize: '1.25rem',
+                        },
+                      }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {status.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setStatusSelecionados(POLICIAL_STATUS_OPTIONS.map((s) => s.value))}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Selecionar Todos
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setStatusSelecionados([])}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Limpar
+                </Button>
+                {statusSelecionados.length > 0 && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      ml: 'auto',
+                      alignSelf: 'center',
+                      color: 'text.secondary',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {statusSelecionados.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
+
+            {/* Seção de Equipes */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                Filtrar por Equipes
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.ceil(EQUIPE_OPTIONS.length / 2)}, 1fr)`,
+                  gap: '8px 16px',
+                  mb: 2,
+                }}
+              >
+                {EQUIPE_OPTIONS.map((equipe) => (
+                  <Box key={equipe.value} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={equipesSelecionadas.includes(equipe.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEquipesSelecionadas([...equipesSelecionadas, equipe.value]);
+                        } else {
+                          setEquipesSelecionadas(equipesSelecionadas.filter((eq) => eq !== equipe.value));
+                        }
+                      }}
+                      size="small"
+                      sx={{
+                        '& .MuiSvgIcon-root': {
+                          fontSize: '1.25rem',
+                        },
+                      }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {equipe.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setEquipesSelecionadas(EQUIPE_OPTIONS.map((eq) => eq.value))}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Selecionar Todos
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setEquipesSelecionadas([])}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Limpar
+                </Button>
+                {equipesSelecionadas.length > 0 && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      ml: 'auto',
+                      alignSelf: 'center',
+                      color: 'text.secondary',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {equipesSelecionadas.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
+          </Grid>
+
+          {/* Botão para limpar todos os filtros */}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+            <Button
+              variant="text"
+              size="small"
+              onClick={() => {
+                setMotivosSelecionados([]);
+                setStatusSelecionados([]);
+                setEquipesSelecionadas([]);
+              }}
+              sx={{
+                textTransform: 'none',
+                fontSize: '0.75rem',
+              }}
+              disabled={motivosSelecionados.length === 0 && statusSelecionados.length === 0 && equipesSelecionadas.length === 0}
+            >
+              Limpar Todos os Filtros
+            </Button>
+          </Box>
+        </Paper>
+      </Collapse>
+
       {error && (
         <div className="feedback error">
           {error}
@@ -525,6 +835,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
           <thead>
             <tr>
               <th>Policial</th>
+              <th>Equipe</th>
               <th>Status do Policial</th>
               <th>Motivo</th>
               <th>Período</th>
@@ -537,6 +848,15 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                 <td>
                   <div>{afastamento.policial.nome}</div>
                   <small>{afastamento.policial.matricula}</small>
+                </td>
+                <td>
+                  {afastamento.policial.equipe ? (
+                    <span>
+                      {EQUIPE_FONETICA[afastamento.policial.equipe] || afastamento.policial.equipe}
+                    </span>
+                  ) : (
+                    <span style={{ color: '#999' }}>Sem Equipe</span>
+                  )}
                 </td>
                 <td>
                   <span className={getPolicialStatusClass(afastamento.policial.status)}>
