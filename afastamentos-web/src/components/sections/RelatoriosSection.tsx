@@ -32,6 +32,8 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
     dataFim: '',
   });
 
+  const [expandedCard, setExpandedCard] = useState<'auditoria' | 'servico' | null>('auditoria');
+
   const carregarLogs = useCallback(async () => {
     try {
       setLoading(true);
@@ -972,168 +974,372 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
         </div>
       )}
 
+      {/* Cards principais */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '2rem',
-          marginTop: '2rem',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '1.5rem',
+          marginTop: '1.5rem',
+        }}
+      >
+        {/* Card principal - Auditoria do Sistema */}
+        <button
+          type="button"
+          onClick={() =>
+            setExpandedCard((prev) => (prev === 'auditoria' ? null : 'auditoria'))
+          }
+          style={{
+            textAlign: 'left',
+            border: expandedCard === 'auditoria' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '1.25rem 1.5rem',
+            backgroundColor: expandedCard === 'auditoria' ? '#eff6ff' : '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+            cursor: 'pointer',
+            transition: 'border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease',
+            boxShadow:
+              expandedCard === 'auditoria'
+                ? '0 4px 12px rgba(37, 99, 235, 0.15)'
+                : '0 1px 3px rgba(15, 23, 42, 0.08)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0 }}>Relatórios de Auditoria do Sistema</h3>
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: '0.25rem',
+                  color: '#64748b',
+                  fontSize: '0.9rem',
+                }}
+              >
+                Relatórios sobre ações no sistema, usuários, erros e acessos.
+              </p>
+            </div>
+            <span
+              style={{
+                fontSize: '1.25rem',
+                color: '#2563eb',
+                transform: expandedCard === 'auditoria' ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+              }}
+            >
+              ▶
+            </span>
+          </div>
+          <span
+            style={{
+              fontSize: '0.8rem',
+              fontWeight: 500,
+              color: '#1d4ed8',
+              marginTop: '0.25rem',
+            }}
+          >
+            {expandedCard === 'auditoria' ? 'Clique para recolher' : 'Clique para ver opções'}
+          </span>
+        </button>
+
+        {/* Card principal - Relatórios de Serviço */}
+        <button
+          type="button"
+          onClick={() =>
+            setExpandedCard((prev) => (prev === 'servico' ? null : 'servico'))
+          }
+          style={{
+            textAlign: 'left',
+            border: expandedCard === 'servico' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '1.25rem 1.5rem',
+            backgroundColor: expandedCard === 'servico' ? '#eff6ff' : '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+            cursor: 'pointer',
+            transition: 'border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease',
+            boxShadow:
+              expandedCard === 'servico'
+                ? '0 4px 12px rgba(37, 99, 235, 0.15)'
+                : '0 1px 3px rgba(15, 23, 42, 0.08)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+            }}
+          >
+            <div>
+              <h3 style={{ margin: 0 }}>Relatórios de Serviço</h3>
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: '0.25rem',
+                  color: '#64748b',
+                  fontSize: '0.9rem',
+                }}
+              >
+                Relatórios operacionais do serviço (escala, equipes, indicadores etc.).
+              </p>
+            </div>
+            <span
+              style={{
+                fontSize: '1.25rem',
+                color: '#2563eb',
+                transform: expandedCard === 'servico' ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease',
+              }}
+            >
+              ▶
+            </span>
+          </div>
+          <span
+            style={{
+              fontSize: '0.8rem',
+              fontWeight: 500,
+              color: '#1d4ed8',
+              marginTop: '0.25rem',
+            }}
+          >
+            {expandedCard === 'servico' ? 'Clique para recolher' : 'Clique para ver opções'}
+          </span>
+        </button>
+      </div>
+
+      {/* Área expandida - Auditoria do Sistema */}
+      <div
+        style={{
+          marginTop: '1.5rem',
+          maxHeight: expandedCard === 'auditoria' ? 1000 : 0,
+          opacity: expandedCard === 'auditoria' ? 1 : 0,
+          transform:
+            expandedCard === 'auditoria' ? 'translateY(0px)' : 'translateY(-8px)',
+          overflow: 'hidden',
+          transition:
+            'max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease',
         }}
       >
         <div
           style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '2rem',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ margin: 0 }}>Relatório de Auditoria</h3>
-            <div className="tooltip-container">
-              <span className="tooltip-icon">?</span>
-              <div className="tooltip-text">
-                Este relatório mostra todas as ações realizadas no sistema e quem as executou.
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0 }}>Relatório de Auditoria</h3>
+              <div className="tooltip-container">
+                <span className="tooltip-icon">?</span>
+                <div className="tooltip-text">
+                  Este relatório mostra todas as ações realizadas no sistema e quem as executou.
+                </div>
               </div>
             </div>
+            {loading ? (
+              <p className="empty-state" style={{ margin: 0 }}>
+                Carregando logs de auditoria...
+              </p>
+            ) : (
+              <button
+                className="primary"
+                type="button"
+                onClick={() => abrirModalFiltro('auditoria')}
+                disabled={generating || auditLogs.length === 0}
+                style={{ marginTop: 'auto' }}
+              >
+                {generating ? 'Gerando PDF...' : 'Gerar PDF'}
+              </button>
+            )}
           </div>
-          {loading ? (
-            <p className="empty-state" style={{ margin: 0 }}>
-              Carregando logs de auditoria...
-            </p>
-          ) : (
+
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0 }}>Relatório de Usuários Cadastrados</h3>
+              <div className="tooltip-container">
+                <span className="tooltip-icon">?</span>
+                <div className="tooltip-text">
+                  Este relatório mostra todos os usuários cadastrados no sistema, incluindo quem os cadastrou, data, hora, nível e função.
+                </div>
+              </div>
+            </div>
             <button
               className="primary"
               type="button"
-              onClick={() => abrirModalFiltro('auditoria')}
-              disabled={generating || auditLogs.length === 0}
+              onClick={() => abrirModalFiltro('usuarios')}
+              disabled={generatingUsuarios || usuarios.length === 0}
               style={{ marginTop: 'auto' }}
             >
-              {generating ? 'Gerando PDF...' : 'Gerar PDF'}
+              {generatingUsuarios ? 'Gerando PDF...' : 'Gerar PDF'}
             </button>
-          )}
-        </div>
+          </div>
 
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ margin: 0 }}>Relatório de Usuários Cadastrados</h3>
-            <div className="tooltip-container">
-              <span className="tooltip-icon">?</span>
-              <div className="tooltip-text">
-                Este relatório mostra todos os usuários cadastrados no sistema, incluindo quem os cadastrou, data, hora, nível e função.
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0 }}>Relatório de Geração de Relatórios</h3>
+              <div className="tooltip-container">
+                <span className="tooltip-icon">?</span>
+                <div className="tooltip-text">
+                  Este relatório mostra quem gerou relatórios no sistema, incluindo nome, matrícula, data, hora e tipo de relatório.
+                </div>
               </div>
             </div>
+            <button
+              className="primary"
+              type="button"
+              onClick={() => abrirModalFiltro('geracao-relatorios')}
+              disabled={generatingRelatorioLogs || relatorioLogs.length === 0}
+              style={{ marginTop: 'auto' }}
+            >
+              {generatingRelatorioLogs ? 'Gerando PDF...' : 'Gerar PDF'}
+            </button>
           </div>
-          <button
-            className="primary"
-            type="button"
-            onClick={() => abrirModalFiltro('usuarios')}
-            disabled={generatingUsuarios || usuarios.length === 0}
-            style={{ marginTop: 'auto' }}
-          >
-            {generatingUsuarios ? 'Gerando PDF...' : 'Gerar PDF'}
-          </button>
-        </div>
 
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ margin: 0 }}>Relatório de Geração de Relatórios</h3>
-            <div className="tooltip-container">
-              <span className="tooltip-icon">?</span>
-              <div className="tooltip-text">
-                Este relatório mostra quem gerou relatórios no sistema, incluindo nome, matrícula, data, hora e tipo de relatório.
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0 }}>Relatório de Erros do Sistema</h3>
+              <div className="tooltip-container">
+                <span className="tooltip-icon">?</span>
+                <div className="tooltip-text">
+                  Este relatório mostra todos os erros registrados no sistema, incluindo data, hora, status HTTP, método, endpoint, mensagem de erro e usuário relacionado.
+                </div>
               </div>
             </div>
+            <button
+              className="primary"
+              type="button"
+              onClick={() => abrirModalFiltro('erros')}
+              disabled={generatingErros || erroLogs.length === 0}
+              style={{ marginTop: 'auto' }}
+            >
+              {generatingErros ? 'Gerando PDF...' : 'Gerar PDF'}
+            </button>
           </div>
-          <button
-            className="primary"
-            type="button"
-            onClick={() => abrirModalFiltro('geracao-relatorios')}
-            disabled={generatingRelatorioLogs || relatorioLogs.length === 0}
-            style={{ marginTop: 'auto' }}
-          >
-            {generatingRelatorioLogs ? 'Gerando PDF...' : 'Gerar PDF'}
-          </button>
-        </div>
 
-        <div
-          style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ margin: 0 }}>Relatório de Erros do Sistema</h3>
-            <div className="tooltip-container">
-              <span className="tooltip-icon">?</span>
-              <div className="tooltip-text">
-                Este relatório mostra todos os erros registrados no sistema, incluindo data, hora, status HTTP, método, endpoint, mensagem de erro e usuário relacionado.
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1rem',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0 }}>Relatório de Acessos ao Sistema</h3>
+              <div className="tooltip-container">
+                <span className="tooltip-icon">?</span>
+                <div className="tooltip-text">
+                  Este relatório mostra todos os acessos ao sistema, incluindo quem entrou, data e hora de entrada, IP, data e hora de saída, e tempo de sessão.
+                </div>
               </div>
             </div>
+            <button
+              className="primary"
+              type="button"
+              onClick={() => abrirModalFiltro('acessos')}
+              disabled={generatingAcessos || acessoLogs.length === 0}
+              style={{ marginTop: 'auto' }}
+            >
+              {generatingAcessos ? 'Gerando PDF...' : 'Gerar PDF'}
+            </button>
           </div>
-          <button
-            className="primary"
-            type="button"
-            onClick={() => abrirModalFiltro('erros')}
-            disabled={generatingErros || erroLogs.length === 0}
-            style={{ marginTop: 'auto' }}
-          >
-            {generatingErros ? 'Gerando PDF...' : 'Gerar PDF'}
-          </button>
         </div>
+      </div>
 
+      {/* Área expandida - Relatórios de Serviço */}
+      <div
+        style={{
+          marginTop: '1.5rem',
+          maxHeight: expandedCard === 'servico' ? 600 : 0,
+          opacity: expandedCard === 'servico' ? 1 : 0,
+          transform:
+            expandedCard === 'servico' ? 'translateY(0px)' : 'translateY(-8px)',
+          overflow: 'hidden',
+          transition:
+            'max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease',
+        }}
+      >
         <div
           style={{
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '1.5rem',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+            gap: '2rem',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <h3 style={{ margin: 0 }}>Relatório de Acessos ao Sistema</h3>
-            <div className="tooltip-container">
-              <span className="tooltip-icon">?</span>
-              <div className="tooltip-text">
-                Este relatório mostra todos os acessos ao sistema, incluindo quem entrou, data e hora de entrada, IP, data e hora de saída, e tempo de sessão.
-              </div>
-            </div>
-          </div>
-          <button
-            className="primary"
-            type="button"
-            onClick={() => abrirModalFiltro('acessos')}
-            disabled={generatingAcessos || acessoLogs.length === 0}
-            style={{ marginTop: 'auto' }}
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '1.5rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.75rem',
+              backgroundColor: '#f9fafb',
+            }}
           >
-            {generatingAcessos ? 'Gerando PDF...' : 'Gerar PDF'}
-          </button>
+            <h4 style={{ margin: 0 }}>Relatórios de Serviço (em breve)</h4>
+            <p style={{ margin: 0, color: '#6b7280', fontSize: '0.9rem' }}>
+              Em breve você poderá gerar relatórios específicos do serviço, como escala, equipes, afastamentos por período e outros indicadores operacionais.
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              disabled
+              style={{ marginTop: 'auto', cursor: 'not-allowed', opacity: 0.7 }}
+            >
+              Em desenvolvimento
+            </button>
+          </div>
         </div>
       </div>
 

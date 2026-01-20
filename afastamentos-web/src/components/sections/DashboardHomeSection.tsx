@@ -14,7 +14,11 @@ import {
   List, 
   ListItem, 
   ListItemText,
-  Chip
+  Chip,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { api } from '../../api';
@@ -41,6 +45,16 @@ export function DashboardHomeSection({
     afastados: number;
     disponiveis: number;
   } | null>(null);
+  const [motoristasData, setMotoristasData] = useState<{
+    total: number;
+    afastados: number;
+    disponiveis: number;
+  } | null>(null);
+  const [copomMulherData, setCopomMulherData] = useState<{
+    total: number;
+    afastados: number;
+    disponiveis: number;
+  } | null>(null);
   const [policiaisPorEquipe, setPoliciaisPorEquipe] = useState<Record<string, {
     total: number;
     afastados: number;
@@ -49,6 +63,9 @@ export function DashboardHomeSection({
   const [loadingAfastamentos, setLoadingAfastamentos] = useState(false);
   const [loadingPoliciais, setLoadingPoliciais] = useState(false);
   const [loadingExpediente, setLoadingExpediente] = useState(false);
+  const [loadingMotoristas, setLoadingMotoristas] = useState(false);
+  const [loadingCopomMulher, setLoadingCopomMulher] = useState(false);
+  const [funcoesCopomMulherIds, setFuncoesCopomMulherIds] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalType, setModalType] = useState<'policiais' | 'afastamentos'>('policiais');
@@ -56,25 +73,108 @@ export function DashboardHomeSection({
   const [afastamentosModal, setAfastamentosModal] = useState<Afastamento[]>([]);
   const [loadingModal, setLoadingModal] = useState(false);
 
+  // Estados para ano e mês selecionados
+  const now = new Date();
+  const anoAtual = now.getFullYear() >= 2026 ? now.getFullYear() : 2026;
+  const mesAtual = now.getMonth() + 1; // 1-12
+  
+  const [anoSelecionado, setAnoSelecionado] = useState<number>(anoAtual);
+  const [mesSelecionado, setMesSelecionado] = useState<number>(mesAtual);
+
   // Verificar se o usuário pode ver todos os afastamentos (ADMINISTRADOR, COMANDO, SAD)
   const usuarioPodeVerTodos = useMemo(() => {
     const nivelNome = currentUser.nivel?.nome;
     return nivelNome === 'ADMINISTRADOR' || nivelNome === 'COMANDO' || nivelNome === 'SAD' || currentUser.isAdmin === true;
   }, [currentUser]);
 
+  // Função helper para calcular primeiro e último dia do mês selecionado
+  const getMesRange = (ano: number, mes: number) => {
+    const primeiroDia = `${ano}-${String(mes).padStart(2, '0')}-01`;
+    const ultimoDia = new Date(ano, mes, 0);
+    const ultimoDiaStr = `${ano}-${String(mes).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
+    return { primeiroDia, ultimoDiaStr, year: ano, month: mes - 1 }; // month - 1 porque Date usa 0-11
+  };
+
+  // Função helper para obter o range de datas do mês selecionado
+  const getDataRange = () => {
+    return getMesRange(anoSelecionado, mesSelecionado);
+  };
+
+  // Função helper para filtrar afastamentos que estão ativos durante o período selecionado (mês ou ano)
+  const filtrarAfastamentosNoMes = (afastamentos: Afastamento[], primeiroDia: string, ultimoDiaStr: string) => {
+    // Criar datas do início e fim do mês usando apenas ano, mês e dia (sem horas)
+    const [anoInicio, mesInicio, diaInicio] = primeiroDia.split('-').map(Number);
+    const primeiroDiaTimestamp = new Date(anoInicio, mesInicio - 1, diaInicio).getTime();
+    
+    const [anoFim, mesFim, diaFim] = ultimoDiaStr.split('-').map(Number);
+    const ultimoDiaTimestamp = new Date(anoFim, mesFim - 1, diaFim, 23, 59, 59, 999).getTime();
+    
+    return afastamentos.filter((af) => {
+      // Converter dataInicio para timestamp
+      const afInicioStr = typeof af.dataInicio === 'string' ? af.dataInicio.split('T')[0] : new Date(af.dataInicio).toISOString().split('T')[0];
+      const [anoAfInicio, mesAfInicio, diaAfInicio] = afInicioStr.split('-').map(Number);
+      const afInicioTimestamp = new Date(anoAfInicio, mesAfInicio - 1, diaAfInicio).getTime();
+      
+      // Converter dataFim para timestamp (se existir)
+      let afFimTimestamp: number | null = null;
+      if (af.dataFim) {
+        const afFimStr = typeof af.dataFim === 'string' ? af.dataFim.split('T')[0] : new Date(af.dataFim).toISOString().split('T')[0];
+        const [anoAfFim, mesAfFim, diaAfFim] = afFimStr.split('-').map(Number);
+        afFimTimestamp = new Date(anoAfFim, mesAfFim - 1, diaAfFim, 23, 59, 59, 999).getTime();
+      }
+      
+      // Um afastamento está ativo no mês se ele se sobrepõe ao período do mês
+      // Para se sobrepor: início do afastamento <= fim do mês E (fim do afastamento >= início do mês OU não tem fim)
+      const comecaAntesOuDurante = afInicioTimestamp <= ultimoDiaTimestamp;
+      const terminaDepoisOuDurante = afFimTimestamp === null || afFimTimestamp >= primeiroDiaTimestamp;
+      
+      const estaAtivo = comecaAntesOuDurante && terminaDepoisOuDurante;
+      
+      return estaAtivo;
+    });
+  };
+
+  // Gerar lista de anos (a partir de 2026 até 5 anos no futuro)
+  const anosDisponiveis = useMemo(() => {
+    const anos: number[] = [];
+    const anoMinimo = 2026;
+    const hoje = new Date();
+    const anoMaximo = Math.max(anoMinimo, hoje.getFullYear() + 5);
+    
+    for (let ano = anoMinimo; ano <= anoMaximo; ano++) {
+      anos.push(ano);
+    }
+    
+    return anos;
+  }, []);
+
+  // Lista de meses
+  const mesesDisponiveis = useMemo(() => {
+    return [
+      { valor: 1, nome: 'Janeiro' },
+      { valor: 2, nome: 'Fevereiro' },
+      { valor: 3, nome: 'Março' },
+      { valor: 4, nome: 'Abril' },
+      { valor: 5, nome: 'Maio' },
+      { valor: 6, nome: 'Junho' },
+      { valor: 7, nome: 'Julho' },
+      { valor: 8, nome: 'Agosto' },
+      { valor: 9, nome: 'Setembro' },
+      { valor: 10, nome: 'Outubro' },
+      { valor: 11, nome: 'Novembro' },
+      { valor: 12, nome: 'Dezembro' },
+    ];
+  }, []);
+
   useEffect(() => {
     const carregarAfastamentosMes = async () => {
       try {
         setLoadingAfastamentos(true);
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth(); // 0-11 (Janeiro = 0)
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
         
-        const primeiroDia = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-        // Para pegar o último dia do mês: new Date(year, month+1, 0) retorna o último dia do mês
-        const ultimoDia = new Date(year, month + 1, 0);
-        const ultimoDiaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
-        
+        // Buscar afastamentos com um intervalo maior para pegar todos que podem se sobrepor ao mês
+        // A API retorna afastamentos que começam antes ou durante o período e terminam depois ou durante
+        // Mas precisamos filtrar para garantir que estão realmente ativos no mês
         const params: Parameters<typeof api.listAfastamentos>[0] = {
           dataInicio: primeiroDia,
           dataFim: ultimoDiaStr,
@@ -87,17 +187,51 @@ export function DashboardHomeSection({
 
         const afastamentos = await api.listAfastamentos(params);
         
+        // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
+        const afastamentosNoMes = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        
+        // Debug: verificar se há afastamentos sendo filtrados incorretamente
+        const afastamentosForaDoMes = afastamentos.filter((af) => {
+          const afInicioStr = typeof af.dataInicio === 'string' ? af.dataInicio.split('T')[0] : new Date(af.dataInicio).toISOString().split('T')[0];
+          const [anoAfInicio, mesAfInicio] = afInicioStr.split('-').map(Number);
+          const mesSelecionadoNum = mesSelecionado;
+          const anoSelecionadoNum = anoSelecionado;
+          
+          // Se o afastamento começa em um mês diferente do selecionado, verificar se está sendo incluído incorretamente
+          return (mesAfInicio !== mesSelecionadoNum || anoAfInicio !== anoSelecionadoNum) && 
+                 afastamentosNoMes.some(af2 => af2.id === af.id);
+        });
+        
+        if (afastamentosForaDoMes.length > 0) {
+          console.warn('Afastamentos de outros meses sendo incluídos:', {
+            mesSelecionado: `${mesSelecionado}/${anoSelecionado}`,
+            afastamentos: afastamentosForaDoMes.map(af => ({
+              id: af.id,
+              inicio: typeof af.dataInicio === 'string' ? af.dataInicio.split('T')[0] : new Date(af.dataInicio).toISOString().split('T')[0],
+              fim: af.dataFim ? (typeof af.dataFim === 'string' ? af.dataFim.split('T')[0] : new Date(af.dataFim).toISOString().split('T')[0]) : null,
+              policialId: af.policialId
+            }))
+          });
+        }
+        
         // Contar policiais únicos
-        const policiaisUnicos = new Set(afastamentos.map((af) => af.policialId));
+        const policiaisUnicos = new Set(afastamentosNoMes.map((af) => af.policialId));
         setTotalPoliciaisAfastados(policiaisUnicos.size);
         
         // Contar férias
-        const ferias = afastamentos.filter((af) => af.motivo?.nome?.toLowerCase() === 'férias');
+        const ferias = afastamentosNoMes.filter((af) => af.motivo?.nome?.toLowerCase() === 'férias');
         setTotalFerias(ferias.length);
         
         // Contar abono
-        const abono = afastamentos.filter((af) => af.motivo?.nome?.toLowerCase() === 'abono');
+        const abono = afastamentosNoMes.filter((af) => af.motivo?.nome?.toLowerCase() === 'abono');
         setTotalAbono(abono.length);
+        
+        // Buscar função MOTORISTA DE DIA para excluir dos cálculos das equipes
+        const funcoes = await api.listFuncoes();
+        const funcaoMotorista = funcoes.find((f) => 
+          f.nome.toUpperCase().includes('MOTORISTA DE DIA')
+        );
+        const funcaoMotoristaId = funcaoMotorista?.id;
         
         // Buscar total de policiais por equipe PRIMEIRO para ter os dados atualizados
         const equipes = ['A', 'B', 'C', 'D', 'E'];
@@ -124,7 +258,13 @@ export function DashboardHomeSection({
             
             // Filtrar para excluir DESATIVADOS manualmente
             // Incluir ATIVO, DESIGNADO, COMISSIONADO, PTTC (todos exceto DESATIVADO)
-            const policiaisAtivos = dataEquipe.Policiales.filter(p => p.status !== 'DESATIVADO');
+            let policiaisAtivos = dataEquipe.Policiales.filter(p => p.status !== 'DESATIVADO');
+            
+            // Excluir motoristas das equipes
+            if (funcaoMotoristaId) {
+              policiaisAtivos = policiaisAtivos.filter(p => p.funcaoId !== funcaoMotoristaId);
+            }
+            
             const totalEquipe = policiaisAtivos.length;
             
             // Criar um Set com os IDs dos policiais ativos da equipe
@@ -154,9 +294,12 @@ export function DashboardHomeSection({
               nomesPoliciais: dataEquipe.Policiales.map(p => ({ id: p.id, nome: p.nome, matricula: p.matricula, equipe: p.equipe })),
             });
             
+            // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
+            const afastamentosNoMesEquipe = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+            
             // Contar policiais únicos afastados dessa equipe
             const policiaisUnicosAfastados = new Set(
-              afastamentos
+              afastamentosNoMesEquipe
                 .filter((af) => idsPoliciaisEquipe.has(af.policialId))
                 .map((af) => af.policialId)
             );
@@ -206,7 +349,7 @@ export function DashboardHomeSection({
     };
 
     void carregarAfastamentosMes();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyAfastamentos]);
+  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
 
   // Carregar total de policiais cadastrados
   useEffect(() => {
@@ -245,13 +388,7 @@ export function DashboardHomeSection({
     const carregarExpediente = async () => {
       try {
         setLoadingExpediente(true);
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        
-        const primeiroDia = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-        const ultimoDia = new Date(year, month + 1, 0);
-        const ultimoDiaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
 
         // Buscar função "EXPEDIENTE ADM"
         const funcoes = await api.listFuncoes();
@@ -315,7 +452,178 @@ export function DashboardHomeSection({
     };
 
     void carregarExpediente();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos]);
+  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+
+  // Carregar policiais Motoristas de Dia
+  useEffect(() => {
+    const carregarMotoristas = async () => {
+      try {
+        setLoadingMotoristas(true);
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
+
+        // Buscar função "MOTORISTA DE DIA"
+        const funcoes = await api.listFuncoes();
+        const funcaoMotorista = funcoes.find((f) => 
+          f.nome.toUpperCase().includes('MOTORISTA DE DIA')
+        );
+
+        if (!funcaoMotorista) {
+          console.warn('Função "MOTORISTA DE DIA" não encontrada');
+          setMotoristasData({ total: 0, afastados: 0, disponiveis: 0 });
+          return;
+        }
+
+        // Buscar policiais com função MOTORISTA DE DIA (incluir todos exceto DESATIVADO)
+        const dataMotoristas = await api.listPoliciaisPaginated({
+          page: 1,
+          pageSize: 1000, // Buscar todos
+          includeAfastamentos: false,
+          includeRestricoes: false,
+          funcaoId: funcaoMotorista.id,
+          // Não passar status para incluir todos exceto DESATIVADO
+        });
+        
+        // Filtrar para excluir DESATIVADOS
+        const policiaisMotoristasAtivos = dataMotoristas.Policiales.filter((p) => p.status !== 'DESATIVADO');
+
+        // Buscar afastamentos do mês para motoristas
+        const paramsAfastamentos: Parameters<typeof api.listAfastamentos>[0] = {
+          dataInicio: primeiroDia,
+          dataFim: ultimoDiaStr,
+          includePolicialFuncao: false,
+        };
+
+        if (!usuarioPodeVerTodos && currentUser.equipe) {
+          paramsAfastamentos.equipe = currentUser.equipe;
+        }
+
+        const afastamentos = await api.listAfastamentos(paramsAfastamentos);
+        const afastamentosNoMesMotoristas = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        const idsMotoristas = new Set(policiaisMotoristasAtivos.map((p) => p.id));
+        const policiaisUnicosAfastados = new Set(
+          afastamentosNoMesMotoristas
+            .filter((af) => idsMotoristas.has(af.policialId))
+            .map((af) => af.policialId)
+        );
+
+        const totalMotoristas = policiaisMotoristasAtivos.length;
+        const afastadosMotoristas = policiaisUnicosAfastados.size;
+        const disponiveisMotoristas = Math.max(0, totalMotoristas - afastadosMotoristas);
+        
+        setMotoristasData({
+          total: totalMotoristas,
+          afastados: afastadosMotoristas,
+          disponiveis: disponiveisMotoristas,
+        });
+      } catch (error) {
+        console.error('Erro ao carregar motoristas:', error);
+        setMotoristasData({ total: 0, afastados: 0, disponiveis: 0 });
+      } finally {
+        setLoadingMotoristas(false);
+      }
+    };
+
+    void carregarMotoristas();
+  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+
+  // Carregar policiais COPOM Mulher (ANALISTA e TELEFONISTA 190 - AUXILIAR)
+  useEffect(() => {
+    const carregarCopomMulher = async () => {
+      // Aguardar até que os IDs das funções estejam disponíveis
+      if (funcoesCopomMulherIds.length === 0) {
+        console.log('COPOM Mulher: Aguardando IDs das funções...');
+        setCopomMulherData({ total: 0, afastados: 0, disponiveis: 0 });
+        setLoadingCopomMulher(false);
+        return;
+      }
+      
+      try {
+        setLoadingCopomMulher(true);
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
+
+        console.log('COPOM Mulher: Carregando dados com IDs:', funcoesCopomMulherIds);
+
+        // Buscar policiais com qualquer uma das funções
+        const todosPoliciaisCopomMulher: Policial[] = [];
+        for (const funcaoId of funcoesCopomMulherIds) {
+          const data = await api.listPoliciaisPaginated({
+            page: 1,
+            pageSize: 1000,
+            includeAfastamentos: false,
+            includeRestricoes: false,
+            funcaoId: funcaoId,
+          });
+          console.log(`COPOM Mulher - Policiais encontrados para função ID ${funcaoId}:`, {
+            total: data.total,
+            policiais: data.Policiales.length,
+            nomes: data.Policiales.map(p => ({ id: p.id, nome: p.nome, funcaoId: p.funcaoId, funcaoNome: p.funcao?.nome }))
+          });
+          todosPoliciaisCopomMulher.push(...data.Policiales);
+        }
+
+        // Remover duplicatas (policiais que podem ter múltiplas funções)
+        const policiaisUnicos = Array.from(
+          new Map(todosPoliciaisCopomMulher.map(p => [p.id, p])).values()
+        );
+
+        // Filtrar para excluir DESATIVADOS
+        const policiaisCopomMulherAtivos = policiaisUnicos.filter((p) => p.status !== 'DESATIVADO');
+        
+        console.log('COPOM Mulher - Resumo:', {
+          totalAntesFiltro: todosPoliciaisCopomMulher.length,
+          totalUnicos: policiaisUnicos.length,
+          totalAtivos: policiaisCopomMulherAtivos.length,
+          policiaisAtivos: policiaisCopomMulherAtivos.map(p => ({ 
+            id: p.id, 
+            nome: p.nome, 
+            funcaoId: p.funcaoId, 
+            funcaoNome: p.funcao?.nome,
+            status: p.status 
+          }))
+        });
+        
+        // Buscar afastamentos do mês para policiais do COPOM Mulher
+        const paramsAfastamentos: Parameters<typeof api.listAfastamentos>[0] = {
+          dataInicio: primeiroDia,
+          dataFim: ultimoDiaStr,
+          includePolicialFuncao: false,
+        };
+
+        if (!usuarioPodeVerTodos && currentUser.equipe) {
+          paramsAfastamentos.equipe = currentUser.equipe;
+        }
+
+        const afastamentos = await api.listAfastamentos(paramsAfastamentos);
+        const afastamentosNoMesCopomMulher = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        const idsCopomMulher = new Set(policiaisCopomMulherAtivos.map((p) => p.id));
+        const policiaisUnicosAfastados = new Set(
+          afastamentosNoMesCopomMulher
+            .filter((af) => idsCopomMulher.has(af.policialId))
+            .map((af) => af.policialId)
+        );
+
+        const totalCopomMulher = policiaisCopomMulherAtivos.length;
+        const afastadosCopomMulher = policiaisUnicosAfastados.size;
+        const disponiveisCopomMulher = Math.max(0, totalCopomMulher - afastadosCopomMulher);
+        
+        const dadosCopomMulher = {
+          total: totalCopomMulher,
+          afastados: afastadosCopomMulher,
+          disponiveis: disponiveisCopomMulher,
+        };
+        
+        console.log('COPOM Mulher - Setando dados:', dadosCopomMulher);
+        setCopomMulherData(dadosCopomMulher);
+      } catch (error) {
+        console.error('Erro ao carregar COPOM Mulher:', error);
+        setCopomMulherData({ total: 0, afastados: 0, disponiveis: 0 });
+      } finally {
+        setLoadingCopomMulher(false);
+      }
+    };
+
+    void carregarCopomMulher();
+  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos, funcoesCopomMulherIds, anoSelecionado, mesSelecionado]);
 
   // Calcular policiais disponíveis
   const totalPoliciaisDisponiveis = useMemo(() => {
@@ -327,6 +635,8 @@ export function DashboardHomeSection({
 
   // Estado para armazenar ID da função Expediente
   const [funcaoExpedienteId, setFuncaoExpedienteId] = useState<number | null>(null);
+  // Estado para armazenar ID da função Motorista
+  const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
 
   // Carregar ID da função Expediente
   useEffect(() => {
@@ -344,6 +654,64 @@ export function DashboardHomeSection({
       }
     };
     void carregarFuncaoExpediente();
+  }, []);
+
+  // Carregar ID da função Motorista de Dia
+  useEffect(() => {
+    const carregarFuncaoMotorista = async () => {
+      try {
+        const funcoes = await api.listFuncoes();
+        const funcaoMotorista = funcoes.find((f) => 
+          f.nome.toUpperCase().includes('MOTORISTA DE DIA')
+        );
+        if (funcaoMotorista) {
+          setFuncaoMotoristaId(funcaoMotorista.id);
+        }
+      } catch (error) {
+        console.error('Erro ao carregar função Motorista:', error);
+      }
+    };
+    void carregarFuncaoMotorista();
+  }, []);
+
+  // Carregar IDs das funções COPOM Mulher
+  useEffect(() => {
+    const carregarFuncoesCopomMulher = async () => {
+      try {
+        const funcoes = await api.listFuncoes();
+        
+        // Buscar função ANALISTA (busca exata primeiro, depois busca parcial)
+        const funcaoAnalista = funcoes.find((f) => {
+          const nomeUpper = f.nome.toUpperCase().trim();
+          return nomeUpper === 'ANALISTA';
+        }) || funcoes.find((f) => {
+          const nomeUpper = f.nome.toUpperCase().trim();
+          return nomeUpper.includes('ANALISTA') && !nomeUpper.includes('SUPERVISOR');
+        });
+        
+        // Buscar função TELEFONISTA 190 - AUXILIAR (deve conter "TELEFONISTA", "190" E "AUXILIAR")
+        const funcaoTelefonista = funcoes.find((f) => {
+          const nomeUpper = f.nome.toUpperCase().trim();
+          return nomeUpper.includes('TELEFONISTA') && 
+                 nomeUpper.includes('190') && 
+                 nomeUpper.includes('AUXILIAR');
+        });
+        
+        console.log('Funções COPOM Mulher encontradas (useEffect):', {
+          todasFuncoes: funcoes.map(f => ({ id: f.id, nome: f.nome })),
+          funcaoAnalista: funcaoAnalista ? { id: funcaoAnalista.id, nome: funcaoAnalista.nome } : null,
+          funcaoTelefonista: funcaoTelefonista ? { id: funcaoTelefonista.id, nome: funcaoTelefonista.nome } : null,
+        });
+        
+        const ids: number[] = [];
+        if (funcaoAnalista) ids.push(funcaoAnalista.id);
+        if (funcaoTelefonista) ids.push(funcaoTelefonista.id);
+        setFuncoesCopomMulherIds(ids);
+      } catch (error) {
+        console.error('Erro ao carregar funções COPOM Mulher:', error);
+      }
+    };
+    void carregarFuncoesCopomMulher();
   }, []);
 
   // Cards do dashboard
@@ -458,10 +826,32 @@ export function DashboardHomeSection({
       loadingCount: loadingAfastamentos || loadingPoliciais,
       filters: { equipe: 'E' },
     },
-  ], [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId]);
+    {
+      title: 'Motoristas',
+      description: '',
+      tab: 'equipe' as TabKey,
+      color: '#f97316',
+      showCount: false,
+      isEquipe: true,
+      isMotoristas: true,
+      loadingCount: loadingMotoristas || loadingAfastamentos,
+      filters: funcaoMotoristaId ? { funcaoId: funcaoMotoristaId } : undefined,
+    },
+    {
+      title: 'COPOM Mulher',
+      description: '',
+      tab: 'equipe' as TabKey,
+      color: '#ec4899',
+      showCount: false,
+      isEquipe: true,
+      isCopomMulher: true,
+      loadingCount: loadingCopomMulher || loadingAfastamentos,
+      filters: funcoesCopomMulherIds.length > 0 ? { funcoesIds: funcoesCopomMulherIds } : undefined,
+    },
+  ], [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds]);
 
   const handleNumberClick = async (
-    card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number }; isEquipe?: boolean; isExpediente?: boolean; equipe?: string },
+    card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; funcoesIds?: number[] }; isEquipe?: boolean; isExpediente?: boolean; isMotoristas?: boolean; isCopomMulher?: boolean; equipe?: string },
     tipo: 'total' | 'afastados' | 'disponiveis'
   ) => {
     setModalTitle(`${card.title} - ${tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}`);
@@ -490,22 +880,46 @@ export function DashboardHomeSection({
         params.equipe = currentUser.equipe as Equipe;
       }
 
-      const data = await api.listPoliciaisPaginated(params);
-      const todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+      // Se for COPOM Mulher, buscar policiais com múltiplas funções
+      let todosPoliciais: Policial[] = [];
+      if (card.filters?.funcoesIds && card.filters.funcoesIds.length > 0) {
+        // Buscar policiais com qualquer uma das funções
+        const todosPoliciaisTemp: Policial[] = [];
+        for (const funcaoId of card.filters.funcoesIds) {
+          const dataTemp = await api.listPoliciaisPaginated({
+            ...params,
+            funcaoId: funcaoId,
+          });
+          todosPoliciaisTemp.push(...dataTemp.Policiales);
+        }
+        // Remover duplicatas
+        todosPoliciais = Array.from(
+          new Map(todosPoliciaisTemp.map(p => [p.id, p])).values()
+        ).filter((p) => p.status !== 'DESATIVADO');
+        
+        console.log('COPOM Mulher - handleNumberClick:', {
+          funcoesIds: card.filters.funcoesIds,
+          totalEncontrado: todosPoliciais.length,
+          policiais: todosPoliciais.map(p => ({ id: p.id, nome: p.nome, funcaoId: p.funcaoId, funcaoNome: p.funcao?.nome }))
+        });
+      } else {
+        const data = await api.listPoliciaisPaginated(params);
+        todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+      }
 
-      // Se for "afastados" ou "disponiveis", filtrar por afastamentos do mês
+      // Se for um card de equipe, excluir policiais com função MOTORISTA DE DIA
+      if (card.equipe && funcaoMotoristaId) {
+        todosPoliciais = todosPoliciais.filter((p) => p.funcaoId !== funcaoMotoristaId);
+      }
+
+      // Se for "afastados" ou "disponiveis", filtrar por afastamentos do mês selecionado
       if (tipo === 'afastados' || tipo === 'disponiveis') {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        const primeiroDia = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-        const ultimoDia = new Date(year, month + 1, 0);
-        const ultimoDiaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
 
         const afastamentosParams: Parameters<typeof api.listAfastamentos>[0] = {
           dataInicio: primeiroDia,
           dataFim: ultimoDiaStr,
-          includePolicialFuncao: false,
+          includePolicialFuncao: true, // Incluir dados do policial para mostrar no modal
         };
 
         if (!usuarioPodeVerTodos && currentUser.equipe) {
@@ -513,20 +927,20 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(afastamentosParams);
+        const afastamentosNoMesModal = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
         const idsPoliciais = new Set(todosPoliciais.map((p) => p.id));
 
         // Filtrar afastamentos apenas dos policiais da equipe/expediente
-        const afastadosDaEquipe = new Set(
-          afastamentos
-            .filter((af) => idsPoliciais.has(af.policialId))
-            .map((af) => af.policialId)
-        );
+        const afastamentosDaEquipe = afastamentosNoMesModal.filter((af) => idsPoliciais.has(af.policialId));
 
         if (tipo === 'afastados') {
-          const policiaisAfastados = todosPoliciais.filter((p) => afastadosDaEquipe.has(p.id));
-          setPoliciaisModal(policiaisAfastados);
+          // Mostrar afastamentos com detalhes (motivo, datas)
+          setModalType('afastamentos');
+          setAfastamentosModal(afastamentosDaEquipe);
         } else {
-          // disponiveis
+          // disponiveis - mostrar apenas policiais
+          setModalType('policiais');
+          const afastadosDaEquipe = new Set(afastamentosDaEquipe.map((af) => af.policialId));
           const policiaisDisponiveis = todosPoliciais.filter((p) => !afastadosDaEquipe.has(p.id));
           setPoliciaisModal(policiaisDisponiveis);
         }
@@ -551,13 +965,7 @@ export function DashboardHomeSection({
       if (card.filters?.motivo) {
         // Card de motivo (Férias, Abono) - buscar afastamentos
         setModalType('afastamentos');
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        
-        const primeiroDia = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-        const ultimoDia = new Date(year, month + 1, 0);
-        const ultimoDiaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
 
         const params: Parameters<typeof api.listAfastamentos>[0] = {
           dataInicio: primeiroDia,
@@ -570,7 +978,8 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(params);
-        const filtrados = afastamentos.filter((af) => 
+        const afastamentosNoMesMotivo = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        const filtrados = afastamentosNoMesMotivo.filter((af) => 
           af.motivo?.nome?.toLowerCase() === card.filters!.motivo!.toLowerCase()
         );
         setAfastamentosModal(filtrados);
@@ -593,13 +1002,8 @@ export function DashboardHomeSection({
         const data = await api.listPoliciaisPaginated(params);
         const todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
 
-        // Buscar afastamentos do mês atual
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        const primeiroDia = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-        const ultimoDia = new Date(year, month + 1, 0);
-        const ultimoDiaStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(ultimoDia.getDate()).padStart(2, '0')}`;
+        // Buscar afastamentos do mês selecionado
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
 
         const afastamentosParams: Parameters<typeof api.listAfastamentos>[0] = {
           dataInicio: primeiroDia,
@@ -612,7 +1016,8 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(afastamentosParams);
-        const idsAfastados = new Set(afastamentos.map((af) => af.policialId));
+        const afastamentosNoMesDisponiveis = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        const idsAfastados = new Set(afastamentosNoMesDisponiveis.map((af) => af.policialId));
 
         // Filtrar apenas os policiais que NÃO estão afastados
         const policiaisDisponiveis = todosPoliciais.filter((p) => !idsAfastados.has(p.id));
@@ -663,13 +1068,44 @@ export function DashboardHomeSection({
       <div className="section-header">
         <div>
           <h2>Dashboard</h2>
-          <p className="subtitle">
-            Bem-vindo, {currentUser.nome} ({currentUser.matricula})
-          </p>
         </div>
       </div>
 
       <Box sx={{ p: 3, width: '100%' }}>
+        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+          <FormControl sx={{ minWidth: 120 }}>
+            <InputLabel id="ano-select-label">Ano</InputLabel>
+            <Select
+              labelId="ano-select-label"
+              id="ano-select"
+              value={anoSelecionado}
+              label="Ano"
+              onChange={(e) => setAnoSelecionado(Number(e.target.value))}
+            >
+              {anosDisponiveis.map((ano) => (
+                <MenuItem key={ano} value={ano}>
+                  {ano}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl sx={{ minWidth: 150 }}>
+            <InputLabel id="mes-select-label">Mês</InputLabel>
+            <Select
+              labelId="mes-select-label"
+              id="mes-select"
+              value={mesSelecionado}
+              label="Mês"
+              onChange={(e) => setMesSelecionado(Number(e.target.value))}
+            >
+              {mesesDisponiveis.map((mes) => (
+                <MenuItem key={mes.valor} value={mes.valor}>
+                  {mes.nome}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
         <Grid container spacing={3}>
           {cards.map((card, index) => (
             <Grid size={{ xs: 12, sm: 6, md: 2.4 }} key={`card-${card.title}-${index}`}>
@@ -682,17 +1118,17 @@ export function DashboardHomeSection({
                   transition: 'all 0.3s ease',
                   borderLeft: `4px solid ${card.color}`,
                   '&:hover': {
-                    elevation: (card as any).isEquipe || (card as any).isExpediente ? 2 : 4,
-                    transform: (card as any).isEquipe || (card as any).isExpediente ? 'none' : 'translateY(-4px)',
-                    boxShadow: (card as any).isEquipe || (card as any).isExpediente ? 2 : 4,
+                    elevation: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 2 : 4,
+                    transform: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 'none' : 'translateY(-4px)',
+                    boxShadow: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 2 : 4,
                   },
                 }}
                 onClick={(e) => {
-                  // Só permite clique se não for card de equipe ou expediente
-                  if (!(card as any).isEquipe && !(card as any).isExpediente) {
+                  // Só permite clique se não for card de equipe, expediente, motoristas ou copom mulher
+                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher) {
                     handleCardClick(card);
                   } else {
-                    // Para cards de equipe/expediente, prevenir propagação
+                    // Para cards de equipe/expediente/motoristas/copom mulher, prevenir propagação
                     e.stopPropagation();
                   }
                 }}
@@ -745,7 +1181,7 @@ export function DashboardHomeSection({
                     ) : null}
                   </Box>
                 )}
-                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente ? (
+                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? (
                   <Box sx={{ mb: 1, minHeight: '60px' }}>
                     {(card as any).loadingCount ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60px' }}>
@@ -841,6 +1277,213 @@ export function DashboardHomeSection({
                                   }}
                                 >
                                   {expedienteData.disponiveis}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                            </Box>
+                          );
+                        } else {
+                          return (
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                              Carregando...
+                            </Typography>
+                          );
+                        }
+                      } else if ((card as any).isMotoristas) {
+                        if (motoristasData) {
+                          return (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'total');
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Total:
+                                </Typography>
+                                <Typography 
+                                  variant="h4" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: card.color, 
+                                    fontSize: '2rem'
+                                  }}
+                                >
+                                  {motoristasData.total}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'afastados');
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Afastados:
+                                </Typography>
+                                <Typography 
+                                  variant="h5" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: '#ef4444', 
+                                    fontSize: '1.75rem'
+                                  }}
+                                >
+                                  {motoristasData.afastados}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'disponiveis');
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Disponíveis:
+                                </Typography>
+                                <Typography 
+                                  variant="h5" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: '#10b981', 
+                                    fontSize: '1.75rem'
+                                  }}
+                                >
+                                  {motoristasData.disponiveis}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                            </Box>
+                          );
+                        } else {
+                          return (
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                              Carregando...
+                            </Typography>
+                          );
+                        }
+                      } else if ((card as any).isCopomMulher) {
+                        console.log('COPOM Mulher - Renderizando card:', { copomMulherData, loadingCopomMulher });
+                        if (copomMulherData) {
+                          return (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'total');
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Total:
+                                </Typography>
+                                <Typography 
+                                  variant="h4" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: card.color, 
+                                    fontSize: '2rem'
+                                  }}
+                                >
+                                  {copomMulherData.total}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'afastados');
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Afastados:
+                                </Typography>
+                                <Typography 
+                                  variant="h5" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: '#ef4444', 
+                                    fontSize: '1.75rem'
+                                  }}
+                                >
+                                  {copomMulherData.afastados}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                              <Box 
+                                sx={{ 
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'disponiveis');
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Disponíveis:
+                                </Typography>
+                                <Typography 
+                                  variant="h5" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: '#10b981', 
+                                    fontSize: '1.75rem'
+                                  }}
+                                >
+                                  {copomMulherData.disponiveis}
                                 </Typography>
                                 <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
                                   policiais
@@ -982,7 +1625,7 @@ export function DashboardHomeSection({
         }}
       >
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Typography variant="h6">{modalTitle}</Typography>
+          {modalTitle}
           <IconButton onClick={() => setModalOpen(false)} size="small">
             <CloseIcon />
           </IconButton>
@@ -1038,16 +1681,16 @@ export function DashboardHomeSection({
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ mt: 0.5 }}>
-                          <Typography variant="body2" color="text.secondary">
+                        <>
+                          <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
                             Matrícula: {policial.matricula}
-                          </Typography>
+                          </Box>
                           {policial.funcao && (
-                            <Typography variant="body2" color="text.secondary">
+                            <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
                               Função: {policial.funcao.nome}
-                            </Typography>
+                            </Box>
                           )}
-                        </Box>
+                        </>
                       }
                     />
                   </ListItem>
@@ -1078,20 +1721,20 @@ export function DashboardHomeSection({
                         </Box>
                       }
                       secondary={
-                        <Box sx={{ mt: 0.5 }}>
-                          <Typography variant="body2" color="text.secondary">
+                        <>
+                          <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
                             Matrícula: {afastamento.policial.matricula}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
+                          </Box>
+                          <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
                             Período: {new Date(afastamento.dataInicio).toLocaleDateString('pt-BR')} 
                             {afastamento.dataFim ? ` até ${new Date(afastamento.dataFim).toLocaleDateString('pt-BR')}` : ' (sem data fim)'}
-                          </Typography>
+                          </Box>
                           {afastamento.policial.equipe && afastamento.policial.equipe !== 'SEM_EQUIPE' && (
-                            <Typography variant="body2" color="text.secondary">
+                            <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
                               Equipe: {afastamento.policial.equipe} - {EQUIPE_FONETICA[afastamento.policial.equipe]}
-                            </Typography>
+                            </Box>
                           )}
-                        </Box>
+                        </>
                       }
                     />
                   </ListItem>

@@ -33,6 +33,8 @@ export function GerarRestricaoAfastamentoSection({
   const [tiposRestricao, setTiposRestricao] = useState<TipoRestricaoAfastamento[]>([]);
   const [motivos, setMotivos] = useState<MotivoAfastamentoOption[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [mostrarCampoOutro, setMostrarCampoOutro] = useState(false);
+  const [customTipoNome, setCustomTipoNome] = useState('');
   
   const initialForm: CreateRestricaoAfastamentoInput = {
     tipoRestricaoId: 0,
@@ -78,8 +80,17 @@ export function GerarRestricaoAfastamentoSection({
     setError(null);
     setSuccess(null);
 
+    const tipoSelecionado = tiposRestricao.find(
+      (t) => t.id === form.tipoRestricaoId,
+    );
+
     if (!form.tipoRestricaoId || form.tipoRestricaoId === 0) {
       setError('Selecione o tipo de restrição.');
+      return;
+    }
+
+    if (tipoSelecionado?.nome === 'Outro' && !customTipoNome.trim()) {
+      setError('Informe o tipo de restrição quando selecionar "Outro".');
       return;
     }
 
@@ -229,6 +240,11 @@ export function GerarRestricaoAfastamentoSection({
   // Handler para mudança do tipo de restrição
   const handleTipoRestricaoChange = (tipoRestricaoId: number) => {
     const tipoSelecionado = tiposRestricao.find((t) => t.id === tipoRestricaoId);
+    const isOutro = tipoSelecionado?.nome === 'Outro';
+    setMostrarCampoOutro(!!isOutro);
+    if (!isOutro) {
+      setCustomTipoNome('');
+    }
     
     // Se for "Mês de Dezembro", definir automaticamente as datas
     if (tipoSelecionado?.nome === 'Mês de Dezembro') {
@@ -251,6 +267,15 @@ export function GerarRestricaoAfastamentoSection({
         tipoRestricaoId,
       }));
     }
+  };
+
+  const handleCustomTipoNomeChange = (value: string) => {
+    // Normalizar texto: primeira letra maiúscula, restante minúscula
+    let normalized = value.toLowerCase();
+    if (normalized.length > 0) {
+      normalized = normalized[0].toUpperCase() + normalized.slice(1);
+    }
+    setCustomTipoNome(normalized);
   };
 
   if (loading && restricoes.length === 0 && tiposRestricao.length === 0) {
@@ -316,6 +341,19 @@ export function GerarRestricaoAfastamentoSection({
               ))}
             </select>
           </label>
+
+          {mostrarCampoOutro && (
+            <div style={{ marginTop: '8px' }}>
+              <label>
+                Especifique o tipo de restrição *
+                <input
+                  type="text"
+                  value={customTipoNome}
+                  onChange={(e) => handleCustomTipoNomeChange(e.target.value)}
+                />
+              </label>
+            </div>
+          )}
 
           <div className="grid two-columns">
             <label>

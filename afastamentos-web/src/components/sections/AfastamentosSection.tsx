@@ -302,16 +302,18 @@ export function AfastamentosSection({
       // Se calcularPeriodo estiver marcado, calcular dataFim baseada na quantidade de dias
       let dataFimFinal = form.dataFim;
       if (calcularPeriodo && form.dataInicio && quantidadeDias) {
-        const dataInicio = new Date(form.dataInicio);
         const dias = parseInt(quantidadeDias, 10);
         if (!isNaN(dias) && dias > 0) {
+          // Criar data a partir da string YYYY-MM-DD (mesma lógica do useMemo)
+          const [year, month, day] = form.dataInicio.split('-').map(Number);
+          const dataInicio = new Date(year, month - 1, day);
           // Adicionar dias (subtrair 1 porque o primeiro dia já conta)
           dataInicio.setDate(dataInicio.getDate() + dias - 1);
           // Formatar como YYYY-MM-DD
-          const year = dataInicio.getFullYear();
-          const month = String(dataInicio.getMonth() + 1).padStart(2, '0');
-          const day = String(dataInicio.getDate()).padStart(2, '0');
-          dataFimFinal = `${year}-${month}-${day}`;
+          const yearFormatted = dataInicio.getFullYear();
+          const monthFormatted = String(dataInicio.getMonth() + 1).padStart(2, '0');
+          const dayFormatted = String(dataInicio.getDate()).padStart(2, '0');
+          dataFimFinal = `${yearFormatted}-${monthFormatted}-${dayFormatted}`;
         }
       }
       
@@ -348,7 +350,39 @@ export function AfastamentosSection({
     } finally {
       setSubmitting(false);
     }
-  }, [form, currentUser.id, motivos, carregarDados]);
+  }, [form, calcularPeriodo, quantidadeDias, currentUser.id, motivos, carregarDados, onChanged]);
+
+  const abrirConfirmacaoCadastro = useCallback(
+    (dataFimParaValidacao: string | null) => {
+      const policialId = Number(form.policialId);
+      const policial = policiais.find((p) => p.id === policialId);
+      const motivoSelecionado = motivos.find((m) => m.id === form.motivoId);
+      const motivoNome = motivoSelecionado?.nome ?? '';
+
+      const periodoDescricao = dataFimParaValidacao
+        ? formatPeriodo(form.dataInicio, dataFimParaValidacao)
+        : formatDate(form.dataInicio);
+
+      const seiNumero = form.seiNumero.trim();
+
+      const message =
+        `Confirme os dados do afastamento:\n\n` +
+        `Policial: ${policial?.nome ?? '—'}${policial?.matricula ? ` (${policial.matricula})` : ''}\n` +
+        `Motivo: ${motivoNome}\n` +
+        `Período: ${periodoDescricao}\n` +
+        `SEI nº: ${seiNumero}`;
+
+      openConfirm({
+        title: 'Confirmar cadastro de afastamento',
+        message,
+        confirmLabel: 'Cadastrar afastamento',
+        onConfirm: async () => {
+          await submeterAfastamento();
+        },
+      });
+    },
+    [form, policiais, motivos, openConfirm, submeterAfastamento],
+  );
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -389,14 +423,17 @@ export function AfastamentosSection({
     // Calcular dataFim para validação (se calcularPeriodo estiver marcado)
     let dataFimParaValidacao = form.dataFim;
     if (calcularPeriodo && form.dataInicio && quantidadeDias) {
-      const dataInicio = new Date(form.dataInicio);
       const dias = parseInt(quantidadeDias, 10);
       if (!isNaN(dias) && dias > 0) {
+        // Criar data a partir da string YYYY-MM-DD (mesma lógica do useMemo)
+        const [year, month, day] = form.dataInicio.split('-').map(Number);
+        const dataInicio = new Date(year, month - 1, day);
+        // Adicionar dias (subtrair 1 porque o primeiro dia já conta)
         dataInicio.setDate(dataInicio.getDate() + dias - 1);
-        const year = dataInicio.getFullYear();
-        const month = String(dataInicio.getMonth() + 1).padStart(2, '0');
-        const day = String(dataInicio.getDate()).padStart(2, '0');
-        dataFimParaValidacao = `${year}-${month}-${day}`;
+        const yearFormatted = dataInicio.getFullYear();
+        const monthFormatted = String(dataInicio.getMonth() + 1).padStart(2, '0');
+        const dayFormatted = String(dataInicio.getDate()).padStart(2, '0');
+        dataFimParaValidacao = `${yearFormatted}-${monthFormatted}-${dayFormatted}`;
       }
     }
     
@@ -528,13 +565,29 @@ export function AfastamentosSection({
       }
     }
 
-    // Se não houver conflitos e validações passaram, submeter normalmente
-    await submeterAfastamento();
+    // Se não houver conflitos e validações passaram, abrir confirmação antes de cadastrar
+    abrirConfirmacaoCadastro(dataFimParaValidacao || null);
   };
 
   const handleConfirmarConflito = async () => {
     setConflitosModal({ open: false, conflitos: [], dataVerificada: '' });
-    await submeterAfastamento();
+
+    // Recalcular dataFim para confirmação, usando mesma lógica de validação
+    let dataFimParaValidacao = form.dataFim;
+    if (calcularPeriodo && form.dataInicio && quantidadeDias) {
+      const dias = parseInt(quantidadeDias, 10);
+      if (!isNaN(dias) && dias > 0) {
+        const [year, month, day] = form.dataInicio.split('-').map(Number);
+        const dataInicio = new Date(year, month - 1, day);
+        dataInicio.setDate(dataInicio.getDate() + dias - 1);
+        const yearFormatted = dataInicio.getFullYear();
+        const monthFormatted = String(dataInicio.getMonth() + 1).padStart(2, '0');
+        const dayFormatted = String(dataInicio.getDate()).padStart(2, '0');
+        dataFimParaValidacao = `${yearFormatted}-${monthFormatted}-${dayFormatted}`;
+      }
+    }
+
+    abrirConfirmacaoCadastro(dataFimParaValidacao || null);
   };
 
   const handleCancelarConflito = () => {

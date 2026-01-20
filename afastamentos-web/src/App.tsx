@@ -24,6 +24,7 @@ const RelatoriosSection = lazy(() =>
 const GerarRestricaoAfastamentoSection = lazy(() =>
   import('./components/sections/GerarRestricaoAfastamentoSection').then((m) => ({ default: m.GerarRestricaoAfastamentoSection })),
 );
+const CalendarioSection = lazy(() => import('./components/sections/CalendarioSection').then((m) => ({ default: m.CalendarioSection })));
 
 type AuthView = 'login' | 'forgot-password' | 'security-question';
 
@@ -296,6 +297,7 @@ export default function App() {
             refreshKeyAfastamentos={afastamentosVersion}
           />
         )}
+        {activeTab === 'calendario' && <CalendarioSection currentUser={currentUser} />}
         {activeTab === 'afastamentos-mes' && <DashboardSection currentUser={currentUser} />}
         {activeTab === 'afastamentos' && (
           <AfastamentosSection
