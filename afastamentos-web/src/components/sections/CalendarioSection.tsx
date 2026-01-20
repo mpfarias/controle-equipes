@@ -118,19 +118,22 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     const diffTime = dataAtual.getTime() - dataInicio.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     
-    // Se a data for anterior ao início da escala, retornar null
-    if (diffDays < 0) {
+    // Se a data for anterior a 1 de janeiro de 2026, retornar null
+    const dataMinima = new Date(2026, 0, 1); // 1 de janeiro de 2026
+    if (dataAtual.getTime() < dataMinima.getTime()) {
       return null;
     }
 
     // Para o período do dia (07h-19h), a sequência é: Delta → Echo → Bravo → Alfa → Charlie
     // Para o período da noite (19h-07h), a sequência é: Charlie → Delta → Echo → Bravo → Alfa
     // A noite está sempre 1 posição atrás do dia na sequência circular
+    // Para datas anteriores ao dia 20, usar módulo negativo para calcular retroativamente
     
     if (periodo === 'dia') {
       // Sequência do dia: D, E, B, A, C, D, E, B, A, C...
       // Cada ciclo completo tem 5 turnos (5 dias)
-      const posicaoNaSequencia = diffDays % 5;
+      // Usar módulo com tratamento para números negativos
+      const posicaoNaSequencia = ((diffDays % 5) + 5) % 5;
       const equipe = SEQUENCIA_EQUIPES[posicaoNaSequencia];
       const nome = SEQUENCIA_EQUIPES_NOMES[posicaoNaSequencia];
       return { equipe, nome };
@@ -138,7 +141,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       // Sequência da noite: C, D, E, B, A, C, D, E, B, A...
       // A noite está 1 posição atrás do dia: se o dia é posição 0 (Delta), a noite é posição 4 (Charlie)
       // Se o dia é posição 1 (Echo), a noite é posição 0 (Delta)
-      const posicaoDia = diffDays % 5;
+      const posicaoDia = ((diffDays % 5) + 5) % 5;
       const posicaoNoite = (posicaoDia - 1 + 5) % 5; // -1 + 5 para garantir valor positivo
       const equipe = SEQUENCIA_EQUIPES[posicaoNoite];
       const nome = SEQUENCIA_EQUIPES_NOMES[posicaoNoite];

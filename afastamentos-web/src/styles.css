@@ -708,3 +708,73 @@ button.secondary:hover {
   outline: none;
   color: #1d4ed8;
 }
+
+/* Estilos para impressão do efetivo disponível */
+@media print {
+  body {
+    margin: 0;
+    padding: 20px;
+    background: white;
+  }
+
+  /* Esconder elementos desnecessários na impressão */
+  .MuiBackdrop-root,
+  button:not(.print-button),
+  .MuiDialogTitle-root button,
+  .MuiDialogTitle-root .MuiBox-root button {
+    display: none !important;
+  }
+
+  /* Ajustar modal para impressão */
+  .MuiDialog-paper {
+    margin: 0 !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    height: auto !important;
+    position: relative !important;
+  }
+
+  .MuiDialogContent-root {
+    padding: 20px !important;
+    overflow: visible !important;
+  }
+
+  /* Quebras de página */
+  @page {
+    margin: 2cm;
+  }
+
+  /* Mostrar cabeçalho de impressão */
+  .print-header {
+    display: block !important;
+    margin-bottom: 24px !important;
+    padding-bottom: 16px !important;
+    border-bottom: 2px solid #1976d2 !important;
+  }
+
+  /* Mostrar lista formatada para impressão */
+  .print-list {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  /* Esconder lista da tela */
+  .print-list ~ .MuiBox-root:has(.MuiList-root) {
+    display: none !important;
+  }
+
+  /* Evitar quebra de item no meio */
+  .print-item {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    padding: 16px !important;
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+  }
+
+  /* Ocultar lista normal na impressão */
+  #efetivo-disponivel-print .MuiBox-root:has(.MuiList-root) {
+    display: none !important;
+  }
+}

@@ -4,8 +4,8 @@ import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuar
 import { EQUIPE_FONETICA, EQUIPE_OPTIONS, POLICIAL_STATUS_OPTIONS, STATUS_LABEL } from '../../constants';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block } from '@mui/icons-material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent } from '@mui/material';
+import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print } from '@mui/icons-material';
 import { formatPeriodo, calcularDiasEntreDatas } from '../../utils/dateUtils';
 
 interface MostrarEquipeSectionProps {
@@ -94,6 +94,254 @@ export function MostrarEquipeSection({
   const [filtroEquipe, setFiltroEquipe] = useState<Equipe | ''>('');
   const [filtroStatus, setFiltroStatus] = useState<PolicialStatus | ''>('');
   const [filtroFuncao, setFiltroFuncao] = useState<number | ''>('');
+  const [tabAtiva, setTabAtiva] = useState<number>(0);
+  const [dataEfetivo, setDataEfetivo] = useState<string>('');
+  const [efetivoDisponivel, setEfetivoDisponivel] = useState<Policial[]>([]);
+  const [loadingEfetivo, setLoadingEfetivo] = useState(false);
+  const [funcaoExpedienteId, setFuncaoExpedienteId] = useState<number | null>(null);
+  const [modalEfetivoOpen, setModalEfetivoOpen] = useState(false);
+
+  // Buscar função do expediente
+  useEffect(() => {
+    const buscarFuncaoExpediente = async () => {
+      try {
+        const funcoes = await api.listFuncoes();
+        const funcaoExpediente = funcoes.find((f) => 
+          f.nome.toUpperCase().includes('EXPEDIENTE ADM')
+        );
+        if (funcaoExpediente) {
+          setFuncaoExpedienteId(funcaoExpediente.id);
+        }
+      } catch (error) {
+        console.error('Erro ao buscar função do expediente:', error);
+      }
+    };
+    void buscarFuncaoExpediente();
+  }, []);
+
+  // Constantes para cálculo de escalas (mesmas do CalendarioSection)
+  const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
+  const SEQUENCIA_EQUIPES: Equipe[] = ['D', 'E', 'B', 'A', 'C'];
+
+  // Calcular qual equipe saiu do serviço noturno em uma data específica (às 07h)
+  const calcularEquipeQueSaiuNoturno = (data: Date): Equipe | null => {
+    const dataInicio = new Date(DATA_INICIO_ESCALA);
+    
+    // Se a data for anterior a 1 de janeiro de 2026, retornar null
+    const dataMinima = new Date(2026, 0, 1);
+    if (data.getTime() < dataMinima.getTime()) {
+      return null;
+    }
+
+    // A equipe que saiu do serviço noturno às 07h do dia X é a que estava de noite do dia X-1 (19h) até 07h do dia X
+    // Então, preciso calcular qual equipe estava de noite no dia anterior
+    const diaAnterior = new Date(data);
+    diaAnterior.setDate(diaAnterior.getDate() - 1);
+    const diffTimeAnterior = diaAnterior.getTime() - dataInicio.getTime();
+    const diffDaysAnterior = Math.floor(diffTimeAnterior / (1000 * 60 * 60 * 24));
+    
+    // Permitir cálculo retroativo para datas anteriores ao início da escala (mas após 1/1/2026)
+    // Usar módulo para calcular a posição na sequência circular mesmo para datas anteriores
+    // Não retornar null se diffDaysAnterior for negativo, usar módulo mesmo assim
+
+    // Calcular equipe que estava de noite no dia anterior
+    const posicaoDiaAnterior = ((diffDaysAnterior % 5) + 5) % 5;
+    const posicaoNoiteAnterior = (posicaoDiaAnterior - 1 + 5) % 5;
+    const equipe = SEQUENCIA_EQUIPES[posicaoNoiteAnterior];
+    
+    return equipe;
+  };
+
+  // Verificar se uma equipe está na segunda ou terceira folga em uma data específica
+  const equipeEstaNaSegundaOuTerceiraFolga = (equipe: Equipe, data: Date): boolean => {
+    // A equipe que sai do serviço noturno às 07h do dia X entra de folga
+    // Folga 1: dia X (primeiro dia de folga)
+    // Folga 2: dia X+1 (segundo dia de folga) ✓
+    // Folga 3: dia X+2 (terceiro dia de folga) ✓
+    // Volta ao serviço: dia X+3 (manhã)
+    
+    // Preciso encontrar quando essa equipe saiu do serviço noturno pela última vez antes ou na data selecionada
+    // Vou procurar retroativamente até encontrar quando a equipe saiu do serviço noturno
+    // Ampliar o range para garantir que encontre todas as possibilidades
+    
+    const dataSelecionadaStr = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
+    
+    for (let diasAtras = 0; diasAtras <= 15; diasAtras++) {
+      const dataVerificacao = new Date(data);
+      dataVerificacao.setDate(dataVerificacao.getDate() - diasAtras);
+      
+      // Verificar se a data está dentro do range válido (após 1/1/2026)
+      const dataMinima = new Date(2026, 0, 1);
+      if (dataVerificacao.getTime() < dataMinima.getTime()) {
+        continue;
+      }
+      
+      const equipeQueSaiu = calcularEquipeQueSaiuNoturno(dataVerificacao);
+      
+      if (equipeQueSaiu === equipe) {
+        // Encontrei quando essa equipe saiu do serviço noturno
+        // A data de saída é dataVerificacao
+        // Folga 1: dataVerificacao
+        // Folga 2: dataVerificacao + 1 dia
+        // Folga 3: dataVerificacao + 2 dias
+        
+        const dataSaida = new Date(dataVerificacao);
+        const dataFolga2 = new Date(dataSaida);
+        dataFolga2.setDate(dataFolga2.getDate() + 1);
+        const dataFolga3 = new Date(dataSaida);
+        dataFolga3.setDate(dataFolga3.getDate() + 2);
+        
+        // Comparar apenas a data (sem hora)
+        const dataFolga2Str = `${dataFolga2.getFullYear()}-${String(dataFolga2.getMonth() + 1).padStart(2, '0')}-${String(dataFolga2.getDate()).padStart(2, '0')}`;
+        const dataFolga3Str = `${dataFolga3.getFullYear()}-${String(dataFolga3.getMonth() + 1).padStart(2, '0')}-${String(dataFolga3.getDate()).padStart(2, '0')}`;
+        
+        if (dataSelecionadaStr === dataFolga2Str || dataSelecionadaStr === dataFolga3Str) {
+          console.log(`Equipe ${equipe} está na folga na data ${dataSelecionadaStr}:`, {
+            dataSaida: `${dataSaida.getDate()}/${dataSaida.getMonth() + 1}/${dataSaida.getFullYear()}`,
+            folga2: dataFolga2Str,
+            folga3: dataFolga3Str,
+            dataSelecionada: dataSelecionadaStr
+          });
+          return true;
+        }
+      }
+    }
+    
+    return false;
+  };
+
+  // Função para gerar o efetivo disponível
+  const handleGerarEfetivo = async () => {
+    if (!dataEfetivo) {
+      setError('Por favor, selecione uma data.');
+      return;
+    }
+
+    if (!funcaoExpedienteId) {
+      setError('Função do expediente não encontrada. Aguarde o carregamento.');
+      return;
+    }
+
+    setLoadingEfetivo(true);
+    setError(null);
+    setSuccess(null);
+    setEfetivoDisponivel([]); // Limpar lista anterior
+
+    try {
+      // Buscar todos os policiais
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page: 1,
+        pageSize: 1000,
+        includeAfastamentos: true,
+        includeRestricoes: false,
+      };
+
+      const data = await api.listPoliciaisPaginated(params);
+      const todosPoliciais = data.Policiales;
+
+      // Filtrar policiais conforme os critérios
+      // Criar a data corretamente para evitar problemas de timezone
+      const [anoStr, mesStr, diaStr] = dataEfetivo.split('-');
+      const dataSelecionada = new Date(Number(anoStr), Number(mesStr) - 1, Number(diaStr));
+      const dataSelecionadaStr = `${dataSelecionada.getFullYear()}-${String(dataSelecionada.getMonth() + 1).padStart(2, '0')}-${String(dataSelecionada.getDate()).padStart(2, '0')}`;
+
+      // Buscar afastamentos do dia selecionado
+      const afastamentosParams: Parameters<typeof api.listAfastamentos>[0] = {
+        dataInicio: dataSelecionadaStr,
+        dataFim: dataSelecionadaStr,
+        includePolicialFuncao: false,
+      };
+      
+      const afastamentos = await api.listAfastamentos(afastamentosParams);
+      
+      // Função para verificar se um afastamento está ativo na data
+      const afastamentoAtivoNaData = (af: Afastamento) => {
+        const afInicioStr = typeof af.dataInicio === 'string' ? af.dataInicio.split('T')[0] : new Date(af.dataInicio).toISOString().split('T')[0];
+        const [anoAfInicio, mesAfInicio, diaAfInicio] = afInicioStr.split('-').map(Number);
+        const afInicioTimestamp = new Date(anoAfInicio, mesAfInicio - 1, diaAfInicio).getTime();
+        
+        let afFimTimestamp: number | null = null;
+        if (af.dataFim) {
+          const afFimStr = typeof af.dataFim === 'string' ? af.dataFim.split('T')[0] : new Date(af.dataFim).toISOString().split('T')[0];
+          const [anoAfFim, mesAfFim, diaAfFim] = afFimStr.split('-').map(Number);
+          afFimTimestamp = new Date(anoAfFim, mesAfFim - 1, diaAfFim, 23, 59, 59, 999).getTime();
+        }
+        
+        const dataTimestamp = new Date(dataSelecionada).getTime();
+        const comecaAntesOuDurante = afInicioTimestamp <= dataTimestamp;
+        const terminaDepoisOuDurante = afFimTimestamp === null || afFimTimestamp >= dataTimestamp;
+        
+        return comecaAntesOuDurante && terminaDepoisOuDurante;
+      };
+
+      const idsAfastados = new Set(
+        afastamentos.filter(afastamentoAtivoNaData).map((af) => af.policialId)
+      );
+
+      const efetivoFiltrado = todosPoliciais.filter((policial) => {
+        // 1. Status = ATIVO
+        if (policial.status !== 'ATIVO') {
+          return false;
+        }
+
+        // 2. Não ter restrição médica
+        if (policial.restricaoMedicaId !== null && policial.restricaoMedicaId !== undefined) {
+          return false;
+        }
+
+        // 3. Não estar afastado na data
+        if (idsAfastados.has(policial.id)) {
+          return false;
+        }
+
+        // 4. Verificar se atende aos critérios:
+        //    a) É do expediente OU
+        //    b) É de alguma equipe e está na segunda ou terceira folga
+        
+        const eDoExpediente = policial.funcaoId === funcaoExpedienteId;
+        const temEquipe = policial.equipe && policial.equipe !== 'SEM_EQUIPE';
+        const estaNaFolga = temEquipe && policial.equipe ? equipeEstaNaSegundaOuTerceiraFolga(policial.equipe, dataSelecionada) : false;
+        
+        // Incluir se for do expediente OU se tiver equipe e estiver na folga
+        return eDoExpediente || estaNaFolga;
+      });
+
+      setEfetivoDisponivel(efetivoFiltrado);
+      setModalEfetivoOpen(true);
+      
+      // Log para debug - verificar todas as equipes
+      const todasEquipes = ['A', 'B', 'C', 'D', 'E'] as Equipe[];
+      const equipesNaFolga = todasEquipes.map(eq => ({
+        equipe: eq,
+        estaNaFolga: equipeEstaNaSegundaOuTerceiraFolga(eq, dataSelecionada)
+      }));
+      
+      const policiaisExpediente = todosPoliciais.filter(p => p.funcaoId === funcaoExpedienteId);
+      const policiaisComEquipe = todosPoliciais.filter(p => p.equipe && p.equipe !== 'SEM_EQUIPE');
+      const policiaisComEquipeNaFolga = policiaisComEquipe.filter(p => 
+        equipeEstaNaSegundaOuTerceiraFolga(p.equipe!, dataSelecionada)
+      );
+      
+      console.log('Efetivo filtrado:', {
+        dataSelecionada: dataSelecionadaStr,
+        totalPoliciais: todosPoliciais.length,
+        totalExpediente: policiaisExpediente.length,
+        totalComEquipe: policiaisComEquipe.length,
+        comEquipeNaFolga: policiaisComEquipeNaFolga.length,
+        equipesNaFolga,
+        totalFiltrado: efetivoFiltrado.length,
+        expediente: efetivoFiltrado.filter(p => p.funcaoId === funcaoExpedienteId).length,
+        equipes: efetivoFiltrado.filter(p => p.equipe && p.equipe !== 'SEM_EQUIPE').length
+      });
+      
+      setSuccess(`Efetivo disponível gerado: ${efetivoFiltrado.length} policiais encontrados.`);
+    } catch (error) {
+      console.error('Erro ao gerar efetivo disponível:', error);
+      setError('Erro ao gerar efetivo disponível. Tente novamente.');
+    } finally {
+      setLoadingEfetivo(false);
+    }
+  };
 
   // Aplicar filtros do Dashboard quando o componente montar
   useEffect(() => {
@@ -655,12 +903,21 @@ export function MostrarEquipeSection({
 
   return (
     <section>
-      <div>
-        <h2>
-          Mostrar Efetivo do COPOM
-        </h2>
-        <p>Visualize os policiais cadastrados e execute ações rápidas.</p>
-      </div>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={tabAtiva} onChange={(_e, newValue) => setTabAtiva(newValue)}>
+          <Tab label="Efetivo do COPOM" />
+          <Tab label="Gerar efetivo disponível" />
+        </Tabs>
+      </Box>
+
+      {tabAtiva === 0 && (
+        <>
+          <div>
+            <h2>
+              Mostrar Efetivo do COPOM
+            </h2>
+            <p>Visualize os policiais cadastrados e execute ações rápidas.</p>
+          </div>
 
       {error && (
         <div className="feedback error">
@@ -2145,6 +2402,204 @@ export function MostrarEquipeSection({
             </form>
           </div>
         </div>
+      )}
+        </>
+      )}
+
+      {tabAtiva === 1 && (
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ mb: 3 }}>
+            Gerar efetivo disponível
+          </Typography>
+          
+          <Box sx={{ mb: 3, maxWidth: 400 }}>
+            <TextField
+              label="Data"
+              type="date"
+              value={dataEfetivo}
+              onChange={(e) => setDataEfetivo(e.target.value)}
+              fullWidth
+              InputLabelProps={{
+                shrink: true,
+              }}
+              inputProps={{
+                min: '2026-01-01',
+              }}
+              sx={{ mb: 2 }}
+            />
+            <Button
+              variant="contained"
+              onClick={handleGerarEfetivo}
+              disabled={!dataEfetivo || loadingEfetivo || !funcaoExpedienteId}
+              fullWidth
+            >
+              {loadingEfetivo ? 'Gerando...' : 'Gerar efetivo'}
+            </Button>
+          </Box>
+
+          {/* Modal com lista de efetivo disponível */}
+          <Dialog
+            open={modalEfetivoOpen}
+            onClose={() => setModalEfetivoOpen(false)}
+            maxWidth="md"
+            fullWidth
+          >
+            <DialogTitle>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6">
+                  Efetivo disponível ({efetivoDisponivel.length} policiais)
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<Print />}
+                    onClick={() => window.print()}
+                    size="small"
+                  >
+                    Imprimir
+                  </Button>
+                  <IconButton
+                    onClick={() => setModalEfetivoOpen(false)}
+                    size="small"
+                  >
+                    <CloseIcon />
+                  </IconButton>
+                </Box>
+              </Box>
+            </DialogTitle>
+            <DialogContent>
+              <Box
+                id="efetivo-disponivel-print"
+                sx={{
+                  '@media print': {
+                    '&': {
+                      padding: 0,
+                    },
+                    '& .print-header': {
+                      display: 'block',
+                      marginBottom: 3,
+                      paddingBottom: 2,
+                      borderBottom: '2px solid #1976d2',
+                    },
+                    '& .print-date': {
+                      fontSize: '0.875rem',
+                      color: '#666',
+                      marginTop: 1,
+                    },
+                    '& .print-list': {
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, 1fr)',
+                      gap: 1,
+                    },
+                    '& .print-item': {
+                      padding: 1.5,
+                      border: '1px solid #e0e0e0',
+                      borderRadius: 1,
+                      breakInside: 'avoid',
+                    },
+                  },
+                }}
+              >
+                {/* Cabeçalho para impressão */}
+                <Box className="print-header" sx={{ display: 'none' }}>
+                  <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
+                    Efetivo Disponível
+                  </Typography>
+                  <Typography variant="h6" sx={{ color: '#1976d2', mb: 0.5 }}>
+                    COPOM - Centro de Operações da Polícia Militar
+                  </Typography>
+                  <Typography className="print-date" variant="body2">
+                    Data: {dataEfetivo ? new Date(dataEfetivo).toLocaleDateString('pt-BR') : '-'}
+                  </Typography>
+                  <Typography variant="body2" sx={{ mt: 1, fontWeight: 500 }}>
+                    Total de policiais: {efetivoDisponivel.length}
+                  </Typography>
+                </Box>
+
+                {efetivoDisponivel.length > 0 ? (
+                  <>
+                    {/* Versão para tela */}
+                    <Box sx={{ '@media print': { display: 'none' } }}>
+                      <List>
+                        {efetivoDisponivel.map((policial) => (
+                          <ListItem key={policial.id}>
+                            <ListItemText
+                              primary={policial.nome}
+                              secondary={
+                                <Box component="span" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
+                                  <Typography variant="caption" component="span" color="text.secondary">
+                                    Matrícula: {policial.matricula}
+                                  </Typography>
+                                  {policial.equipe && policial.equipe !== 'SEM_EQUIPE' && (
+                                    <Chip
+                                      label={`Equipe ${EQUIPE_FONETICA[policial.equipe]}`}
+                                      size="small"
+                                      sx={{
+                                        height: '20px',
+                                        fontSize: '0.65rem',
+                                        backgroundColor: '#e0f2fe',
+                                        color: '#0369a1',
+                                      }}
+                                    />
+                                  )}
+                                  {policial.funcao && (
+                                    <Typography variant="caption" component="span" color="text.secondary">
+                                      {policial.funcao.nome}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              }
+                            />
+                          </ListItem>
+                        ))}
+                      </List>
+                    </Box>
+
+                    {/* Versão para impressão */}
+                    <Box className="print-list" sx={{ display: 'none', '@media print': { display: 'grid' } }}>
+                      {efetivoDisponivel.map((policial, index) => (
+                        <Paper
+                          key={policial.id}
+                          className="print-item"
+                          elevation={0}
+                          sx={{
+                            padding: 2,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 0.5,
+                          }}
+                        >
+                          <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
+                            {index + 1}. {policial.nome}
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                              <strong>Matrícula:</strong> {policial.matricula}
+                            </Typography>
+                            {policial.equipe && policial.equipe !== 'SEM_EQUIPE' && (
+                              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                                <strong>Equipe:</strong> {EQUIPE_FONETICA[policial.equipe]}
+                              </Typography>
+                            )}
+                            {policial.funcao && (
+                              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                                <strong>Função:</strong> {policial.funcao.nome}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Paper>
+                      ))}
+                    </Box>
+                  </>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                    Nenhum policial encontrado com os critérios especificados.
+                  </Typography>
+                )}
+              </Box>
+            </DialogContent>
+          </Dialog>
+        </Box>
       )}
     </section>
   );
