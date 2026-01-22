@@ -20,6 +20,7 @@ async function findDuplicates() {
 
     const policiais = await prisma.policial.findMany({
       orderBy: { matricula: 'asc' },
+      include: { status: true },
     });
 
     // Agrupar por matrícula normalizada
@@ -60,7 +61,8 @@ async function findDuplicates() {
       console.log(`   Encontrados ${duplicata.policiais.length} registro(s):`);
 
       for (const policial of duplicata.policiais) {
-        console.log(`   - ID: ${policial.id} | Matrícula: ${policial.matricula} | Nome: ${policial.nome} | Status: ${policial.status}`);
+        const statusNome = policial.status?.nome ?? 'ATIVO';
+        console.log(`   - ID: ${policial.id} | Matrícula: ${policial.matricula} | Nome: ${policial.nome} | Status: ${statusNome}`);
       }
     }
 

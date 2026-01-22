@@ -85,6 +85,12 @@ export interface Policial {
   restricaoMedica?: RestricaoMedica | null;
   restricoesMedicasHistorico?: RestricaoMedicaHistorico[];
   fotoUrl?: string | null;
+  mesPrevisaoFerias?: number | null;
+  anoPrevisaoFerias?: number | null;
+  mesPrevisaoFeriasOriginal?: number | null;
+  anoPrevisaoFeriasOriginal?: number | null;
+  feriasConfirmadas?: boolean;
+  feriasReprogramadas?: boolean;
   createdAt: string;
   updatedAt: string;
 }

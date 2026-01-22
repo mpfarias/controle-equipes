@@ -1,7 +1,8 @@
-﻿import { Injectable, NotFoundException, ConflictException, BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { AuditAction, Equipe, PolicialStatus, Prisma, UsuarioStatus, Usuario } from '@prisma/client';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { AuditAction, Equipe, Prisma, UsuarioStatus, Usuario } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
 import { CreatePolicialDto } from './dto/create-policial.dto';
 import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
@@ -13,6 +14,7 @@ type PolicialBase = Prisma.PolicialGetPayload<{
     afastamentos?: true; 
     funcao?: true; 
     restricaoMedica?: true;
+    status?: true;
   };
 }>;
 
@@ -34,13 +36,36 @@ type PolicialWithHistorico = PolicialBase & {
   }>;
 };
 
+type FeriasPolicialEntity = Prisma.FeriasPolicialGetPayload<{}>;
+
+const POLICIAL_STATUS_VALUES = [
+  'ATIVO',
+  'DESIGNADO',
+  'COMISSIONADO',
+  'PTTC',
+  'DESATIVADO',
+] as const;
+
+type PolicialStatusValue = typeof POLICIAL_STATUS_VALUES[number];
+
 type PolicialWithRelations = PolicialBase | PolicialWithHistorico;
+
+type PolicialResponse = Omit<PolicialWithRelations, 'ferias' | 'status'> & {
+  mesPrevisaoFerias?: number | null;
+  anoPrevisaoFerias?: number | null;
+  mesPrevisaoFeriasOriginal?: number | null;
+  anoPrevisaoFeriasOriginal?: number | null;
+  feriasConfirmadas?: boolean;
+  feriasReprogramadas?: boolean;
+  status: PolicialStatusValue;
+};
 
 @Injectable()
 export class PoliciaisService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly restricoesAfastamentoService: RestricoesAfastamentoService,
   ) {}
 
   private sanitizeNome(nome: string): string {
@@ -59,6 +84,189 @@ export class PoliciaisService {
     return withoutLeadingZeros || '0';
   }
 
+  private buildMonthRange(ano: number, mes: number): { dataInicio: Date; dataFim: Date } {
+    const dataInicio = new Date(ano, mes - 1, 1, 0, 0, 0, 0);
+    const dataFim = new Date(ano, mes, 0, 23, 59, 59, 999);
+    return { dataInicio, dataFim };
+  }
+
+  private mapFeriasPrevisao(policial: PolicialWithRelations & { ferias?: FeriasPolicialEntity[] }): PolicialResponse {
+    const feriasAtual = policial.ferias?.[0] ?? null;
+    const mesPrevisaoFerias = feriasAtual ? feriasAtual.dataInicio.getMonth() + 1 : null;
+    const anoPrevisaoFerias = feriasAtual ? feriasAtual.ano : null;
+    const mesPrevisaoFeriasOriginal = feriasAtual?.dataInicioOriginal
+      ? feriasAtual.dataInicioOriginal.getMonth() + 1
+      : null;
+    const anoPrevisaoFeriasOriginal = feriasAtual?.dataInicioOriginal
+      ? feriasAtual.dataInicioOriginal.getFullYear()
+      : null;
+    const feriasConfirmadas = feriasAtual?.confirmada ?? false;
+    const feriasReprogramadas = feriasAtual?.reprogramada ?? false;
+    const statusNome = policial.status?.nome ?? 'ATIVO';
+
+    const { ferias: _ferias, status: _status, ...rest } = policial;
+    return {
+      ...(rest as PolicialWithRelations),
+      status: statusNome as PolicialStatusValue,
+      mesPrevisaoFerias,
+      anoPrevisaoFerias,
+      mesPrevisaoFeriasOriginal,
+      anoPrevisaoFeriasOriginal,
+      feriasConfirmadas,
+      feriasReprogramadas,
+    };
+  }
+
+  private async resolveStatusId(status: string): Promise<number> {
+    if (!status) {
+      throw new BadRequestException('Status inválido.');
+    }
+    const statusRegistro = await this.prisma.statusPolicial.findUnique({
+      where: { nome: status },
+      select: { id: true },
+    });
+    if (!statusRegistro) {
+      throw new BadRequestException(`Status inválido: ${status}`);
+    }
+    return statusRegistro.id;
+  }
+
+  private async upsertFeriasPrevisao(
+    policialId: number,
+    data: {
+      mesPrevisaoFerias?: number | null;
+      anoPrevisaoFerias?: number | null;
+      feriasConfirmadas?: boolean;
+      feriasReprogramadas?: boolean;
+    },
+    actor?: { id?: number | null; nome?: string | null },
+  ): Promise<void> {
+    const hasFeriasPayload =
+      data.mesPrevisaoFerias !== undefined ||
+      data.anoPrevisaoFerias !== undefined ||
+      data.feriasConfirmadas !== undefined ||
+      data.feriasReprogramadas !== undefined;
+
+    if (!hasFeriasPayload) {
+      return;
+    }
+
+    const anoReferencia = data.anoPrevisaoFerias ?? new Date().getFullYear();
+    let feriasAtual = await this.prisma.feriasPolicial.findUnique({
+      where: { policialId_ano: { policialId, ano: anoReferencia } },
+    });
+
+    if (data.mesPrevisaoFerias === null) {
+      if (feriasAtual) {
+        await this.prisma.feriasPolicial.delete({
+          where: { policialId_ano: { policialId, ano: anoReferencia } },
+        });
+      }
+      return;
+    }
+
+    if (data.mesPrevisaoFerias !== undefined) {
+      const mesNovo = data.mesPrevisaoFerias;
+      const { dataInicio, dataFim } = this.buildMonthRange(anoReferencia, mesNovo);
+
+      if (feriasAtual) {
+        const mesAnterior = feriasAtual.dataInicio.getMonth() + 1;
+        const anoAnterior = feriasAtual.ano;
+
+        if (feriasAtual.confirmada && mesNovo !== mesAnterior) {
+          if (feriasAtual.reprogramada) {
+            throw new BadRequestException(
+              'As férias já foram reprogramadas anteriormente. Não é possível reprogramar novamente.',
+            );
+          }
+
+          const motivoFerias = await this.prisma.motivoAfastamento.findFirst({
+            where: { nome: 'Férias' },
+          });
+
+          if (motivoFerias) {
+            const dataTeste = new Date(anoReferencia, mesNovo - 1, 15);
+            const verificacao = await this.restricoesAfastamentoService.verificarRestricao(
+              dataTeste,
+              motivoFerias.id,
+            );
+            const dataOriginal = new Date(anoAnterior, mesAnterior - 1, 15);
+            const verificacaoOriginal = await this.restricoesAfastamentoService.verificarRestricao(
+              dataOriginal,
+              motivoFerias.id,
+            );
+
+            if (verificacao.bloqueado && !verificacaoOriginal.bloqueado) {
+              throw new BadRequestException(
+                `Não é possível reprogramar as férias para ${this.obterNomeMes(mesNovo)}. Este mês possui restrição de afastamento (${verificacao.restricao?.tipoRestricao.nome || 'restrição'}).`,
+              );
+            }
+          }
+        }
+
+        const dataInicioOriginal = feriasAtual.dataInicioOriginal ?? feriasAtual.dataInicio;
+        const dataFimOriginal = feriasAtual.dataFimOriginal ?? feriasAtual.dataFim;
+
+        await this.prisma.feriasPolicial.update({
+          where: { policialId_ano: { policialId, ano: anoReferencia } },
+          data: {
+            dataInicio,
+            dataFim,
+            dataInicioOriginal: feriasAtual.confirmada && mesNovo !== mesAnterior ? dataInicioOriginal : feriasAtual.dataInicioOriginal,
+            dataFimOriginal: feriasAtual.confirmada && mesNovo !== mesAnterior ? dataFimOriginal : feriasAtual.dataFimOriginal,
+            reprogramada: feriasAtual.confirmada && mesNovo !== mesAnterior ? true : feriasAtual.reprogramada,
+            updatedById: actor?.id ?? null,
+            updatedByName: actor?.nome ?? null,
+          },
+        });
+      } else {
+        await this.prisma.feriasPolicial.create({
+          data: {
+            policialId,
+            ano: anoReferencia,
+            dataInicio,
+            dataFim,
+            confirmada: data.feriasConfirmadas ?? false,
+            reprogramada: data.feriasReprogramadas ?? false,
+            createdById: actor?.id ?? null,
+            createdByName: actor?.nome ?? null,
+            updatedById: actor?.id ?? null,
+            updatedByName: actor?.nome ?? null,
+          },
+        });
+      }
+
+      feriasAtual = await this.prisma.feriasPolicial.findUnique({
+        where: { policialId_ano: { policialId, ano: anoReferencia } },
+      });
+    }
+
+    if (data.feriasConfirmadas !== undefined) {
+      if (!feriasAtual) {
+        throw new BadRequestException('Não existe previsão de férias cadastrada para confirmar.');
+      }
+      await this.prisma.feriasPolicial.update({
+        where: { policialId_ano: { policialId, ano: anoReferencia } },
+        data: {
+          confirmada: data.feriasConfirmadas,
+          updatedById: actor?.id ?? null,
+          updatedByName: actor?.nome ?? null,
+        },
+      });
+    }
+
+    if (data.feriasReprogramadas !== undefined && feriasAtual) {
+      await this.prisma.feriasPolicial.update({
+        where: { policialId_ano: { policialId, ano: anoReferencia } },
+        data: {
+          reprogramada: data.feriasReprogramadas,
+          updatedById: actor?.id ?? null,
+          updatedByName: actor?.nome ?? null,
+        },
+      });
+    }
+  }
+
   /**
    * Normaliza matrÃ­cula para comparaÃ§Ã£o, removendo zeros Ã  esquerda
    * Usado para buscar matrÃ­culas equivalentes (ex: "00219045" = "219045")
@@ -75,7 +283,7 @@ export class PoliciaisService {
   async create(
     data: Omit<CreatePolicialDto, 'responsavelId'>,
     responsavelId?: number,
-  ): Promise<PolicialWithRelations> {
+  ): Promise<PolicialResponse> {
     const actor = await this.audit.resolveActor(responsavelId);
     const matriculaNormalizada = this.sanitizeMatricula(data.matricula);
 
@@ -92,7 +300,7 @@ export class PoliciaisService {
           const jaExiste = await this.prisma.policial.findFirst({
             where: {
               funcaoId: data.funcaoId,
-              status: { not: PolicialStatus.DESATIVADO },
+              status: { nome: { not: 'DESATIVADO' } },
             },
           });
 
@@ -109,7 +317,7 @@ export class PoliciaisService {
     // Buscar usando a matrÃ­cula normalizada exata primeiro
     let policialExistente = await this.prisma.policial.findUnique({
       where: { matricula: matriculaNormalizada },
-      include: { afastamentos: true },
+      include: { afastamentos: true, status: true },
     });
 
     // Se não encontrou com a matrícula exata, buscar por matrículas equivalentes
@@ -119,7 +327,7 @@ export class PoliciaisService {
       
       // Buscar todos os policiais e comparar matrículas normalizadas
       const todosPoliciais = await this.prisma.policial.findMany({
-        include: { afastamentos: true },
+        include: { afastamentos: true, status: true },
       });
 
       policialExistente = todosPoliciais.find((policial) => {
@@ -129,7 +337,7 @@ export class PoliciaisService {
     }
 
     if (policialExistente) {
-      if (policialExistente.status === PolicialStatus.DESATIVADO) {
+      if (policialExistente.status?.nome === 'DESATIVADO') {
         // Policial existe mas está desativado - lançar erro especial para o frontend tratar
         const errorResponse = {
           message: 'POLICIAL_DESATIVADO',
@@ -138,7 +346,7 @@ export class PoliciaisService {
             nome: policialExistente.nome,
             matricula: policialExistente.matricula,
             equipe: policialExistente.equipe,
-            status: policialExistente.status,
+            status: policialExistente.status?.nome ?? 'ATIVO',
             createdAt: policialExistente.createdAt,
             updatedAt: policialExistente.updatedAt,
           },
@@ -150,11 +358,12 @@ export class PoliciaisService {
       }
     }
 
+    const statusId = await this.resolveStatusId(data.status ?? 'ATIVO');
     const created = await this.prisma.policial.create({
       data: {
         nome: this.sanitizeNome(data.nome),
         matricula: matriculaNormalizada,
-        status: data.status ?? PolicialStatus.ATIVO,
+        status: { connect: { id: statusId } },
         equipe: data.equipe !== undefined ? data.equipe : (actor?.equipe ?? null),
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         createdById: actor?.id ?? null,
@@ -162,7 +371,7 @@ export class PoliciaisService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });
 
     await this.audit.record({
@@ -173,7 +382,7 @@ export class PoliciaisService {
       after: created,
     });
 
-    return created;
+    return this.mapFeriasPrevisao(created);
   }
 
   async findAll(options?: {
@@ -188,9 +397,9 @@ export class PoliciaisService {
     orderBy?: 'nome' | 'matricula' | 'equipe';
     orderDir?: 'asc' | 'desc';
   }): Promise<
-    | PolicialWithRelations[]
+    | PolicialResponse[]
     | {
-        Policiales: PolicialWithRelations[];
+        Policiales: PolicialResponse[];
         total: number;
         page: number;
         pageSize: number;
@@ -209,12 +418,17 @@ export class PoliciaisService {
       orderBy,
       orderDir,
     } = options || {};
+    const anoAtual = new Date().getFullYear();
     const include: {
       afastamentos?: boolean;
       funcao?: boolean;
       restricaoMedica?: boolean;
+      status?: boolean;
+      ferias?: { where: { ano: number }; orderBy: { id: 'asc' | 'desc' }; take: number };
     } = {
       funcao: true,
+      status: true,
+      ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
     };
     if (includeAfastamentos === true) {
       include.afastamentos = true;
@@ -228,7 +442,7 @@ export class PoliciaisService {
       where.equipe = equipe as Equipe;
     }
     if (status) {
-      where.status = status as PolicialStatus;
+      where.status = { nome: status as string };
     }
     if (funcaoId) {
       where.funcaoId = funcaoId;
@@ -246,11 +460,12 @@ export class PoliciaisService {
 
     // Se nÃ£o fornecer paginaÃ§Ã£o, retornar todos (incluindo desativados)
     if (page === undefined && pageSize === undefined) {
-      return this.prisma.policial.findMany({
+      const policiais = await this.prisma.policial.findMany({
         where,
         orderBy: orderByClause,
         include,
       });
+      return policiais.map((policial) => this.mapFeriasPrevisao(policial));
     }
 
     // Implementar paginaÃ§Ã£o
@@ -271,7 +486,7 @@ export class PoliciaisService {
     ]);
 
     return {
-      Policiales,
+      Policiales: Policiales.map((policial) => this.mapFeriasPrevisao(policial)),
       total,
       page: currentPage,
       pageSize: currentPageSize,
@@ -279,13 +494,16 @@ export class PoliciaisService {
     };
   }
 
-  async findOne(id: number): Promise<PolicialWithRelations> {
+  async findOne(id: number): Promise<PolicialResponse> {
+    const anoAtual = new Date().getFullYear();
     const policial = await this.prisma.policial.findUnique({
       where: { id },
       include: { 
         afastamentos: true, 
         funcao: true, 
         restricaoMedica: true,
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
         restricoesMedicasHistorico: {
           include: { restricaoMedica: true },
           orderBy: { dataFim: 'desc' },
@@ -297,14 +515,14 @@ export class PoliciaisService {
       throw new NotFoundException(`Policial ${id} não encontrado.`);
     }
 
-    return policial;
+    return this.mapFeriasPrevisao(policial);
   }
 
   async update(
     id: number,
     data: UpdatePolicialDto,
     responsavelId?: number,
-  ): Promise<PolicialWithRelations> {
+  ): Promise<PolicialResponse> {
     // Validar que nÃ£o pode haver mais de um CMT UPM ou SUBCMT UPM (apenas se a funÃ§Ã£o estiver sendo alterada)
     if (data.funcaoId !== undefined && data.funcaoId !== null) {
       const funcao = await this.prisma.funcao.findUnique({
@@ -318,7 +536,7 @@ export class PoliciaisService {
           const jaExiste = await this.prisma.policial.findFirst({
             where: {
               funcaoId: data.funcaoId,
-              status: { not: PolicialStatus.DESATIVADO },
+              status: { nome: { not: 'DESATIVADO' } },
               id: { not: id },
             },
           });
@@ -333,7 +551,7 @@ export class PoliciaisService {
     }
     const before = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true },
+      include: { afastamentos: true, status: true },
     });
 
     if (!before) {
@@ -354,11 +572,14 @@ export class PoliciaisService {
         // Buscar usando a matrÃ­cula normalizada exata primeiro
         let policialComMatricula = await this.prisma.policial.findUnique({
           where: { matricula: matriculaNormalizada },
+          include: { status: true },
         });
 
         // Se nÃ£o encontrou com a matrÃ­cula exata, buscar por matrÃ­culas equivalentes
         if (!policialComMatricula || policialComMatricula.id === id) {
-          const todosPoliciais = await this.prisma.policial.findMany();
+          const todosPoliciais = await this.prisma.policial.findMany({
+            include: { status: true },
+          });
 
           policialComMatricula = todosPoliciais.find((policial) => {
             if (policial.id === id) return false; // Ignorar o próprio policial
@@ -368,7 +589,7 @@ export class PoliciaisService {
         }
 
         if (policialComMatricula && policialComMatricula.id !== id) {
-          if (policialComMatricula.status === PolicialStatus.DESATIVADO) {
+          if (policialComMatricula.status?.nome === 'DESATIVADO') {
             // Policial existe mas estÃ¡ desativado - lanÃ§ar erro especial para o frontend tratar
             const errorResponse = {
               message: 'POLICIAL_DESATIVADO',
@@ -377,7 +598,7 @@ export class PoliciaisService {
                 nome: policialComMatricula.nome,
                 matricula: policialComMatricula.matricula,
                 equipe: policialComMatricula.equipe,
-                status: policialComMatricula.status,
+                status: policialComMatricula.status?.nome ?? 'ATIVO',
                 createdAt: policialComMatricula.createdAt,
                 updatedAt: policialComMatricula.updatedAt,
               },
@@ -407,7 +628,8 @@ export class PoliciaisService {
     }
 
     if (data.status !== undefined) {
-      updateData.status = data.status;
+      const statusId = await this.resolveStatusId(data.status);
+      updateData.status = { connect: { id: statusId } };
     }
 
     if (data.equipe !== undefined) {
@@ -426,10 +648,21 @@ export class PoliciaisService {
       }
     }
 
+    await this.upsertFeriasPrevisao(
+      id,
+      {
+        mesPrevisaoFerias: data.mesPrevisaoFerias,
+        anoPrevisaoFerias: data.anoPrevisaoFerias,
+        feriasConfirmadas: data.feriasConfirmadas,
+        feriasReprogramadas: data.feriasReprogramadas,
+      },
+      actor ?? undefined,
+    );
+
     const updated = await this.prisma.policial.update({
       where: { id },
       data: updateData,
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });
 
     await this.audit.record({
@@ -441,13 +674,25 @@ export class PoliciaisService {
       after: updated,
     });
 
-    return updated;
+    const anoAtual = new Date().getFullYear();
+    const updatedWithFerias = await this.prisma.policial.findUnique({
+      where: { id: updated.id },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return this.mapFeriasPrevisao(updatedWithFerias ?? updated);
   }
 
   async remove(id: number, responsavelId?: number): Promise<void> {
     const before = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, status: true },
     });
 
     if (!before) {
@@ -456,14 +701,15 @@ export class PoliciaisService {
 
     const actor = await this.audit.resolveActor(responsavelId);
 
+    const statusId = await this.resolveStatusId('DESATIVADO');
     const updated = await this.prisma.policial.update({
       where: { id },
       data: {
-        status: PolicialStatus.DESATIVADO,
+        status: { connect: { id: statusId } },
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });
 
     await this.audit.record({
@@ -476,10 +722,10 @@ export class PoliciaisService {
     });
   }
 
-  async activate(id: number, responsavelId?: number): Promise<PolicialWithRelations> {
+  async activate(id: number, responsavelId?: number): Promise<PolicialResponse> {
     const before = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true, funcao: true },
+      include: { afastamentos: true, funcao: true, status: true },
     });
 
     if (!before) {
@@ -488,14 +734,15 @@ export class PoliciaisService {
 
     const actor = await this.audit.resolveActor(responsavelId);
 
+    const statusId = await this.resolveStatusId('ATIVO');
     const updated = await this.prisma.policial.update({
       where: { id },
       data: {
-        status: PolicialStatus.ATIVO,
+        status: { connect: { id: statusId } },
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });
 
     await this.audit.record({
@@ -507,7 +754,19 @@ export class PoliciaisService {
       after: updated,
     });
 
-    return updated;
+    const anoAtual = new Date().getFullYear();
+    const updatedWithFerias = await this.prisma.policial.findUnique({
+      where: { id: updated.id },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return this.mapFeriasPrevisao(updatedWithFerias ?? updated);
   }
 
   async createBulk(
@@ -517,6 +776,10 @@ export class PoliciaisService {
     const actor = await this.audit.resolveActor(responsavelId);
     const erros: Array<{ matricula: string; erro: string }> = [];
     let criados = 0;
+    const statusList = await this.prisma.statusPolicial.findMany({
+      select: { id: true, nome: true },
+    });
+    const statusMap = new Map(statusList.map((status) => [status.nome, status.id]));
 
     for (const policialData of data.policiais) {
       try {
@@ -549,10 +812,19 @@ export class PoliciaisService {
           continue;
         }
 
+        const statusId = statusMap.get(policialData.status);
+        if (!statusId) {
+          erros.push({
+            matricula: policialData.matricula,
+            erro: `Status inválido: ${policialData.status}`,
+          });
+          continue;
+        }
+
         const createData: Prisma.PolicialCreateInput = {
           nome: this.sanitizeNome(policialData.nome),
           matricula: matriculaNormalizada,
-          status: policialData.status,
+          status: { connect: { id: statusId } },
           equipe: policialData.equipe !== undefined ? policialData.equipe : (actor?.equipe ?? null),
           createdById: actor?.id ?? null,
           createdByName: actor?.nome ?? null,
@@ -677,13 +949,13 @@ export class PoliciaisService {
     id: number,
     restricaoMedicaId: number | null,
     responsavelId?: number,
-  ): Promise<PolicialWithRelations> {
+  ): Promise<PolicialResponse> {
     const actor = await this.audit.resolveActor(responsavelId);
 
     // Verificar se o policial existe
     const before = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });
 
     if (!before) {
@@ -718,6 +990,7 @@ export class PoliciaisService {
         afastamentos: true, 
         funcao: true, 
         restricaoMedica: true,
+        status: true,
         restricoesMedicasHistorico: {
           include: { restricaoMedica: true },
           orderBy: { dataFim: 'desc' },
@@ -734,14 +1007,30 @@ export class PoliciaisService {
       after: updated,
     });
 
-    return updated;
+    const anoAtual = new Date().getFullYear();
+    const updatedWithFerias = await this.prisma.policial.findUnique({
+      where: { id: updated.id },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return this.mapFeriasPrevisao(updatedWithFerias ?? updated);
   }
 
   async removeRestricaoMedica(
     id: number,
     senha: string,
     responsavelId?: number,
-  ): Promise<PolicialWithRelations> {
+  ): Promise<PolicialResponse> {
     const actor = await this.audit.resolveActor(responsavelId);
 
     if (!actor) {
@@ -765,7 +1054,7 @@ export class PoliciaisService {
     // Verificar se o policial existe
     const before = await this.prisma.policial.findUnique({
       where: { id },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });
 
     if (!before) {
@@ -802,6 +1091,7 @@ export class PoliciaisService {
         afastamentos: true, 
         funcao: true, 
         restricaoMedica: true,
+        status: true,
         restricoesMedicasHistorico: {
           include: { restricaoMedica: true },
           orderBy: { dataFim: 'desc' },
@@ -818,7 +1108,34 @@ export class PoliciaisService {
       after: updated,
     });
 
-    return updated;
+    const anoAtual = new Date().getFullYear();
+    const updatedWithFerias = await this.prisma.policial.findUnique({
+      where: { id: updated.id },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return this.mapFeriasPrevisao(updatedWithFerias ?? updated);
+  }
+
+  /**
+   * Retorna o nome do mês em português
+   */
+  private obterNomeMes(mes: number): string {
+    const meses = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return meses[mes - 1] || `Mês ${mes}`;
   }
 }
 

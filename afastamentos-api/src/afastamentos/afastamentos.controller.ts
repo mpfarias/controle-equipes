@@ -82,6 +82,11 @@ export class AfastamentosController {
     return this.afastamentosService.update(id, updateAfastamentoDto, user.id);
   }
 
+  @Patch(':id/desativar')
+  desativar(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.afastamentosService.desativar(id, user.id);
+  }
+
   @Delete(':id')
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
     return this.afastamentosService.remove(id, user.id);

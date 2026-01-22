@@ -4,7 +4,6 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 model Policial {
@@ -12,13 +11,15 @@ model Policial {
   nome                          String
   matricula                     String                     @unique
   equipe                        Equipe?
-  status                        PolicialStatus             @default(ATIVO)
+  statusId                      Int
+  status                        StatusPolicial             @relation(fields: [statusId], references: [id])
   funcaoId                      Int?
   funcao                        Funcao?                    @relation(fields: [funcaoId], references: [id])
   restricaoMedicaId             Int?
   restricaoMedica               RestricaoMedica?           @relation(fields: [restricaoMedicaId], references: [id])
   restricoesMedicasHistorico    RestricaoMedicaHistorico[]
   fotoUrl                       String?
+  ferias                        FeriasPolicial[]
   afastamentos                  Afastamento[]
   createdById                   Int?
   createdByName                 String?
@@ -26,6 +27,36 @@ model Policial {
   updatedByName                 String?
   createdAt                     DateTime                   @default(now())
   updatedAt                     DateTime                   @updatedAt
+}
+
+model StatusPolicial {
+  id          Int        @id @default(autoincrement())
+  nome        String     @unique
+  descricao   String?
+  policiais   Policial[]
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model FeriasPolicial {
+  id                 Int       @id @default(autoincrement())
+  policialId         Int
+  policial           Policial  @relation(fields: [policialId], references: [id], onDelete: Cascade)
+  ano                Int
+  dataInicio         DateTime
+  dataFim            DateTime
+  confirmada         Boolean   @default(false)
+  reprogramada       Boolean   @default(false)
+  dataInicioOriginal DateTime?
+  dataFimOriginal    DateTime?
+  createdById        Int?
+  createdByName      String?
+  updatedById        Int?
+  updatedByName      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([policialId, ano])
 }
 
 model MotivoAfastamento {
@@ -100,14 +131,6 @@ model Usuario {
 enum AfastamentoStatus {
   ATIVO
   ENCERRADO
-}
-
-enum PolicialStatus {
-  ATIVO
-  DESIGNADO
-  COMISSIONADO
-  PTTC
-  DESATIVADO
 }
 
 enum UsuarioStatus {

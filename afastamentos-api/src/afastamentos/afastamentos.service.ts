@@ -6,7 +6,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { AuditAction, AfastamentoStatus, PolicialStatus, Prisma } from '@prisma/client';
+import { AuditAction, AfastamentoStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
@@ -14,8 +14,12 @@ import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
 import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
 
 type AfastamentoWithPolicial = Prisma.AfastamentoGetPayload<{
-  include: { policial: { include: { funcao: true } }; motivo: true };
+  include: { policial: { include: { funcao: true; status: true } }; motivo: true };
 }>;
+
+type AfastamentoWithPolicialResponse = Omit<AfastamentoWithPolicial, 'policial'> & {
+  policial: Omit<AfastamentoWithPolicial['policial'], 'status'> & { status: string };
+};
 
 @Injectable()
 export class AfastamentosService {
@@ -28,6 +32,18 @@ export class AfastamentosService {
 
   private sanitizeTexto(value: string): string {
     return value.trim();
+  }
+
+  private mapAfastamentoStatus(afastamento: AfastamentoWithPolicial): AfastamentoWithPolicialResponse {
+    const statusNome = afastamento.policial.status?.nome ?? 'ATIVO';
+    const { status, ...policialRest } = afastamento.policial;
+    return {
+      ...afastamento,
+      policial: {
+        ...policialRest,
+        status: statusNome,
+      },
+    };
   }
 
   private async assertPodeGerenciarAfastamentos(userId?: number): Promise<void> {
@@ -222,7 +238,7 @@ export class AfastamentosService {
     // Buscar o policial para verificar o status
     const policial = await this.prisma.policial.findUnique({
       where: { id: policialId },
-      select: { status: true },
+      select: { status: { select: { nome: true } } },
     });
 
     if (!policial) {
@@ -230,7 +246,7 @@ export class AfastamentosService {
     }
 
     // Só validar se o policial for PTTC
-    if (policial.status !== PolicialStatus.PTTC) {
+    if (policial.status?.nome !== 'PTTC') {
       return;
     }
 
@@ -290,28 +306,60 @@ export class AfastamentosService {
       );
     }
 
-    // Buscar o policial para verificar o status
+    const anoReferencia = dataInicio.getFullYear();
+    // Buscar o policial para verificar o status e previsão de férias do ano
     const policial = await this.prisma.policial.findUnique({
       where: { id: policialId },
-      select: { status: true },
+      select: {
+        status: { select: { nome: true } },
+        ferias: { where: { ano: anoReferencia }, orderBy: { id: 'desc' }, take: 1 },
+      },
     });
 
     if (!policial) {
       throw new NotFoundException(`Policial ${policialId} não encontrado.`);
     }
 
+    const feriasAtual = policial.ferias?.[0];
+    // Validar mês previsto de férias
+    if (feriasAtual?.dataInicio && feriasAtual.ano) {
+      const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
+      const anoPrevisto = feriasAtual.ano;
+      // Criar data do último dia do mês previsto
+      const ultimoDiaMesPrevisto = new Date(
+        anoPrevisto,
+        mesPrevisto, // Mês seguinte (0-indexed)
+        0, // Dia 0 = último dia do mês anterior
+        23, 59, 59, 999
+      );
+      
+      // Validar que a data de início não seja posterior ao mês previsto
+      if (dataInicio > ultimoDiaMesPrevisto) {
+        const meses = [
+          'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+        ];
+        const nomeMesPrevisto = meses[mesPrevisto - 1];
+        
+        throw new BadRequestException(
+          `Não é possível cadastrar férias após ${nomeMesPrevisto}/${anoPrevisto}. As férias devem ser totalmente usufruídas até o mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`
+        );
+      }
+    }
+
     const diasSolicitados = this.calcularDiasEntreDatas(dataInicio, dataFim);
     
     // Aplicar regras diferentes baseado no status
-    const isComissionado = policial.status === PolicialStatus.COMISSIONADO;
+    const statusNome = policial.status?.nome;
+    const isComissionado = statusNome === 'COMISSIONADO';
     const isAtivoPTTCouDesignado = 
-      policial.status === PolicialStatus.ATIVO ||
-      policial.status === PolicialStatus.PTTC ||
-      policial.status === PolicialStatus.DESIGNADO;
+      statusNome === 'ATIVO' ||
+      statusNome === 'PTTC' ||
+      statusNome === 'DESIGNADO';
 
     if (!isComissionado && !isAtivoPTTCouDesignado) {
       throw new BadRequestException(
-        `Policiais com status ${policial.status} não podem tirar férias.`,
+        `Policiais com status ${statusNome ?? 'INDEFINIDO'} não podem tirar férias.`,
       );
     }
 
@@ -547,6 +595,67 @@ export class AfastamentosService {
         }
       }
     }
+
+    // Validar que o último período de férias seja no mês previsto
+    if (feriasAtual?.dataInicio && feriasAtual.ano) {
+      const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
+      const anoPrevisto = feriasAtual.ano;
+      // Buscar todas as férias do policial ordenadas por data de início (mais recente primeiro)
+      const todasFerias = await this.prisma.afastamento.findMany({
+        where: {
+          policialId,
+          motivoId: motivoFerias.id,
+          status: AfastamentoStatus.ATIVO,
+          ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
+        },
+        orderBy: { dataInicio: 'desc' },
+      });
+
+      // Se já existem férias cadastradas, verificar se a mais recente está no mês previsto
+      if (todasFerias.length > 0) {
+        const feriasMaisRecente = todasFerias[0];
+        const mesFeriasMaisRecente = feriasMaisRecente.dataInicio.getMonth() + 1;
+        const anoFeriasMaisRecente = feriasMaisRecente.dataInicio.getFullYear();
+
+        // Se a férias mais recente não está no mês previsto, o novo período deve estar
+        if (mesFeriasMaisRecente !== mesPrevisto || 
+            anoFeriasMaisRecente !== anoPrevisto) {
+          const mesDataInicio = dataInicio.getMonth() + 1;
+          const anoDataInicio = dataInicio.getFullYear();
+
+          // Se o novo período também não está no mês previsto, validar
+          if (mesDataInicio !== mesPrevisto || 
+              anoDataInicio !== anoPrevisto) {
+            const meses = [
+              'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+              'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+            ];
+            const nomeMesPrevisto = meses[mesPrevisto - 1];
+            
+            throw new BadRequestException(
+              `O último período de férias deve ser usufruído no mês previsto (${nomeMesPrevisto}/${anoPrevisto}). É necessário cadastrar um período de férias neste mês antes de cadastrar períodos em outros meses.`
+            );
+          }
+        }
+      } else {
+        // Se não há férias cadastradas ainda, o primeiro período deve estar no mês previsto
+        const mesDataInicio = dataInicio.getMonth() + 1;
+        const anoDataInicio = dataInicio.getFullYear();
+
+        if (mesDataInicio !== mesPrevisto || 
+            anoDataInicio !== anoPrevisto) {
+          const meses = [
+            'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+          ];
+          const nomeMesPrevisto = meses[mesPrevisto - 1];
+          
+          throw new BadRequestException(
+            `O primeiro período de férias deve ser cadastrado no mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`
+          );
+        }
+      }
+    }
   }
 
   /**
@@ -627,7 +736,7 @@ export class AfastamentosService {
   async create(
     data: Omit<CreateAfastamentoDto, 'responsavelId'>,
     responsavelId?: number,
-  ): Promise<AfastamentoWithPolicial> {
+  ): Promise<AfastamentoWithPolicialResponse> {
     await this.assertPodeGerenciarAfastamentos(responsavelId);
     const actor = await this.audit.resolveActor(responsavelId);
 
@@ -653,23 +762,50 @@ export class AfastamentosService {
     );
 
     // Validar restrições de afastamento
-    const restricao = await this.restricoesAfastamentoService.verificarRestricaoPeriodo(
-      dataInicio,
-      dataFim,
-      data.motivoId,
-    );
-
-    if (restricao.bloqueado && restricao.restricao) {
-      // Buscar o nome do motivo para a mensagem de erro
-      const motivo = await this.prisma.motivoAfastamento.findUnique({
-        where: { id: data.motivoId },
+    // Buscar o motivo para verificar se é Férias
+    const motivo = await this.prisma.motivoAfastamento.findUnique({
+      where: { id: data.motivoId },
+    });
+    
+    // Se for férias, verificar se o policial já tem férias previstas para o mês
+    let podeIgnorarRestricao = false;
+    if (motivo?.nome === 'Férias') {
+      const anoReferencia = dataInicio.getFullYear();
+      const policial = await this.prisma.policial.findUnique({
+        where: { id: data.policialId },
+        select: {
+          ferias: { where: { ano: anoReferencia }, orderBy: { id: 'desc' }, take: 1 },
+        },
       });
-      const motivoNome = motivo?.nome || 'este tipo de afastamento';
-      const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
       
-      throw new BadRequestException(
-        `Não é possível cadastrar ${motivoNome} no período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
+      const feriasAtual = policial?.ferias?.[0];
+      if (feriasAtual?.dataInicio && feriasAtual.ano) {
+        const mesDataInicio = dataInicio.getMonth() + 1;
+        const anoDataInicio = dataInicio.getFullYear();
+        const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
+        
+        // Se o policial já tem férias previstas para o mesmo mês e ano, pode ignorar a restrição
+        if (mesPrevisto === mesDataInicio && feriasAtual.ano === anoDataInicio) {
+          podeIgnorarRestricao = true;
+        }
+      }
+    }
+    
+    if (!podeIgnorarRestricao) {
+      const restricao = await this.restricoesAfastamentoService.verificarRestricaoPeriodo(
+        dataInicio,
+        dataFim,
+        data.motivoId,
       );
+
+      if (restricao.bloqueado && restricao.restricao) {
+        const motivoNome = motivo?.nome || 'este tipo de afastamento';
+        const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+        
+        throw new BadRequestException(
+          `Não é possível cadastrar ${motivoNome} no período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
+        );
+      }
     }
 
     const created = await this.prisma.afastamento.create({
@@ -686,7 +822,7 @@ export class AfastamentosService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { policial: { include: { funcao: true } }, motivo: true },
+      include: { policial: { include: { funcao: true, status: true } }, motivo: true },
     });
 
     await this.audit.record({
@@ -697,7 +833,7 @@ export class AfastamentosService {
       after: created,
     });
 
-    return created;
+    return this.mapAfastamentoStatus(created);
   }
 
   async findAll(options?: {
@@ -710,9 +846,9 @@ export class AfastamentosService {
     dataFim?: string;
     includePolicialFuncao?: boolean;
   }): Promise<
-    | AfastamentoWithPolicial[]
+    | AfastamentoWithPolicialResponse[]
     | {
-        afastamentos: AfastamentoWithPolicial[];
+        afastamentos: AfastamentoWithPolicialResponse[];
         total: number;
         page: number;
         pageSize: number;
@@ -733,8 +869,9 @@ export class AfastamentosService {
     } = options || {};
 
     // Se não fornecer paginação, retornar todos (compatibilidade com código existente)
+    // Se status não for fornecido, mostrar tanto ATIVO quanto ENCERRADO
     const baseWhere: Prisma.AfastamentoWhereInput = {
-      status: (status as AfastamentoStatus) ?? AfastamentoStatus.ATIVO,
+      ...(status ? { status: status as AfastamentoStatus } : {}), // Se status for fornecido, filtrar por ele, senão mostrar todos
       ...(motivoId ? { motivoId } : {}),
       ...(equipe ? { policial: { equipe: equipe as any } } : {}),
     };
@@ -780,19 +917,20 @@ export class AfastamentosService {
     }
 
     const include: {
-      policial: { include: { funcao: true } };
+      policial: { include: { funcao: true; status: true } };
       motivo: true;
     } = {
-      policial: { include: { funcao: true } },
+      policial: { include: { funcao: true, status: true } },
       motivo: true,
     };
 
     if (page === undefined && pageSize === undefined) {
-      return this.prisma.afastamento.findMany({
+      const itens = await this.prisma.afastamento.findMany({
         where: baseWhere,
         include,
         orderBy: { dataInicio: 'desc' },
       });
+      return itens.map((item) => this.mapAfastamentoStatus(item));
     }
 
     // Implementar paginação
@@ -815,7 +953,7 @@ export class AfastamentosService {
     ]);
 
     return {
-      afastamentos,
+      afastamentos: afastamentos.map((item) => this.mapAfastamentoStatus(item)),
       total,
       page: currentPage,
       pageSize: currentPageSize,
@@ -823,53 +961,54 @@ export class AfastamentosService {
     };
   }
 
-  async findOne(id: number): Promise<AfastamentoWithPolicial> {
+  async findOne(id: number): Promise<AfastamentoWithPolicialResponse> {
     await this.markExpiredAfastamentos();
 
     const afastamento = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { policial: { include: { funcao: true } }, motivo: true },
+      include: { policial: { include: { funcao: true, status: true } }, motivo: true },
     });
 
     if (!afastamento) {
       throw new NotFoundException(`Afastamento ${id} não encontrado.`);
     }
 
-    return afastamento;
+    return this.mapAfastamentoStatus(afastamento);
   }
 
   async findByPolicial(
     policialId: number,
     options?: { includePolicialFuncao?: boolean },
-  ): Promise<AfastamentoWithPolicial[]> {
+  ): Promise<AfastamentoWithPolicialResponse[]> {
     await this.ensurePolicialExists(policialId);
 
     await this.markExpiredAfastamentos();
 
     const include: {
-      policial: { include: { funcao: true } };
+      policial: { include: { funcao: true; status: true } };
       motivo: true;
     } = {
-      policial: { include: { funcao: true } },
+      policial: { include: { funcao: true, status: true } },
       motivo: true,
     };
 
-    return this.prisma.afastamento.findMany({
+    const itens = await this.prisma.afastamento.findMany({
       where: { policialId, status: AfastamentoStatus.ATIVO },
       include,
       orderBy: { dataInicio: 'desc' },
     });
+    return itens.map((item) => this.mapAfastamentoStatus(item));
   }
 
   async update(
     id: number,
     data: UpdateAfastamentoDto,
     responsavelId?: number,
-  ): Promise<AfastamentoWithPolicial> {
+  ): Promise<AfastamentoWithPolicialResponse> {
     await this.assertPodeGerenciarAfastamentos(responsavelId);
     const before = await this.prisma.afastamento.findUnique({
       where: { id },
-      include: { policial: { include: { funcao: true } }, motivo: true },
+      include: { policial: { include: { funcao: true, status: true } }, motivo: true },
     });
 
     if (!before) {
@@ -959,7 +1098,7 @@ export class AfastamentosService {
     const updated = await this.prisma.afastamento.update({
       where: { id },
       data: updateData,
-      include: { policial: { include: { funcao: true } }, motivo: true },
+      include: { policial: { include: { funcao: true, status: true } }, motivo: true },
     });
 
     await this.markExpiredAfastamentos();
@@ -973,7 +1112,46 @@ export class AfastamentosService {
       after: updated,
     });
 
-    return updated;
+    return this.mapAfastamentoStatus(updated);
+  }
+
+  async desativar(id: number, responsavelId?: number): Promise<AfastamentoWithPolicialResponse> {
+    await this.assertPodeGerenciarAfastamentos(responsavelId);
+    const before = await this.prisma.afastamento.findUnique({
+      where: { id },
+      include: { policial: { include: { funcao: true, status: true } }, motivo: true },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Afastamento ${id} não encontrado.`);
+    }
+
+    if (before.status === AfastamentoStatus.ENCERRADO) {
+      throw new BadRequestException('O afastamento já está desativado.');
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const updated = await this.prisma.afastamento.update({
+      where: { id },
+      data: {
+        status: AfastamentoStatus.ENCERRADO,
+        updatedById: actor?.id ?? null,
+        updatedByName: actor?.nome ?? null,
+      },
+      include: { policial: { include: { funcao: true, status: true } }, motivo: true },
+    });
+
+    await this.audit.record({
+      entity: 'Afastamento',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return this.mapAfastamentoStatus(updated);
   }
 
   async remove(id: number, responsavelId?: number): Promise<void> {

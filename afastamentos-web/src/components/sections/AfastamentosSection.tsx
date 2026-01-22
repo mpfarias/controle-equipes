@@ -6,11 +6,22 @@ import type {
   MotivoAfastamentoOption,
   Usuario,
 } from '../../types';
-import { STATUS_LABEL, EQUIPE_FONETICA } from '../../constants';
+import { STATUS_LABEL, EQUIPE_FONETICA, POLICIAL_STATUS_OPTIONS } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo } from '../../utils/dateUtils';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { Autocomplete, TextField, Button, Checkbox, Box, Typography } from '@mui/material';
+import { Autocomplete, TextField, Button, Checkbox, Box, Typography, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Paper, Chip, Tooltip } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
+import CloseIcon from '@mui/icons-material/Close';
+import PersonIcon from '@mui/icons-material/Person';
+import BadgeIcon from '@mui/icons-material/Badge';
+import GroupsIcon from '@mui/icons-material/Groups';
+import WorkIcon from '@mui/icons-material/Work';
+import EditIcon from '@mui/icons-material/Edit';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import BlockIcon from '@mui/icons-material/Block';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 interface AfastamentosSectionProps {
   currentUser: Usuario;
@@ -40,8 +51,10 @@ export function AfastamentosSection({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(initialForm);
+  const [motivoOutroTexto, setMotivoOutroTexto] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [motivoFiltro, setMotivoFiltro] = useState<string>('');
+  const [motivoFiltroOutro, setMotivoFiltroOutro] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [dataInicioFiltro, setDataInicioFiltro] = useState<string>('');
   const [dataFimFiltro, setDataFimFiltro] = useState<string>('');
@@ -56,6 +69,23 @@ export function AfastamentosSection({
   });
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
+  const [tabAtiva, setTabAtiva] = useState<number>(0);
+  
+  // Estados para paginação na aba "Previsão de férias"
+  const [paginaAtualPrevisao, setPaginaAtualPrevisao] = useState(1);
+  const [itensPorPaginaPrevisao, setItensPorPaginaPrevisao] = useState(20);
+  const [totalPoliciaisPrevisao, setTotalPoliciaisPrevisao] = useState(0);
+  const [totalPaginasPrevisao, setTotalPaginasPrevisao] = useState(1);
+  const [policiaisPrevisao, setPoliciaisPrevisao] = useState<Policial[]>([]);
+  const [loadingPrevisao, setLoadingPrevisao] = useState(false);
+  const [searchTermPrevisao, setSearchTermPrevisao] = useState('');
+  const [modalPolicialOpen, setModalPolicialOpen] = useState(false);
+  const [policialSelecionado, setPolicialSelecionado] = useState<Policial | null>(null);
+  const [modalMesPrevisaoOpen, setModalMesPrevisaoOpen] = useState(false);
+  const [policialParaMesPrevisao, setPolicialParaMesPrevisao] = useState<Policial | null>(null);
+  const [mesSelecionado, setMesSelecionado] = useState<string>('');
+  const [salvandoMesPrevisao, setSalvandoMesPrevisao] = useState(false);
+  const [documentoSei, setDocumentoSei] = useState<string>('');
 
   // Calcular dias automaticamente quando as datas são selecionadas
   const diasCalculados = useMemo(() => {
@@ -155,6 +185,61 @@ export function AfastamentosSection({
   useEffect(() => {
     void carregarDados();
   }, [carregarDados]);
+
+  // Carregar policiais para a aba "Previsão de férias"
+  const carregarPoliciaisPrevisao = useCallback(async (page: number, pageSize: number) => {
+    try {
+      setLoadingPrevisao(true);
+      const nivelNome = currentUser.nivel?.nome;
+      const usuarioPodeVerTodos =
+        nivelNome === 'ADMINISTRADOR' ||
+        nivelNome === 'SAD' ||
+        nivelNome === 'COMANDO' ||
+        currentUser.isAdmin === true;
+      
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page,
+        pageSize,
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      };
+      const busca = searchTermPrevisao.trim();
+      if (busca) {
+        params.search = busca;
+      }
+      
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      }
+      
+      const data = await api.listPoliciaisPaginated(params);
+      setPoliciaisPrevisao(data.Policiales);
+      const totalPages = Math.max(1, data.totalPages);
+      setTotalPoliciaisPrevisao(data.total);
+      setTotalPaginasPrevisao(totalPages);
+      if (page > totalPages) {
+        setPaginaAtualPrevisao(totalPages);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar policiais para previsão:', err);
+    } finally {
+      setLoadingPrevisao(false);
+    }
+  }, [currentUser, searchTermPrevisao]);
+
+  useEffect(() => {
+    if (tabAtiva === 1) {
+      void carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
+    }
+  }, [tabAtiva, paginaAtualPrevisao, itensPorPaginaPrevisao, carregarPoliciaisPrevisao]);
+
+  useEffect(() => {
+    if (tabAtiva === 1) {
+      setPaginaAtualPrevisao(1);
+    } else {
+      setSearchTermPrevisao('');
+    }
+  }, [searchTermPrevisao, tabAtiva]);
 
   // Função calcularDiasEntreDatas importada de utils/dateUtils
 
@@ -317,11 +402,22 @@ export function AfastamentosSection({
         }
       }
       
+      const motivoSelecionado = motivos.find((m) => m.id === form.motivoId);
+      const motivoNome = motivoSelecionado?.nome?.toLowerCase() ?? '';
+      const motivoEhOutro = motivoNome === 'outro' || motivoNome === 'outros';
+      const outroTexto = motivoEhOutro ? motivoOutroTexto.trim() : '';
+      const descricaoBase = form.descricao.trim();
+      const descricaoFinal = outroTexto
+        ? descricaoBase
+          ? `${outroTexto} - ${descricaoBase}`
+          : outroTexto
+        : descricaoBase;
+
       await api.createAfastamento({
         policialId: Number(form.policialId),
         motivoId: form.motivoId,
         seiNumero: form.seiNumero.trim(),
-        descricao: form.descricao.trim() || undefined,
+        descricao: descricaoFinal || undefined,
         dataInicio: form.dataInicio,
         dataFim: dataFimFinal || undefined,
       });
@@ -338,6 +434,7 @@ export function AfastamentosSection({
         dataInicio: '',
         dataFim: '',
       });
+      setMotivoOutroTexto('');
       
       await carregarDados();
       onChanged?.();
@@ -350,14 +447,19 @@ export function AfastamentosSection({
     } finally {
       setSubmitting(false);
     }
-  }, [form, calcularPeriodo, quantidadeDias, currentUser.id, motivos, carregarDados, onChanged]);
+  }, [form, calcularPeriodo, quantidadeDias, motivos, motivoOutroTexto, carregarDados, onChanged]);
 
   const abrirConfirmacaoCadastro = useCallback(
     (dataFimParaValidacao: string | null) => {
       const policialId = Number(form.policialId);
       const policial = policiais.find((p) => p.id === policialId);
       const motivoSelecionado = motivos.find((m) => m.id === form.motivoId);
-      const motivoNome = motivoSelecionado?.nome ?? '';
+      const motivoNomeBase = motivoSelecionado?.nome ?? '';
+      const motivoNomeLower = motivoNomeBase.toLowerCase();
+      const motivoEhOutro = motivoNomeLower === 'outro' || motivoNomeLower === 'outros';
+      const motivoNome = motivoEhOutro && motivoOutroTexto.trim()
+        ? `${motivoNomeBase} - ${motivoOutroTexto.trim()}`
+        : motivoNomeBase;
 
       const periodoDescricao = dataFimParaValidacao
         ? formatPeriodo(form.dataInicio, dataFimParaValidacao)
@@ -381,7 +483,7 @@ export function AfastamentosSection({
         },
       });
     },
-    [form, policiais, motivos, openConfirm, submeterAfastamento],
+    [form, policiais, motivos, motivoOutroTexto, openConfirm, submeterAfastamento],
   );
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -411,6 +513,12 @@ export function AfastamentosSection({
       return;
     }
     const motivoNome = motivoSelecionado.nome;
+    const motivoEhOutro =
+      motivoNome.toLowerCase() === 'outro' || motivoNome.toLowerCase() === 'outros';
+    if (motivoEhOutro && !motivoOutroTexto.trim()) {
+      setError('Informe o motivo quando selecionar "Outro".');
+      return;
+    }
 
     if (!form.dataInicio) {
       setError('Informe a data de início.');
@@ -739,15 +847,24 @@ export function AfastamentosSection({
       ? resultado.filter((afastamento) => afastamento.motivo.nome === motivoFiltro)
       : resultado;
 
+    const motivoFiltroLower = motivoFiltro.toLowerCase();
+    const motivoFiltroEhOutro = motivoFiltroLower === 'outro' || motivoFiltroLower === 'outros';
+    const termoOutroFiltro = motivoFiltroOutro.trim().toUpperCase();
+    const filtradoPorMotivoOutro = motivoFiltroEhOutro && termoOutroFiltro
+      ? filtradoPorMotivo.filter((afastamento) =>
+          (afastamento.descricao ?? '').toUpperCase().includes(termoOutroFiltro),
+        )
+      : filtradoPorMotivo;
+
     // Filtrar por busca de nome
     if (!normalizedSearch) {
-      return filtradoPorMotivo;
+      return filtradoPorMotivoOutro;
     }
 
-    return filtradoPorMotivo.filter((afastamento) =>
+    return filtradoPorMotivoOutro.filter((afastamento) =>
       afastamento.policial.nome.includes(normalizedSearch),
     );
-  }, [afastamentos, motivoFiltro, normalizedSearch, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes]);
+  }, [afastamentos, motivoFiltro, motivoFiltroOutro, normalizedSearch, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -800,7 +917,7 @@ export function AfastamentosSection({
     <section>
       <div>
         <h2>Afastamentos</h2>
-        <p>Registre e acompanhe os afastamentos ativos e concluídos.</p>
+        
       </div>
 
       {error && (
@@ -830,7 +947,16 @@ export function AfastamentosSection({
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+        <Tabs value={tabAtiva} onChange={(_, newValue) => setTabAtiva(newValue)}>
+          <Tab label="Cadastrar afastamento" />
+          <Tab label="Previsão de férias" />
+        </Tabs>
+      </Box>
+
+      {tabAtiva === 0 && (
+        <>
+        <form onSubmit={handleSubmit}>
         <div className="grid two-columns">
           <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             Policial
@@ -905,12 +1031,19 @@ export function AfastamentosSection({
             Motivo
             <select
               value={form.motivoId || ''}
-              onChange={(event) =>
+              onChange={(event) => {
+                const motivoId = Number(event.target.value);
+                const motivoSelecionado = motivos.find((motivo) => motivo.id === motivoId);
+                const motivoNome = motivoSelecionado?.nome?.toLowerCase() ?? '';
+                const motivoEhOutro = motivoNome === 'outro' || motivoNome === 'outros';
+                if (!motivoEhOutro) {
+                  setMotivoOutroTexto('');
+                }
                 setForm((prev) => ({
                   ...prev,
-                  motivoId: Number(event.target.value),
-                }))
-              }
+                  motivoId,
+                }));
+              }}
               required
             >
               <option value="">Selecione</option>
@@ -921,6 +1054,25 @@ export function AfastamentosSection({
               ))}
             </select>
           </label>
+          {(() => {
+            const motivoSelecionado = motivos.find((motivo) => motivo.id === form.motivoId);
+            const motivoNome = motivoSelecionado?.nome?.toLowerCase() ?? '';
+            const motivoEhOutro = motivoNome === 'outro' || motivoNome === 'outros';
+            if (!motivoEhOutro) {
+              return null;
+            }
+            return (
+              <label>
+                Especifique o motivo
+                <input
+                  value={motivoOutroTexto}
+                  onChange={(event) => setMotivoOutroTexto(event.target.value)}
+                  placeholder="Descreva o motivo"
+                  required
+                />
+              </label>
+            );
+          })()}
         </div>
         <label>
           SEI nº
@@ -1066,7 +1218,14 @@ export function AfastamentosSection({
           <select
             className="search-input"
             value={motivoFiltro}
-            onChange={(event) => setMotivoFiltro(event.target.value)}
+            onChange={(event) => {
+              const valor = event.target.value;
+              setMotivoFiltro(valor);
+              const motivoLower = valor.toLowerCase();
+              if (motivoLower !== 'outro' && motivoLower !== 'outros') {
+                setMotivoFiltroOutro('');
+              }
+            }}
           >
             <option value="">Todos os motivos</option>
             {motivosOrdenados.map((motivo) => (
@@ -1075,6 +1234,14 @@ export function AfastamentosSection({
               </option>
             ))}
           </select>
+          {(motivoFiltro.toLowerCase() === 'outro' || motivoFiltro.toLowerCase() === 'outros') && (
+            <input
+              className="search-input"
+              value={motivoFiltroOutro}
+              onChange={(event) => setMotivoFiltroOutro(event.target.value.toUpperCase())}
+              placeholder="Informe o motivo (outro)"
+            />
+          )}
           <input
             type="date"
             className="search-input"
@@ -1177,19 +1344,95 @@ export function AfastamentosSection({
                   <td>
                     {formatPeriodo(afastamento.dataInicio, afastamento.dataFim)}
                   </td>
-                  <td>
+                  <td style={{ verticalAlign: 'middle' }}>
                     <span className="badge">
                       {STATUS_LABEL[afastamento.status]}
                     </span>
                   </td>
-                  <td className="actions">
-                    <button
-                      className="danger"
-                      type="button"
-                      onClick={() => handleDelete(afastamento)}
-                    >
-                      Remover
-                    </button>
+                  <td className="actions" style={{ verticalAlign: 'middle' }}>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
+                      <Tooltip title="Editar afastamento">
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={() => {
+                            // TODO: Implementar edição de afastamento
+                            setError('Funcionalidade de edição em desenvolvimento.');
+                          }}
+                          sx={{
+                            border: '1px solid',
+                            borderColor: 'primary.main',
+                            '&:hover': {
+                              backgroundColor: 'primary.light',
+                              color: 'white',
+                            },
+                          }}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title={afastamento.status === 'ENCERRADO' ? 'Afastamento já está desativado' : 'Desativar afastamento'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="warning"
+                            onClick={() => {
+                              openConfirm({
+                                title: 'Desativar afastamento',
+                                message: `Deseja desativar o afastamento "${afastamento.motivo.nome}" do policial ${afastamento.policial.nome}? O afastamento será marcado como encerrado.`,
+                                confirmLabel: 'Desativar',
+                                onConfirm: async () => {
+                                  try {
+                                    setError(null);
+                                    await api.desativarAfastamento(afastamento.id);
+                                    setSuccess('Afastamento desativado com sucesso.');
+                                    await carregarDados();
+                                    onChanged?.();
+                                  } catch (err) {
+                                    setError(
+                                      err instanceof Error
+                                        ? err.message
+                                        : 'Não foi possível desativar o afastamento.',
+                                    );
+                                  }
+                                },
+                              });
+                            }}
+                            disabled={afastamento.status === 'ENCERRADO'}
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'warning.main',
+                              '&:hover': {
+                                backgroundColor: 'warning.light',
+                                color: 'white',
+                              },
+                              opacity: afastamento.status === 'ENCERRADO' ? 0.5 : 1,
+                            }}
+                          >
+                            <BlockIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      {(currentUser.nivel?.nome === 'ADMINISTRADOR' || currentUser.isAdmin === true) && (
+                        <Tooltip title="Remover afastamento (apenas ADMINISTRADOR)">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDelete(afastamento)}
+                            sx={{
+                              border: '1px solid',
+                              borderColor: 'error.main',
+                              '&:hover': {
+                                backgroundColor: 'error.light',
+                                color: 'white',
+                              },
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
                   </td>
                 </tr>
               ))}
@@ -1197,6 +1440,291 @@ export function AfastamentosSection({
           </table>
         )}
       </div>
+        </>
+      )}
+
+      {tabAtiva === 1 && (
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ mb: 3 }}>
+            Previsão de férias {new Date().getFullYear()}
+          </Typography>
+
+          {/* Controles de lista */}
+          <div className="list-controls" style={{ marginBottom: '16px' }}>
+            <input
+              className="search-input"
+              value={searchTermPrevisao}
+              onChange={(event) => setSearchTermPrevisao(event.target.value.toUpperCase())}
+              placeholder="Pesquisar por nome ou matrícula"
+            />
+            <button
+              className="ghost"
+              type="button"
+              onClick={() => void carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao)}
+            >
+              Atualizar lista
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+              <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Itens por página:</span>
+              <select
+                value={itensPorPaginaPrevisao}
+                onChange={(event) => {
+                  setItensPorPaginaPrevisao(Number(event.target.value));
+                  setPaginaAtualPrevisao(1);
+                }}
+                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={30}>30</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
+          </div>
+
+          {/* Contador de Registros */}
+          <div style={{ 
+            marginBottom: '16px', 
+            fontSize: '0.9rem', 
+            color: '#64748b',
+            padding: '8px 12px',
+            backgroundColor: '#f8f9fa',
+            borderRadius: '6px'
+          }}>
+            {loadingPrevisao ? (
+              'Carregando...'
+            ) : (
+              <>
+                {totalPoliciaisPrevisao === 0 ? (
+                  'Nenhum policial encontrado'
+                ) : (
+                  `Total: ${totalPoliciaisPrevisao} policial(is)`
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Tabela de Policiais */}
+          {loadingPrevisao ? (
+            <p className="empty-state">Carregando policiais...</p>
+          ) : policiaisPrevisao.length === 0 ? (
+            <p className="empty-state">Nenhum policial encontrado.</p>
+          ) : (
+            <>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Mês Previsto</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {policiaisPrevisao.map((policial) => (
+                    <tr key={policial.id}>
+                      <td>
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPolicialSelecionado(policial);
+                              setModalPolicialOpen(true);
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: 'inherit',
+                              cursor: 'pointer',
+                              padding: 0,
+                              fontSize: 'inherit',
+                              fontFamily: 'inherit',
+                              textAlign: 'left',
+                            }}
+                          >
+                            {policial.nome}
+                          </button>
+                        </div>
+                      </td>
+                      <td>
+                        {policial.mesPrevisaoFerias ? (
+                          <span>
+                            {new Date(2000, policial.mesPrevisaoFerias - 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#64748b', fontStyle: 'italic' }}>Não definido</span>
+                        )}
+                      </td>
+                      <td>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                          <Tooltip title={
+                            policial.feriasReprogramadas 
+                              ? 'Férias já foram reprogramadas' 
+                              : policial.mesPrevisaoFerias 
+                                ? (policial.feriasConfirmadas ? 'Reprogramar férias' : 'Alterar mês') 
+                                : 'Inserir mês'
+                          }>
+                            <IconButton
+                              size="small"
+                              color={policial.feriasConfirmadas ? 'warning' : 'primary'}
+                              onClick={() => {
+                                setPolicialParaMesPrevisao(policial);
+                                setMesSelecionado(policial.mesPrevisaoFerias ? String(policial.mesPrevisaoFerias) : '');
+                                if (policial.feriasConfirmadas) {
+                                  // Se for reprogramação, limpar o campo SEI e abrir a modal
+                                  setDocumentoSei('');
+                                }
+                                setModalMesPrevisaoOpen(true);
+                              }}
+                              disabled={policial.feriasReprogramadas && policial.feriasConfirmadas}
+                              sx={{
+                                border: '1px solid',
+                                borderColor: policial.feriasReprogramadas 
+                                  ? 'grey.400' 
+                                  : policial.feriasConfirmadas 
+                                    ? 'warning.main' 
+                                    : 'primary.main',
+                                '&:hover': {
+                                  backgroundColor: policial.feriasReprogramadas 
+                                    ? 'transparent' 
+                                    : policial.feriasConfirmadas 
+                                      ? 'warning.light' 
+                                      : 'primary.light',
+                                  color: policial.feriasReprogramadas ? 'inherit' : 'white',
+                                },
+                                opacity: policial.feriasReprogramadas ? 0.5 : 1,
+                              }}
+                            >
+                              {policial.feriasConfirmadas ? (
+                                <CalendarTodayIcon fontSize="small" />
+                              ) : policial.mesPrevisaoFerias ? (
+                                <EditIcon fontSize="small" />
+                              ) : (
+                                <AddCircleOutlineIcon fontSize="small" />
+                              )}
+                            </IconButton>
+                          </Tooltip>
+                          {policial.mesPrevisaoFerias && !policial.feriasConfirmadas && (
+                            <Tooltip title="Confirmar férias">
+                              <IconButton
+                                size="small"
+                                color="success"
+                                onClick={() => {
+                                  const meses = [
+                                    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                                    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+                                  ];
+                                  const mesNome = meses[policial.mesPrevisaoFerias! - 1];
+                                  
+                                  openConfirm({
+                                    title: 'Confirmar férias',
+                                    message: `Deseja confirmar as férias de ${policial.nome} para o mês de ${mesNome}?`,
+                                    confirmLabel: 'Confirmar',
+                                    onConfirm: async () => {
+                                      try {
+                                        setError(null);
+                                        await api.updatePolicial(policial.id, {
+                                          feriasConfirmadas: true,
+                                        });
+                                        setSuccess('Férias confirmadas com sucesso.');
+                                        await carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
+                                      } catch (err) {
+                                        setError(
+                                          err instanceof Error
+                                            ? err.message
+                                            : 'Não foi possível confirmar as férias.',
+                                        );
+                                      }
+                                    },
+                                  });
+                                }}
+                                sx={{
+                                  border: '1px solid',
+                                  borderColor: 'success.main',
+                                  '&:hover': {
+                                    backgroundColor: 'success.light',
+                                    color: 'white',
+                                  },
+                                }}
+                              >
+                                <CheckCircleIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Controles de Paginação */}
+              {totalPaginasPrevisao > 1 && (() => {
+                const registroInicio = totalPoliciaisPrevisao === 0 ? 0 : ((paginaAtualPrevisao - 1) * itensPorPaginaPrevisao) + 1;
+                const registroFim = totalPoliciaisPrevisao === 0 ? 0 : Math.min(paginaAtualPrevisao * itensPorPaginaPrevisao, totalPoliciaisPrevisao);
+                
+                return (
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center', 
+                    marginTop: '16px',
+                    padding: '12px',
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: '8px',
+                    border: '1px solid #e9ecef'
+                  }}>
+                    <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+                      Mostrando {registroInicio} a {registroFim} de {totalPoliciaisPrevisao} registro(s)
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setPaginaAtualPrevisao(1)}
+                        disabled={paginaAtualPrevisao === 1}
+                        style={{ padding: '6px 12px' }}
+                      >
+                        ««
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setPaginaAtualPrevisao((prev) => Math.max(1, prev - 1))}
+                        disabled={paginaAtualPrevisao === 1}
+                        style={{ padding: '6px 12px' }}
+                      >
+                        ‹ Anterior
+                      </button>
+                      <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+                        Página {paginaAtualPrevisao} de {totalPaginasPrevisao}
+                      </span>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setPaginaAtualPrevisao((prev) => Math.min(totalPaginasPrevisao, prev + 1))}
+                        disabled={paginaAtualPrevisao === totalPaginasPrevisao}
+                        style={{ padding: '6px 12px' }}
+                      >
+                        Próxima ›
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost"
+                        onClick={() => setPaginaAtualPrevisao(totalPaginasPrevisao)}
+                        disabled={paginaAtualPrevisao === totalPaginasPrevisao}
+                        style={{ padding: '6px 12px' }}
+                      >
+                        »»
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+            </>
+          )}
+        </Box>
+      )}
 
       {/* Modal de Conflitos de Afastamento */}
       {conflitosModal.open && (
@@ -1284,6 +1812,488 @@ export function AfastamentosSection({
           </div>
         </div>
       )}
+
+      {/* Modal com informações do policial */}
+      <Dialog
+        open={modalPolicialOpen}
+        onClose={() => setModalPolicialOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            py: 2.5,
+            px: 3,
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <PersonIcon sx={{ fontSize: 28 }} />
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                Informações do Policial
+              </Typography>
+            </Box>
+            <IconButton
+              onClick={() => setModalPolicialOpen(false)}
+              size="small"
+              sx={{
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {policialSelecionado && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 2,
+                  border: '1px solid #e9ecef',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <PersonIcon sx={{ color: '#667eea', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                    Nome
+                  </Typography>
+                </Box>
+                <Typography variant="h6" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5 }}>
+                  {policialSelecionado.nome}
+                </Typography>
+              </Paper>
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 2,
+                  border: '1px solid #e9ecef',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <BadgeIcon sx={{ color: '#667eea', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                    Matrícula
+                  </Typography>
+                </Box>
+                <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
+                  {policialSelecionado.matricula}
+                </Typography>
+              </Paper>
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 2,
+                  border: '1px solid #e9ecef',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <BadgeIcon sx={{ color: '#667eea', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                    Status
+                  </Typography>
+                </Box>
+                <Box sx={{ ml: 4.5 }}>
+                  <Chip
+                    label={POLICIAL_STATUS_OPTIONS.find(
+                      (option) => option.value === policialSelecionado.status,
+                    )?.label ?? policialSelecionado.status}
+                    sx={{
+                      fontWeight: 500,
+                      backgroundColor: '#e0e7ff',
+                      color: '#4338ca',
+                    }}
+                  />
+                </Box>
+              </Paper>
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 2,
+                  border: '1px solid #e9ecef',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <GroupsIcon sx={{ color: '#667eea', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                    Equipe
+                  </Typography>
+                </Box>
+                <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
+                  {policialSelecionado.equipe && policialSelecionado.equipe !== 'SEM_EQUIPE' ? (
+                    EQUIPE_FONETICA[policialSelecionado.equipe]
+                  ) : (
+                    '-'
+                  )}
+                </Typography>
+              </Paper>
+
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 2,
+                  border: '1px solid #e9ecef',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <WorkIcon sx={{ color: '#667eea', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                    Função
+                  </Typography>
+                </Box>
+                <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
+                  {policialSelecionado.funcao?.nome || '-'}
+                </Typography>
+              </Paper>
+
+              {/* Informações de Férias */}
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 2.5,
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: 2,
+                  border: '1px solid #e9ecef',
+                }}
+              >
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                  <CalendarTodayIcon sx={{ color: '#667eea', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                    Previsão de Férias
+                  </Typography>
+                </Box>
+                <Box sx={{ ml: 4.5 }}>
+                  {policialSelecionado.mesPrevisaoFerias ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                      {/* Mês atual (ou original se não foi reprogramado) */}
+                      <Box>
+                        <Typography variant="body2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
+                          {policialSelecionado.feriasReprogramadas ? 'Mês Atual (Reprogramado)' : 'Mês Previsto'}
+                        </Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', fontSize: '1.1rem' }}>
+                          {new Date(2000, policialSelecionado.mesPrevisaoFerias - 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                          {policialSelecionado.anoPrevisaoFerias && ` de ${policialSelecionado.anoPrevisaoFerias}`}
+                        </Typography>
+                      </Box>
+                      
+                      {/* Mês original (se foi reprogramado) */}
+                      {policialSelecionado.feriasReprogramadas && policialSelecionado.mesPrevisaoFeriasOriginal && (
+                        <Box>
+                          <Typography variant="body2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
+                            Mês Original (Antes da Reprogramação)
+                          </Typography>
+                          <Typography variant="body1" sx={{ fontWeight: 500, color: '#92400e', fontSize: '1.1rem' }}>
+                            {new Date(2000, policialSelecionado.mesPrevisaoFeriasOriginal - 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                            {policialSelecionado.anoPrevisaoFeriasOriginal && ` de ${policialSelecionado.anoPrevisaoFeriasOriginal}`}
+                          </Typography>
+                        </Box>
+                      )}
+                      
+                      {/* Chips de status */}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
+                        {policialSelecionado.feriasConfirmadas && (
+                          <Chip
+                            label="Férias Confirmadas"
+                            size="small"
+                            sx={{
+                              fontWeight: 500,
+                              backgroundColor: '#d1fae5',
+                              color: '#065f46',
+                              width: 'fit-content',
+                            }}
+                            icon={<CheckCircleIcon sx={{ fontSize: 16, color: '#065f46' }} />}
+                          />
+                        )}
+                        {policialSelecionado.feriasReprogramadas && (
+                          <Chip
+                            label="Férias Reprogramadas"
+                            size="small"
+                            sx={{
+                              fontWeight: 500,
+                              backgroundColor: '#fef3c7',
+                              color: '#92400e',
+                              width: 'fit-content',
+                            }}
+                            icon={<CalendarTodayIcon sx={{ fontSize: 16, color: '#92400e' }} />}
+                          />
+                        )}
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Typography variant="body1" sx={{ fontWeight: 500, color: '#64748b', fontStyle: 'italic', fontSize: '1.1rem' }}>
+                      Não definido
+                    </Typography>
+                  )}
+                </Box>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #e9ecef' }}>
+          <Button
+            onClick={() => setModalPolicialOpen(false)}
+            variant="contained"
+            sx={{
+              textTransform: 'none',
+              borderRadius: 1.5,
+              px: 3,
+              py: 1,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #5568d3 0%, #6a4190 100%)',
+              },
+            }}
+          >
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal para inserir/alterar mês previsto de férias */}
+      <Dialog
+        open={modalMesPrevisaoOpen}
+        onClose={() => setModalMesPrevisaoOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            py: 2.5,
+            px: 3,
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              {policialParaMesPrevisao?.feriasConfirmadas 
+                ? 'Reprogramar Férias' 
+                : policialParaMesPrevisao?.mesPrevisaoFerias 
+                  ? 'Alterar Mês Previsto de Férias' 
+                  : 'Inserir Mês Previsto de Férias'}
+            </Typography>
+            <IconButton
+              onClick={() => {
+                setModalMesPrevisaoOpen(false);
+                setDocumentoSei('');
+              }}
+              size="small"
+              sx={{
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {policialParaMesPrevisao && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: '#64748b', fontWeight: 600 }}>
+                  Policial
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                  {policialParaMesPrevisao.nome} - {policialParaMesPrevisao.matricula}
+                </Typography>
+              </Box>
+              
+              <Box>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" sx={{ color: '#64748b', mb: 1 }}>
+                    Ano:{' '}
+                    <strong>
+                      {policialParaMesPrevisao?.anoPrevisaoFerias ?? new Date().getFullYear()}
+                    </strong>
+                  </Typography>
+                </Box>
+                <Box>
+                  <TextField
+                    select
+                    label="Mês *"
+                    value={mesSelecionado || ''}
+                    onChange={(e) => setMesSelecionado(e.target.value)}
+                    fullWidth
+                    required
+                    SelectProps={{
+                      native: true,
+                    }}
+                    InputLabelProps={{
+                      shrink: true,
+                    }}
+                    sx={{
+                      '& .MuiSelect-select': {
+                        padding: '14px 14px',
+                      },
+                    }}
+                  >
+                    <option value="" disabled>
+                      Selecione o mês
+                    </option>
+                    {[
+                      { value: '1', label: 'Janeiro' },
+                      { value: '2', label: 'Fevereiro' },
+                      { value: '3', label: 'Março' },
+                      { value: '4', label: 'Abril' },
+                      { value: '5', label: 'Maio' },
+                      { value: '6', label: 'Junho' },
+                      { value: '7', label: 'Julho' },
+                      { value: '8', label: 'Agosto' },
+                      { value: '9', label: 'Setembro' },
+                      { value: '10', label: 'Outubro' },
+                      { value: '11', label: 'Novembro' },
+                      { value: '12', label: 'Dezembro' },
+                    ].map((mes) => (
+                      <option key={mes.value} value={mes.value}>
+                        {mes.label}
+                      </option>
+                    ))}
+                  </TextField>
+                </Box>
+                {/* Campo Documento SEI obrigatório apenas para reprogramação */}
+                {policialParaMesPrevisao.feriasConfirmadas && (
+                  <Box sx={{ mt: 2 }}>
+                    <TextField
+                      label="Documento SEI *"
+                      type="number"
+                      value={documentoSei}
+                      onChange={(e) => setDocumentoSei(e.target.value)}
+                      fullWidth
+                      required
+                      placeholder="Digite o número do documento SEI"
+                      InputLabelProps={{
+                        shrink: true,
+                      }}
+                      sx={{
+                        '& .MuiInputBase-input': {
+                          padding: '14px 14px',
+                        },
+                      }}
+                    />
+                  </Box>
+                )}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #e9ecef' }}>
+          <Button
+            onClick={() => {
+              setModalMesPrevisaoOpen(false);
+              setDocumentoSei('');
+            }}
+            variant="outlined"
+            sx={{ textTransform: 'none' }}
+            disabled={salvandoMesPrevisao}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={() => {
+              if (!policialParaMesPrevisao || !mesSelecionado) {
+                setError('Por favor, selecione o mês.');
+                return;
+              }
+
+              // Validação do campo SEI para reprogramação
+              if (policialParaMesPrevisao.feriasConfirmadas && !documentoSei.trim()) {
+                setError('Por favor, informe o Documento SEI.');
+                return;
+              }
+
+              const anoAtual = policialParaMesPrevisao.anoPrevisaoFerias ?? new Date().getFullYear();
+              const meses = [
+                'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+                'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+              ];
+              const mesNome = meses[parseInt(mesSelecionado, 10) - 1];
+
+              const isReprogramacao = policialParaMesPrevisao.feriasConfirmadas;
+              const mensagemConfirmacao = isReprogramacao
+                ? `Deseja reprogramar as férias de ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nMês: ${mesNome} de ${anoAtual}\nDocumento SEI: ${documentoSei}`
+                : `Deseja definir o mês previsto de férias para ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nMês: ${mesNome} de ${anoAtual}`;
+
+              openConfirm({
+                title: isReprogramacao ? 'Confirmar reprogramação de férias' : 'Confirmar mês previsto de férias',
+                message: mensagemConfirmacao,
+                confirmLabel: 'Confirmar',
+                onConfirm: async () => {
+                  try {
+                    setSalvandoMesPrevisao(true);
+                    setError(null);
+                    
+                    await api.updatePolicial(policialParaMesPrevisao.id, {
+                      mesPrevisaoFerias: parseInt(mesSelecionado, 10),
+                      anoPrevisaoFerias: anoAtual,
+                    });
+
+                    setSuccess(isReprogramacao ? 'Férias reprogramadas com sucesso.' : 'Mês previsto de férias salvo com sucesso.');
+                    setModalMesPrevisaoOpen(false);
+                    setDocumentoSei('');
+                    await carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : 'Não foi possível salvar o mês previsto de férias.',
+                    );
+                  } finally {
+                    setSalvandoMesPrevisao(false);
+                  }
+                },
+              });
+            }}
+            variant="contained"
+            sx={{
+              textTransform: 'none',
+              borderRadius: 1.5,
+              px: 3,
+              py: 1,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              '&:hover': {
+                background: 'linear-gradient(135deg, #5568d3 0%, #6a4190 100%)',
+              },
+            }}
+            disabled={salvandoMesPrevisao || !mesSelecionado || (policialParaMesPrevisao?.feriasConfirmadas && !documentoSei.trim())}
+          >
+            {salvandoMesPrevisao ? 'Salvando...' : 'Salvar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
     </section>
   );

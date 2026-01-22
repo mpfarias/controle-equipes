@@ -1,15 +1,24 @@
-import { Equipe, PolicialStatus } from '@prisma/client';
+import { Equipe } from '@prisma/client';
 import {
   IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsIn,
   Matches,
   MaxLength,
   Min,
   ValidateIf,
 } from 'class-validator';
+
+const POLICIAL_STATUS_VALUES = [
+  'ATIVO',
+  'DESIGNADO',
+  'COMISSIONADO',
+  'PTTC',
+  'DESATIVADO',
+] as const;
 
 export class CreatePolicialDto {
   @IsString()
@@ -25,8 +34,8 @@ export class CreatePolicialDto {
   })
   matricula: string;
 
-  @IsEnum(PolicialStatus)
-  status: PolicialStatus;
+  @IsIn(POLICIAL_STATUS_VALUES)
+  status: typeof POLICIAL_STATUS_VALUES[number];
 
   @IsOptional()
   @ValidateIf((o) => o.equipe !== null)

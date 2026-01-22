@@ -11,11 +11,14 @@ import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { 
   Chip, 
   IconButton, 
-  FormControlLabel, 
   Checkbox, 
   Box, 
   Typography,
-  Paper
+  Paper,
+  Grid,
+  Collapse,
+  Button,
+  TextField
 } from '@mui/material';
 import { Edit, Delete } from '@mui/icons-material';
 
@@ -72,6 +75,13 @@ export function GerarRestricaoAfastamentoSection({
   useEffect(() => {
     void carregarDados();
   }, [carregarDados]);
+
+  // Ordenar tipos de restrição: "Outro" sempre por último
+  const tiposRestricaoOrdenados = [...tiposRestricao].sort((a, b) => {
+    if (a.nome === 'Outro') return 1;
+    if (b.nome === 'Outro') return -1;
+    return 0;
+  });
 
   // Função auxiliar para buscar o nome do motivo por ID (usada apenas para exibição na tabela)
 
@@ -334,7 +344,7 @@ export function GerarRestricaoAfastamentoSection({
               disabled={editingId !== null}
             >
               <option value="">Selecione o tipo de restrição</option>
-              {tiposRestricao.map((tipo) => (
+              {tiposRestricaoOrdenados.map((tipo) => (
                 <option key={tipo.id} value={tipo.id}>
                   {tipo.nome}
                 </option>
@@ -343,16 +353,17 @@ export function GerarRestricaoAfastamentoSection({
           </label>
 
           {mostrarCampoOutro && (
-            <div style={{ marginTop: '8px' }}>
-              <label>
-                Especifique o tipo de restrição *
-                <input
-                  type="text"
-                  value={customTipoNome}
-                  onChange={(e) => handleCustomTipoNomeChange(e.target.value)}
-                />
-              </label>
-            </div>
+            <Box sx={{ mt: 2 }}>
+              <TextField
+                label="Especifique o tipo de restrição"
+                value={customTipoNome}
+                onChange={(e) => handleCustomTipoNomeChange(e.target.value)}
+                required
+                fullWidth
+                placeholder="Digite o nome do tipo de restrição"
+                helperText="Informe o tipo de restrição personalizado"
+              />
+            </Box>
           )}
 
           <div className="grid two-columns">
@@ -402,73 +413,101 @@ export function GerarRestricaoAfastamentoSection({
           </div>
 
           <Box sx={{ marginTop: '16px', marginBottom: '16px' }}>
-            <button
-              type="button"
+            <Button
+              variant="outlined"
+              size="small"
               onClick={toggleMostrarMotivosAdicionais}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#2563eb',
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                fontSize: '0.875rem',
-                padding: 0,
+              sx={{
+                whiteSpace: 'nowrap',
+                textTransform: 'none',
+                minWidth: 'auto',
               }}
             >
               {mostrarMotivosAdicionais ? 'Ocultar opções de afastamento' : 'Adicionar mais afastamentos'}
-            </button>
+            </Button>
 
-            {mostrarMotivosAdicionais && motivosAdicionaisDisponiveis.length > 0 && (
+            <Collapse in={mostrarMotivosAdicionais && motivosAdicionaisDisponiveis.length > 0}>
               <Paper
-                elevation={0}
+                elevation={2}
                 sx={{
-                  marginTop: '12px',
-                  padding: '16px',
-                  backgroundColor: '#f9fafb',
-                  border: '1px solid #e5e7eb',
+                  p: 3,
+                  mb: 2,
+                  mt: 2,
+                  backgroundColor: '#ffffff',
                 }}
               >
-                <Typography
-                  variant="body2"
-                  sx={{
-                    marginBottom: '16px',
-                    fontWeight: 500,
-                    color: '#374151',
-                  }}
-                >
-                  Selecione os afastamentos adicionais que também serão bloqueados:
-                </Typography>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '12px 24px',
-                    width: '100%',
-                  }}
-                >
-                  {motivosAdicionaisDisponiveis.map((motivo) => (
-                    <FormControlLabel
-                      key={motivo.id}
-                      control={
-                        <Checkbox
-                          checked={motivosAdicionaisSelecionados.includes(motivo.id)}
-                          onChange={() => handleToggleMotivoAdicional(motivo.id)}
-                          size="small"
-                        />
-                      }
-                      label={
-                        <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                          {motivo.nome}
-                        </Typography>
-                      }
+                <Grid container spacing={3} direction="column">
+                  <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                      Selecione os afastamentos adicionais que também serão bloqueados
+                    </Typography>
+                    <Box
                       sx={{
-                        margin: 0,
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${Math.ceil(motivosAdicionaisDisponiveis.length / 2)}, 1fr)`,
+                        gap: '8px 16px',
+                        mb: 2,
                       }}
-                    />
-                  ))}
-                </Box>
+                    >
+                      {motivosAdicionaisDisponiveis.map((motivo) => (
+                        <Box key={motivo.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Checkbox
+                            checked={motivosAdicionaisSelecionados.includes(motivo.id)}
+                            onChange={() => handleToggleMotivoAdicional(motivo.id)}
+                            size="small"
+                            sx={{
+                              '& .MuiSvgIcon-root': {
+                                fontSize: '1.25rem',
+                              },
+                            }}
+                          />
+                          <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                            {motivo.nome}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => setMotivosAdicionaisSelecionados(motivosAdicionaisDisponiveis.map((m) => m.id))}
+                        sx={{
+                          textTransform: 'none',
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        Selecionar Todos
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => setMotivosAdicionaisSelecionados([])}
+                        sx={{
+                          textTransform: 'none',
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        Limpar
+                      </Button>
+                      {motivosAdicionaisSelecionados.length > 0 && (
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            ml: 'auto',
+                            alignSelf: 'center',
+                            color: 'text.secondary',
+                            fontWeight: 500,
+                          }}
+                        >
+                          {motivosAdicionaisSelecionados.length} selecionado(s)
+                        </Typography>
+                      )}
+                    </Box>
+                  </Grid>
+                </Grid>
               </Paper>
-            )}
+            </Collapse>
           </Box>
 
           <div className="form-actions">

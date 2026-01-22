@@ -19,6 +19,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [motivosSelecionados, setMotivosSelecionados] = useState<string[]>([]);
+  const [motivoOutroFiltro, setMotivoOutroFiltro] = useState('');
   const [statusSelecionados, setStatusSelecionados] = useState<PolicialStatus[]>([]);
   const [equipesSelecionadas, setEquipesSelecionadas] = useState<Equipe[]>([]);
   const [filtrosExpanded, setFiltrosExpanded] = useState(false);
@@ -336,6 +337,18 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
       );
     }
 
+    const motivoOutroSelecionado = motivosSelecionados.some((motivo) => {
+      const nome = motivo.toLowerCase();
+      return nome === 'outro' || nome === 'outros';
+    });
+    const termoOutro = motivoOutroFiltro.trim().toUpperCase();
+    if (motivoOutroSelecionado && termoOutro) {
+      resultado = resultado.filter((afastamento) =>
+        ['outro', 'outros'].includes(afastamento.motivo.nome.toLowerCase()) &&
+        (afastamento.descricao ?? '').toUpperCase().includes(termoOutro),
+      );
+    }
+
     // QUARTO: Filtrar por status do policial (múltipla seleção)
     if (statusSelecionados.length > 0) {
       resultado = resultado.filter((afastamento) => 
@@ -363,7 +376,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     }
 
     return resultado;
-  }, [afastamentos, searchTerm, motivosSelecionados, statusSelecionados, equipesSelecionadas, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
+  }, [afastamentos, searchTerm, motivosSelecionados, motivoOutroFiltro, statusSelecionados, equipesSelecionadas, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -575,7 +588,12 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                         if (e.target.checked) {
                           setMotivosSelecionados([...motivosSelecionados, motivo.nome]);
                         } else {
-                          setMotivosSelecionados(motivosSelecionados.filter((m) => m !== motivo.nome));
+                          const atualizados = motivosSelecionados.filter((m) => m !== motivo.nome);
+                          const removeuOutro = ['outro', 'outros'].includes(motivo.nome.toLowerCase());
+                          if (removeuOutro) {
+                            setMotivoOutroFiltro('');
+                          }
+                          setMotivosSelecionados(atualizados);
                         }
                       }}
                       size="small"
@@ -628,6 +646,19 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                   </Typography>
                 )}
               </Box>
+              {motivosSelecionados.some((motivo) => {
+                const nome = motivo.toLowerCase();
+                return nome === 'outro' || nome === 'outros';
+              }) && (
+                <Box sx={{ mt: 2 }}>
+                  <input
+                    className="search-input"
+                    value={motivoOutroFiltro}
+                    onChange={(event) => setMotivoOutroFiltro(event.target.value.toUpperCase())}
+                    placeholder="Informe o motivo (outro)"
+                  />
+                </Box>
+              )}
             </Grid>
 
             {/* Seção de Status */}

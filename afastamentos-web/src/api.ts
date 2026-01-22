@@ -454,7 +454,7 @@ export const api = {
 
   async updatePolicial(
     id: number,
-    payload: Partial<CreatePolicialInput>,
+    payload: Partial<CreatePolicialInput> & { mesPrevisaoFerias?: number | null; anoPrevisaoFerias?: number | null; feriasConfirmadas?: boolean; feriasReprogramadas?: boolean },
   ): Promise<Policial> {
     const data = await request<Policial>(`/policiais/${id}`, {
       method: 'PATCH',
@@ -581,6 +581,14 @@ export const api = {
     const data = await request<Afastamento>(`/afastamentos/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async desativarAfastamento(id: number): Promise<Afastamento> {
+    const data = await request<Afastamento>(`/afastamentos/${id}/desativar`, {
+      method: 'PATCH',
     });
     clearCache();
     return data;

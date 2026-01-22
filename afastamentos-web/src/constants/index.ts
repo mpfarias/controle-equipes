@@ -1,6 +1,6 @@
 import type { AfastamentoStatus, Equipe, PolicialStatus } from '../types';
 
-export type TabKey = 'dashboard' | 'calendario' | 'afastamentos-mes' | 'afastamentos' | 'policiais' | 'equipe' | 'usuarios' | 'relatorios' | 'restricao-afastamento';
+export type TabKey = 'dashboard' | 'calendario' | 'afastamentos-mes' | 'afastamentos' | 'policiais' | 'equipe' | 'usuarios' | 'relatorios' | 'restricao-afastamento' | 'gestao-sistema';
 
 export const TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -11,6 +11,7 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: 'policiais', label: 'Cadastrar Policial' },
   { key: 'equipe', label: 'Mostrar Efetivo do COPOM' },
   { key: 'usuarios', label: 'Cadastrar usuários' },
+  { key: 'gestao-sistema', label: 'Gestão do Sistema' },
   { key: 'relatorios', label: 'Relatórios' },
 ];
 

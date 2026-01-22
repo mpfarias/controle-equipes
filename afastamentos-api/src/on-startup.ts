@@ -1,7 +1,28 @@
 import { PrismaClient, UsuarioStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import * as dotenv from 'dotenv';
+import { config } from 'dotenv';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 
-const prisma = new PrismaClient();
+// Carregar variáveis de ambiente explicitamente
+config();
+
+// Garantir que DATABASE_URL está disponível
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  console.error('⚠️  DATABASE_URL não está definida. Verifique o arquivo .env');
+  throw new Error('DATABASE_URL não está definida');
+}
+
+// No Prisma 7, para conexão direta ao PostgreSQL, usamos PrismaPg adapter
+const pool = new Pool({ connectionString: databaseUrl });
+const adapter = new PrismaPg(pool);
+
+const prisma = new PrismaClient({
+  adapter,
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+});
 
 export async function ensureInitialUser() {
   try {
@@ -67,4 +88,3 @@ export async function ensureInitialUser() {
     await prisma.$disconnect();
   }
 }
-

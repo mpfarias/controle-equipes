@@ -18,6 +18,7 @@ const AfastamentosSection = lazy(() =>
   import('./components/sections/AfastamentosSection').then((m) => ({ default: m.AfastamentosSection })),
 );
 const UsuariosSection = lazy(() => import('./components/sections/UsuariosSection').then((m) => ({ default: m.UsuariosSection })));
+const GestaoSistemaSection = lazy(() => import('./components/sections/GestaoSistemaSection').then((m) => ({ default: m.GestaoSistemaSection })));
 const RelatoriosSection = lazy(() =>
   import('./components/sections/RelatoriosSection').then((m) => ({ default: m.RelatoriosSection })),
 );
@@ -166,6 +167,10 @@ export default function App() {
       if (tab.key === 'usuarios') {
         return usuarioTemAcessoUsuarios;
       }
+      // Gestão do Sistema segue as mesmas permissões de usuários
+      if (tab.key === 'gestao-sistema') {
+        return usuarioTemAcessoUsuarios;
+      }
       // Todas as outras abas estão disponíveis para todos
       return true;
     });
@@ -181,6 +186,9 @@ export default function App() {
     const temAcessoAfastamentos = nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
     
     if (activeTab === 'usuarios' && !usuarioTemAcessoUsuarios) {
+      setActiveTab('dashboard');
+    }
+    if (activeTab === 'gestao-sistema' && !usuarioTemAcessoUsuarios) {
       setActiveTab('dashboard');
     }
     if (activeTab === 'relatorios' && !temAcessoRelatorios) {
@@ -327,6 +335,13 @@ export default function App() {
             onCurrentUserUpdate={(updatedUser) => {
               setCurrentUser(updatedUser);
             }}
+          />
+        )}
+        {activeTab === 'gestao-sistema' && (
+          <GestaoSistemaSection
+            currentUser={currentUser}
+            onTabChange={setActiveTab}
+            availableTabs={tabsDisponiveis}
           />
         )}
         {activeTab === 'relatorios' && (

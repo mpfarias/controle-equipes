@@ -1,4 +1,4 @@
-import { PrismaClient, PolicialStatus } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -23,6 +23,7 @@ async function removeDuplicates() {
 
     const policiais = await prisma.policial.findMany({
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      include: { status: true },
     });
 
     // Agrupar por matrícula normalizada
@@ -64,7 +65,7 @@ async function removeDuplicates() {
       const policiais = duplicata.policiais;
       
       // Priorizar manter: 1) Registro ATIVO, 2) Mais recente
-      const ativos = policiais.filter(p => p.status === PolicialStatus.ATIVO);
+      const ativos = policiais.filter(p => p.status?.nome === 'ATIVO');
       const paraManter = ativos.length > 0 
         ? ativos[0] // Manter o primeiro ativo (já ordenado por data)
         : policiais[0]; // Se não houver ativo, manter o mais recente
@@ -72,7 +73,8 @@ async function removeDuplicates() {
       const paraRemover = policiais.filter(p => p.id !== paraManter.id);
 
       console.log(`\n📋 Matrícula: ${paraManter.matricula} (normalizada: ${duplicata.matriculaNormalizada})`);
-      console.log(`   ✅ Mantendo: ID ${paraManter.id} | ${paraManter.nome} | Status: ${paraManter.status}`);
+      const statusManter = paraManter.status?.nome ?? 'ATIVO';
+      console.log(`   ✅ Mantendo: ID ${paraManter.id} | ${paraManter.nome} | Status: ${statusManter}`);
 
       for (const remover of paraRemover) {
         // Verificar se tem afastamentos associados
@@ -90,7 +92,8 @@ async function removeDuplicates() {
           where: { id: remover.id },
         });
 
-        console.log(`   ❌ Removido: ID ${remover.id} | ${remover.nome} | Status: ${remover.status}`);
+        const statusRemover = remover.status?.nome ?? 'ATIVO';
+        console.log(`   ❌ Removido: ID ${remover.id} | ${remover.nome} | Status: ${statusRemover}`);
         totalRemovidos++;
       }
     }
