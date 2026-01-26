@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { AuditAction, Equipe, Prisma } from '@prisma/client';
+import { AuditAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 
 type Actor = {
   id: number;
   nome: string;
-  equipe?: Equipe | null;
+  equipe?: string | null;
 };
 
 interface AuditRecordParams {

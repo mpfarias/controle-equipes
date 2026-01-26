@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
-import type { Afastamento, MotivoAfastamentoOption, Usuario, PolicialStatus, Equipe } from '../../types';
-import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, EQUIPE_OPTIONS, EQUIPE_FONETICA } from '../../constants';
-import { formatPeriodo, formatDate } from '../../utils/dateUtils';
+import type {
+  Afastamento,
+  MotivoAfastamentoOption,
+  Usuario,
+  PolicialStatus,
+  Equipe,
+  EquipeOption,
+} from '../../types';
+import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
+import { formatPeriodo, formatDate, formatNome } from '../../utils/dateUtils';
 import { Button, Box, Checkbox, Collapse, Typography, Paper, Grid, Divider } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -22,6 +29,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const [motivoOutroFiltro, setMotivoOutroFiltro] = useState('');
   const [statusSelecionados, setStatusSelecionados] = useState<PolicialStatus[]>([]);
   const [equipesSelecionadas, setEquipesSelecionadas] = useState<Equipe[]>([]);
+  const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [filtrosExpanded, setFiltrosExpanded] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
@@ -29,6 +37,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   });
   const [dataInicioFiltro, setDataInicioFiltro] = useState<string>('');
   const [dataFimFiltro, setDataFimFiltro] = useState<string>('');
+  const [dataFimFiltroFocada, setDataFimFiltroFocada] = useState(false);
 
   // Aplicar filtros do Dashboard quando o componente montar
   useEffect(() => {
@@ -133,11 +142,23 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
       try {
         const motivosData = await api.listMotivos();
         setMotivos(motivosData);
+        const equipesData = await api.listEquipes();
+        setEquipes(equipesData);
       } catch (err) {
         // Silenciosamente falha
       }
     })();
   }, [carregarAfastamentos]);
+
+  const equipesAtivas = useMemo(() => {
+    return [...equipes]
+      .filter((e) => e.ativo)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [equipes]);
+
+  const equipesAtivasSemSemEquipe = useMemo(() => {
+    return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
+  }, [equipesAtivas]);
 
   // Ordenar motivos alfabeticamente, com "Outro" sempre no final
   const motivosOrdenados = useMemo(() => {
@@ -472,6 +493,10 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             // CRÍTICO: Limpar filtro por mês quando usar intervalo de datas
             // Forçar limpeza imediata para evitar conflitos
             setSelectedMonth('');
+            // Resetar o estado de foco quando a data de início mudar para permitir pré-seleção novamente
+            if (!dataFimFiltro) {
+              setDataFimFiltroFocada(false);
+            }
           }}
           placeholder="Data início"
           title="Data início do período"
@@ -486,10 +511,21 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             // CRÍTICO: Limpar filtro por mês quando usar intervalo de datas
             // Forçar limpeza imediata para evitar conflitos
             setSelectedMonth('');
+            setDataFimFiltroFocada(true);
           }}
           placeholder="Data fim"
           title="Data fim do período"
           min={dataInicioFiltro || undefined}
+          onFocus={(event) => {
+            // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
+            if (!dataFimFiltro && dataInicioFiltro && !dataFimFiltroFocada) {
+              const input = event.currentTarget;
+              // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
+              input.value = dataInicioFiltro;
+              setDataFimFiltro(dataInicioFiltro);
+              setDataFimFiltroFocada(true);
+            }
+          }}
         />
         <input
           type="month"
@@ -501,6 +537,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             if (event.target.value) {
               setDataInicioFiltro('');
               setDataFimFiltro('');
+              setDataFimFiltroFocada(false);
             }
           }}
           title="Filtrar por mês"
@@ -514,6 +551,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             onClick={() => {
               setDataInicioFiltro('');
               setDataFimFiltro('');
+              setDataFimFiltroFocada(false);
               // Restaurar selectedMonth para o mês atual quando limpar datas
               const now = new Date();
               setSelectedMonth(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
@@ -604,7 +642,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                       }}
                     />
                     <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                      {motivo.nome}
+                      {formatNome(motivo.nome)}
                     </Typography>
                   </Box>
                 ))}
@@ -748,20 +786,20 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
               <Box
                 sx={{
                   display: 'grid',
-                  gridTemplateColumns: `repeat(${Math.ceil(EQUIPE_OPTIONS.length / 2)}, 1fr)`,
+                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(equipesAtivasSemSemEquipe.length / 2))}, 1fr)`,
                   gap: '8px 16px',
                   mb: 2,
                 }}
               >
-                {EQUIPE_OPTIONS.map((equipe) => (
-                  <Box key={equipe.value} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {equipesAtivasSemSemEquipe.map((equipe) => (
+                  <Box key={equipe.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Checkbox
-                      checked={equipesSelecionadas.includes(equipe.value)}
+                      checked={equipesSelecionadas.includes(equipe.nome)}
                       onChange={(e) => {
                         if (e.target.checked) {
-                          setEquipesSelecionadas([...equipesSelecionadas, equipe.value]);
+                          setEquipesSelecionadas([...equipesSelecionadas, equipe.nome]);
                         } else {
-                          setEquipesSelecionadas(equipesSelecionadas.filter((eq) => eq !== equipe.value));
+                          setEquipesSelecionadas(equipesSelecionadas.filter((eq) => eq !== equipe.nome));
                         }
                       }}
                       size="small"
@@ -772,7 +810,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                       }}
                     />
                     <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                      {equipe.label}
+                      {equipe.nome}
                     </Typography>
                   </Box>
                 ))}
@@ -781,7 +819,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => setEquipesSelecionadas(EQUIPE_OPTIONS.map((eq) => eq.value))}
+                  onClick={() => setEquipesSelecionadas(equipesAtivasSemSemEquipe.map((eq) => eq.nome))}
                   sx={{
                     textTransform: 'none',
                     fontSize: '0.75rem',
@@ -881,13 +919,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                   <small>{afastamento.policial.matricula}</small>
                 </td>
                 <td>
-                  {afastamento.policial.equipe ? (
-                    <span>
-                      {EQUIPE_FONETICA[afastamento.policial.equipe] || afastamento.policial.equipe}
-                    </span>
-                  ) : (
-                    <span style={{ color: '#999' }}>Sem Equipe</span>
-                  )}
+                  <span>{formatEquipeLabel(afastamento.policial.equipe)}</span>
                 </td>
                 <td>
                   <span className={getPolicialStatusClass(afastamento.policial.status)}>
@@ -899,7 +931,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                   </span>
                 </td>
                 <td>
-                  <div>{afastamento.motivo.nome}</div>
+                  <div>{formatNome(afastamento.motivo.nome)}</div>
                   {afastamento.descricao && <small>{afastamento.descricao}</small>}
                 </td>
                 <td>

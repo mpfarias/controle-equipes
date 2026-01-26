@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { AuditAction, Equipe, Prisma, UsuarioStatus, Usuario } from '@prisma/client';
+import { AuditAction, Prisma, UsuarioStatus, Usuario } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
@@ -7,6 +7,8 @@ import { CreatePolicialDto } from './dto/create-policial.dto';
 import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
+import { CreateStatusDto } from './dto/create-status.dto';
+import { UpdateStatusDto } from './dto/update-status.dto';
 import * as bcrypt from 'bcryptjs';
 
 type PolicialBase = Prisma.PolicialGetPayload<{
@@ -82,6 +84,22 @@ export class PoliciaisService {
     const withoutLeadingZeros = cleaned.replace(/^0+/, '');
     // Se ficou vazio, significa que era sÃ³ zeros, retornar '0'
     return withoutLeadingZeros || '0';
+  }
+
+  private sanitizeEquipeNome(nome: string): string {
+    return nome.trim().toUpperCase();
+  }
+
+  private async ensureEquipeAtiva(nome: string): Promise<string> {
+    const normalizado = this.sanitizeEquipeNome(nome);
+    const equipe = await this.prisma.equipeOption.findFirst({
+      where: { nome: normalizado, ativo: true },
+      select: { id: true },
+    });
+    if (!equipe) {
+      throw new BadRequestException('Equipe inválida ou inativa.');
+    }
+    return normalizado;
   }
 
   private buildMonthRange(ano: number, mes: number): { dataInicio: Date; dataFim: Date } {
@@ -185,20 +203,22 @@ export class PoliciaisService {
           });
 
           if (motivoFerias) {
-            const dataTeste = new Date(anoReferencia, mesNovo - 1, 15);
-            const verificacao = await this.restricoesAfastamentoService.verificarRestricao(
-              dataTeste,
+            // Verificar se o mês inteiro está restrito (do dia 1 ao último dia)
+            const verificacaoMesInteiro = await this.restricoesAfastamentoService.verificarMesInteiroRestrito(
+              anoReferencia,
+              mesNovo,
               motivoFerias.id,
             );
-            const dataOriginal = new Date(anoAnterior, mesAnterior - 1, 15);
-            const verificacaoOriginal = await this.restricoesAfastamentoService.verificarRestricao(
-              dataOriginal,
+            const verificacaoMesInteiroOriginal = await this.restricoesAfastamentoService.verificarMesInteiroRestrito(
+              anoAnterior,
+              mesAnterior,
               motivoFerias.id,
             );
 
-            if (verificacao.bloqueado && !verificacaoOriginal.bloqueado) {
+            // Só bloquear se o mês inteiro estiver restrito e o mês original não estava restrito
+            if (verificacaoMesInteiro.bloqueado && !verificacaoMesInteiroOriginal.bloqueado) {
               throw new BadRequestException(
-                `Não é possível reprogramar as férias para ${this.obterNomeMes(mesNovo)}. Este mês possui restrição de afastamento (${verificacao.restricao?.tipoRestricao.nome || 'restrição'}).`,
+                `Não é possível reprogramar as férias para ${this.obterNomeMes(mesNovo)}. Este mês possui restrição de afastamento que cobre o mês inteiro (${verificacaoMesInteiro.restricao?.tipoRestricao.nome || 'restrição'}).`,
               );
             }
           }
@@ -359,12 +379,14 @@ export class PoliciaisService {
     }
 
     const statusId = await this.resolveStatusId(data.status ?? 'ATIVO');
+    const equipeValue = data.equipe !== undefined ? data.equipe : (actor?.equipe ?? null);
+    const equipe = equipeValue ? await this.ensureEquipeAtiva(equipeValue) : null;
     const created = await this.prisma.policial.create({
       data: {
         nome: this.sanitizeNome(data.nome),
         matricula: matriculaNormalizada,
         status: { connect: { id: statusId } },
-        equipe: data.equipe !== undefined ? data.equipe : (actor?.equipe ?? null),
+        equipe,
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
@@ -439,7 +461,7 @@ export class PoliciaisService {
     const where: Prisma.PolicialWhereInput = {};
 
     if (equipe) {
-      where.equipe = equipe as Equipe;
+      where.equipe = equipe;
     }
     if (status) {
       where.status = { nome: status as string };
@@ -633,7 +655,7 @@ export class PoliciaisService {
     }
 
     if (data.equipe !== undefined) {
-      updateData.equipe = data.equipe;
+      updateData.equipe = data.equipe ? await this.ensureEquipeAtiva(data.equipe) : null;
     }
 
     if (data.fotoUrl !== undefined) {
@@ -821,11 +843,14 @@ export class PoliciaisService {
           continue;
         }
 
+        const equipeValue =
+          policialData.equipe !== undefined ? policialData.equipe : (actor?.equipe ?? null);
+        const equipe = equipeValue ? await this.ensureEquipeAtiva(equipeValue) : null;
         const createData: Prisma.PolicialCreateInput = {
           nome: this.sanitizeNome(policialData.nome),
           matricula: matriculaNormalizada,
           status: { connect: { id: statusId } },
-          equipe: policialData.equipe !== undefined ? policialData.equipe : (actor?.equipe ?? null),
+          equipe,
           createdById: actor?.id ?? null,
           createdByName: actor?.nome ?? null,
           updatedById: actor?.id ?? null,
@@ -1136,6 +1161,134 @@ export class PoliciaisService {
       'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
     ];
     return meses[mes - 1] || `Mês ${mes}`;
+  }
+
+  async listStatusPolicial(): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }[]> {
+    return this.prisma.statusPolicial.findMany({
+      orderBy: { nome: 'asc' },
+    });
+  }
+
+  async createStatusPolicial(
+    data: CreateStatusDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    // Verificar se já existe um status com o mesmo nome
+    const statusExistente = await this.prisma.statusPolicial.findUnique({
+      where: { nome: data.nome.trim() },
+    });
+
+    if (statusExistente) {
+      throw new BadRequestException(`Já existe um status com o nome "${data.nome.trim()}".`);
+    }
+
+    const created = await this.prisma.statusPolicial.create({
+      data: {
+        nome: data.nome.trim(),
+        descricao: data.descricao?.trim() || null,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'StatusPolicial',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+
+    return created;
+  }
+
+  async updateStatusPolicial(
+    id: number,
+    data: UpdateStatusDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.statusPolicial.findUnique({
+      where: { id },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Status ${id} não encontrado.`);
+    }
+
+    // Se está alterando o nome, verificar se já existe outro com o mesmo nome
+    if (data.nome && data.nome.trim() !== before.nome) {
+      const statusExistente = await this.prisma.statusPolicial.findUnique({
+        where: { nome: data.nome.trim() },
+      });
+
+      if (statusExistente) {
+        throw new BadRequestException(`Já existe um status com o nome "${data.nome.trim()}".`);
+      }
+    }
+
+    const updateData: Prisma.StatusPolicialUpdateInput = {};
+
+    if (data.nome !== undefined) {
+      updateData.nome = data.nome.trim();
+    }
+    if (data.descricao !== undefined) {
+      updateData.descricao = data.descricao?.trim() || null;
+    }
+
+    const updated = await this.prisma.statusPolicial.update({
+      where: { id },
+      data: updateData,
+    });
+
+    await this.audit.record({
+      entity: 'StatusPolicial',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deleteStatusPolicial(id: number, responsavelId?: number): Promise<void> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.statusPolicial.findUnique({
+      where: { id },
+      include: {
+        policiais: {
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Status ${id} não encontrado.`);
+    }
+
+    // Verificar se há policiais usando este status
+    if (before.policiais.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir o status "${before.nome}" pois existem policiais cadastrados com este status.`,
+      );
+    }
+
+    await this.prisma.statusPolicial.delete({
+      where: { id },
+    });
+
+    await this.audit.record({
+      entity: 'StatusPolicial',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
+    });
   }
 }
 

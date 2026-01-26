@@ -6,7 +6,7 @@
 
 1. **Constantes** (`src/constants/index.ts`)
    - `TABS`, `STATUS_LABEL`, `POLICIAL_STATUS_OPTIONS`
-   - `EQUIPE_OPTIONS`, `PERGUNTAS_SEGURANCA`, `EQUIPE_FONETICA`
+   - `EQUIPE_OPTIONS`, `PERGUNTAS_SEGURANCA`
    - Tipo `TabKey`
 
 2. **Utilitários** (`src/utils/dateUtils.ts`)

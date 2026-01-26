@@ -1,6 +1,12 @@
+export { DashboardHomeSection } from './DashboardHomeSection';
 export { DashboardSection } from './DashboardSection';
 export { MostrarEquipeSection } from './MostrarEquipeSection';
 export { PoliciaisSection } from './PoliciaisSection';
 export { AfastamentosSection } from './AfastamentosSection';
 export { UsuariosSection } from './UsuariosSection';
+export { GestaoSistemaSection } from './GestaoSistemaSection';
+export { CadastroUsuariosSection } from './CadastroUsuariosSection';
 export { RelatoriosSection } from './RelatoriosSection';
+export { GerarRestricaoAfastamentoSection } from './GerarRestricaoAfastamentoSection';
+export { CalendarioSection } from './CalendarioSection';
+export { NiveisAcessoSection } from './NiveisAcessoSection';

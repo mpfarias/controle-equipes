@@ -1,6 +1,18 @@
 import type { AfastamentoStatus, Equipe, PolicialStatus } from '../types';
 
-export type TabKey = 'dashboard' | 'calendario' | 'afastamentos-mes' | 'afastamentos' | 'policiais' | 'equipe' | 'usuarios' | 'relatorios' | 'restricao-afastamento' | 'gestao-sistema';
+export type TabKey =
+  | 'dashboard'
+  | 'calendario'
+  | 'afastamentos-mes'
+  | 'afastamentos'
+  | 'policiais'
+  | 'equipe'
+  | 'usuarios'
+  | 'relatorios'
+  | 'relatorios-sistema'
+  | 'relatorios-servico'
+  | 'restricao-afastamento'
+  | 'gestao-sistema';
 
 export const TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -27,32 +39,9 @@ export const POLICIAL_STATUS_OPTIONS: { value: PolicialStatus; label: string }[]
   { value: 'PTTC', label: 'PTTC' },
 ];
 
-export const EQUIPE_OPTIONS: { value: Equipe; label: string }[] = [
-  { value: 'A', label: 'Equipe A' },
-  { value: 'B', label: 'Equipe B' },
-  { value: 'C', label: 'Equipe C' },
-  { value: 'D', label: 'Equipe D' },
-  { value: 'E', label: 'Equipe E' },
-];
-
-export const PERGUNTAS_SEGURANCA = [
-  'Qual o nome da sua mãe?',
-  'Qual o nome do seu pai?',
-  'Qual o nome do seu primeiro animal de estimação?',
-  'Qual o nome da cidade onde você nasceu?',
-  'Qual o nome da sua escola primária?',
-  'Qual o nome do seu melhor amigo de infância?',
-  'Qual o nome do seu primeiro professor?',
-  'Qual o apelido que você tinha na infância?',
-  'Qual o nome da sua primeira rua?',
-  'Qual o nome do seu primeiro emprego?',
-];
-
-export const EQUIPE_FONETICA: Record<Equipe, string> = {
-  A: 'Alfa',
-  B: 'Bravo',
-  C: 'Charlie',
-  D: 'Delta',
-  E: 'Echo',
-  SEM_EQUIPE: 'Sem Equipe',
+export const formatEquipeLabel = (equipe?: string | null) => {
+  if (!equipe || equipe === 'SEM_EQUIPE') {
+    return '—';
+  }
+  return equipe;
 };

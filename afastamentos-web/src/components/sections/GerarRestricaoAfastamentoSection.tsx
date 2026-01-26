@@ -6,7 +6,10 @@ import type {
   MotivoAfastamentoOption, 
   CreateRestricaoAfastamentoInput 
 } from '../../types';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, formatNome } from '../../utils/dateUtils';
+import { handleKeyDownNormalized } from '../../utils/inputUtils';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { 
   Chip, 
@@ -20,14 +23,16 @@ import {
   Button,
   TextField
 } from '@mui/material';
-import { Edit, Delete } from '@mui/icons-material';
+import { Edit, Delete, Block } from '@mui/icons-material';
 
 interface GerarRestricaoAfastamentoSectionProps {
   openConfirm: (config: ConfirmConfig) => void;
+  permissoes?: PermissoesPorTela | null;
 }
 
 export function GerarRestricaoAfastamentoSection({
   openConfirm,
+  permissoes,
 }: GerarRestricaoAfastamentoSectionProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +43,7 @@ export function GerarRestricaoAfastamentoSection({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [mostrarCampoOutro, setMostrarCampoOutro] = useState(false);
   const [customTipoNome, setCustomTipoNome] = useState('');
+  const [dataFimFocada, setDataFimFocada] = useState(false);
   
   const initialForm: CreateRestricaoAfastamentoInput = {
     tipoRestricaoId: 0,
@@ -179,10 +185,32 @@ export function GerarRestricaoAfastamentoSection({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const handleDisable = (restricao: RestricaoAfastamento) => {
+    openConfirm({
+      title: 'Desativar restrição',
+      message: `Deseja desativar a restrição "${formatNome(restricao.tipoRestricao.nome)} ${restricao.ano}"?`,
+      confirmLabel: 'Desativar',
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+          await api.disableRestricaoAfastamento(restricao.id);
+          setSuccess('Restrição desativada com sucesso.');
+          await carregarDados();
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : 'Não foi possível desativar a restrição.',
+          );
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  };
+
   const handleDelete = (restricao: RestricaoAfastamento) => {
     openConfirm({
       title: 'Excluir restrição',
-      message: `Deseja excluir a restrição "${restricao.tipoRestricao.nome} ${restricao.ano}"?`,
+      message: `Deseja excluir a restrição "${formatNome(restricao.tipoRestricao.nome)} ${restricao.ano}"?`,
       confirmLabel: 'Excluir',
       onConfirm: async () => {
         try {
@@ -242,8 +270,13 @@ export function GerarRestricaoAfastamentoSection({
     if (dataInicio) {
       const ano = new Date(dataInicio).getFullYear();
       setForm((prev) => ({ ...prev, dataInicio, ano }));
+      // Resetar o estado de foco quando a data de início mudar para permitir pré-seleção novamente
+      if (!form.dataFim) {
+        setDataFimFocada(false);
+      }
     } else {
       setForm((prev) => ({ ...prev, dataInicio }));
+      setDataFimFocada(false);
     }
   };
 
@@ -346,7 +379,7 @@ export function GerarRestricaoAfastamentoSection({
               <option value="">Selecione o tipo de restrição</option>
               {tiposRestricaoOrdenados.map((tipo) => (
                 <option key={tipo.id} value={tipo.id}>
-                  {tipo.nome}
+                  {formatNome(tipo.nome)}
                 </option>
               ))}
             </select>
@@ -386,15 +419,26 @@ export function GerarRestricaoAfastamentoSection({
               <input
                 type="date"
                 value={form.dataFim}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, dataFim: e.target.value }))
-                }
+                onChange={(e) => {
+                  setForm((prev) => ({ ...prev, dataFim: e.target.value }));
+                  setDataFimFocada(true);
+                }}
                 required
                 min={form.dataInicio || undefined}
                 disabled={
                   editingId === null &&
                   tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
                 }
+                onFocus={(event) => {
+                  // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
+                  if (!form.dataFim && form.dataInicio && !dataFimFocada) {
+                    const input = event.currentTarget;
+                    // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
+                    input.value = form.dataInicio;
+                    setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
+                    setDataFimFocada(true);
+                  }
+                }}
               />
             </label>
           </div>
@@ -462,7 +506,7 @@ export function GerarRestricaoAfastamentoSection({
                             }}
                           />
                           <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                            {motivo.nome}
+                            {formatNome(motivo.nome)}
                           </Typography>
                         </Box>
                       ))}
@@ -556,7 +600,7 @@ export function GerarRestricaoAfastamentoSection({
               {restricoes.map((restricao) => (
                 <tr key={restricao.id}>
                   <td>
-                    <strong>{restricao.tipoRestricao.nome}</strong>
+                    <strong>{formatNome(restricao.tipoRestricao.nome)}</strong>
                     {restricao.tipoRestricao.descricao && (
                       <div style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '4px' }}>
                         {restricao.tipoRestricao.descricao}
@@ -581,22 +625,37 @@ export function GerarRestricaoAfastamentoSection({
                     </div>
                   </td>
                   <td className="actions">
-                    <IconButton
-                      size="small"
-                      onClick={() => handleEdit(restricao)}
-                      title="Editar"
-                      color="primary"
-                    >
-                      <Edit />
-                    </IconButton>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleDelete(restricao)}
-                      title="Excluir"
-                      color="error"
-                    >
-                      <Delete />
-                    </IconButton>
+                    {canEdit(permissoes, 'restricao-afastamento') && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleEdit(restricao)}
+                        title="Editar"
+                        color="primary"
+                      >
+                        <Edit />
+                      </IconButton>
+                    )}
+                    {canDesativar(permissoes, 'restricao-afastamento') && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDisable(restricao)}
+                        title="Desativar"
+                        color="warning"
+                        disabled={restricao.ativo === false}
+                      >
+                        <Block />
+                      </IconButton>
+                    )}
+                    {canExcluir(permissoes, 'restricao-afastamento') && (
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDelete(restricao)}
+                        title="Excluir"
+                        color="error"
+                      >
+                        <Delete />
+                      </IconButton>
+                    )}
                   </td>
                 </tr>
               ))}

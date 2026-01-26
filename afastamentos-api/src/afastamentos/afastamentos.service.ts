@@ -11,6 +11,8 @@ import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
+import { CreateMotivoDto } from './dto/create-motivo.dto';
+import { UpdateMotivoDto } from './dto/update-motivo.dto';
 import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
 
 type AfastamentoWithPolicial = Prisma.AfastamentoGetPayload<{
@@ -762,50 +764,24 @@ export class AfastamentosService {
     );
 
     // Validar restrições de afastamento
-    // Buscar o motivo para verificar se é Férias
+    // Verificar apenas se o início das férias está dentro de uma restrição
+    // A restrição deve bloquear apenas o início das férias, não qualquer sobreposição
     const motivo = await this.prisma.motivoAfastamento.findUnique({
       where: { id: data.motivoId },
     });
     
-    // Se for férias, verificar se o policial já tem férias previstas para o mês
-    let podeIgnorarRestricao = false;
-    if (motivo?.nome === 'Férias') {
-      const anoReferencia = dataInicio.getFullYear();
-      const policial = await this.prisma.policial.findUnique({
-        where: { id: data.policialId },
-        select: {
-          ferias: { where: { ano: anoReferencia }, orderBy: { id: 'desc' }, take: 1 },
-        },
-      });
-      
-      const feriasAtual = policial?.ferias?.[0];
-      if (feriasAtual?.dataInicio && feriasAtual.ano) {
-        const mesDataInicio = dataInicio.getMonth() + 1;
-        const anoDataInicio = dataInicio.getFullYear();
-        const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
-        
-        // Se o policial já tem férias previstas para o mesmo mês e ano, pode ignorar a restrição
-        if (mesPrevisto === mesDataInicio && feriasAtual.ano === anoDataInicio) {
-          podeIgnorarRestricao = true;
-        }
-      }
-    }
-    
-    if (!podeIgnorarRestricao) {
-      const restricao = await this.restricoesAfastamentoService.verificarRestricaoPeriodo(
-        dataInicio,
-        dataFim,
-        data.motivoId,
-      );
+    const restricao = await this.restricoesAfastamentoService.verificarRestricao(
+      dataInicio,
+      data.motivoId,
+    );
 
-      if (restricao.bloqueado && restricao.restricao) {
-        const motivoNome = motivo?.nome || 'este tipo de afastamento';
-        const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
-        
-        throw new BadRequestException(
-          `Não é possível cadastrar ${motivoNome} no período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
-        );
-      }
+    if (restricao.bloqueado && restricao.restricao) {
+      const motivoNome = motivo?.nome || 'este tipo de afastamento';
+      const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+      
+      throw new BadRequestException(
+        `Não é possível cadastrar ${motivoNome} com início em ${new Date(dataInicio).toLocaleDateString('pt-BR')}. Esta data está dentro do período de restrição "${restricaoNome}" (${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')}).`,
+      );
     }
 
     const created = await this.prisma.afastamento.create({
@@ -1228,7 +1204,136 @@ export class AfastamentosService {
         nome: true,
         descricao: true,
       },
-      orderBy: { id: 'asc' },
+      orderBy: { nome: 'asc' },
+    });
+  }
+
+  async createMotivo(data: CreateMotivoDto, responsavelId?: number): Promise<{ id: number; nome: string; descricao: string | null }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    // Verificar se já existe um motivo com o mesmo nome
+    const motivoExistente = await this.prisma.motivoAfastamento.findUnique({
+      where: { nome: data.nome.trim() },
+    });
+
+    if (motivoExistente) {
+      throw new BadRequestException(`Já existe um motivo com o nome "${data.nome.trim()}".`);
+    }
+
+    const created = await this.prisma.motivoAfastamento.create({
+      data: {
+        nome: data.nome.trim(),
+        descricao: data.descricao?.trim() || null,
+      },
+      select: {
+        id: true,
+        nome: true,
+        descricao: true,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'MotivoAfastamento',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+
+    return created;
+  }
+
+  async updateMotivo(
+    id: number,
+    data: UpdateMotivoDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.motivoAfastamento.findUnique({
+      where: { id },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Motivo ${id} não encontrado.`);
+    }
+
+    // Se está alterando o nome, verificar se já existe outro com o mesmo nome
+    if (data.nome && data.nome.trim() !== before.nome) {
+      const motivoExistente = await this.prisma.motivoAfastamento.findUnique({
+        where: { nome: data.nome.trim() },
+      });
+
+      if (motivoExistente) {
+        throw new BadRequestException(`Já existe um motivo com o nome "${data.nome.trim()}".`);
+      }
+    }
+
+    const updateData: Prisma.MotivoAfastamentoUpdateInput = {};
+
+    if (data.nome !== undefined) {
+      updateData.nome = data.nome.trim();
+    }
+    if (data.descricao !== undefined) {
+      updateData.descricao = data.descricao?.trim() || null;
+    }
+
+    const updated = await this.prisma.motivoAfastamento.update({
+      where: { id },
+      data: updateData,
+      select: {
+        id: true,
+        nome: true,
+        descricao: true,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'MotivoAfastamento',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deleteMotivo(id: number, responsavelId?: number): Promise<void> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.motivoAfastamento.findUnique({
+      where: { id },
+      include: {
+        afastamentos: {
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Motivo ${id} não encontrado.`);
+    }
+
+    // Verificar se há afastamentos usando este motivo
+    if (before.afastamentos.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir o motivo "${before.nome}" pois existem afastamentos cadastrados com este motivo.`,
+      );
+    }
+
+    await this.prisma.motivoAfastamento.delete({
+      where: { id },
+    });
+
+    await this.audit.record({
+      entity: 'MotivoAfastamento',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
     });
   }
 }

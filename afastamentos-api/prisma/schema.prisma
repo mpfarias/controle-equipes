@@ -10,7 +10,7 @@ model Policial {
   id                            Int                        @id @default(autoincrement())
   nome                          String
   matricula                     String                     @unique
-  equipe                        Equipe?
+  equipe                        String?
   statusId                      Int
   status                        StatusPolicial             @relation(fields: [statusId], references: [id])
   funcaoId                      Int?
@@ -91,7 +91,9 @@ model UsuarioNivel {
   id        Int       @id @default(autoincrement())
   nome      String    @unique
   descricao String?
+  ativo     Boolean   @default(true)
   usuarios  Usuario[]
+  permissoes UsuarioNivelPermissao[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 }
@@ -100,6 +102,7 @@ model Funcao {
   id        Int        @id @default(autoincrement())
   nome      String     @unique
   descricao String?
+  ativo     Boolean    @default(true)
   usuarios  Usuario[]
   policiais Policial[]
   createdAt DateTime   @default(now())
@@ -113,7 +116,7 @@ model Usuario {
   senhaHash             String
   perguntaSeguranca     String?
   respostaSegurancaHash String?
-  equipe                Equipe        @default(A)
+  equipe                String        @default("A")
   status                UsuarioStatus @default(ATIVO)
   isAdmin               Boolean       @default(false)
   nivelId               Int?
@@ -138,13 +141,28 @@ enum UsuarioStatus {
   DESATIVADO
 }
 
-enum Equipe {
-  A
-  B
-  C
-  D
-  E
-  SEM_EQUIPE
+enum PermissaoAcao {
+  VISUALIZAR
+  EDITAR
+  DESATIVAR
+  EXCLUIR
+}
+
+model EquipeOption {
+  id        Int      @id @default(autoincrement())
+  nome      String   @unique
+  descricao String?
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PerguntaSeguranca {
+  id        Int      @id @default(autoincrement())
+  texto     String   @unique
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum AuditAction {
@@ -200,7 +218,7 @@ model AcessoLog {
   userAgent     String?
   dataEntrada   DateTime  @default(now())
   dataSaida     DateTime?
-  tempoSessao   Int?      // Tempo em minutos
+  tempoSessao   Int?      // Tempo em segundos
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -252,4 +270,15 @@ model RestricaoAfastamento {
   updatedByName           String?
   createdAt               DateTime                   @default(now())
   updatedAt               DateTime                   @updatedAt
+}
+
+model UsuarioNivelPermissao {
+  id        Int          @id @default(autoincrement())
+  nivelId   Int
+  nivel     UsuarioNivel @relation(fields: [nivelId], references: [id], onDelete: Cascade)
+  telaKey   String
+  acao      PermissaoAcao
+  createdAt DateTime     @default(now())
+
+  @@unique([nivelId, telaKey, acao])
 }

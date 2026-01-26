@@ -21,7 +21,8 @@ import {
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { api } from '../../api';
-import { EQUIPE_FONETICA } from '../../constants';
+import { formatEquipeLabel } from '../../constants';
+import { formatNome } from '../../utils/dateUtils';
 
 interface CalendarioSectionProps {
   currentUser: Usuario;
@@ -43,12 +44,11 @@ const MESES = [
   { valor: 11, nome: 'Dezembro' },
 ];
 
-// Data de início da escala: 20/01/2026 (terça-feira) com Delta de manhã
+// Data de início da escala: 20/01/2026 (terça-feira) com equipe D de manhã
 const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
 
-// Sequência das equipes: Delta → Echo → Bravo → Alfa → Charlie → Delta
+// Sequência das equipes: D → E → B → A → C → D
 const SEQUENCIA_EQUIPES: Equipe[] = ['D', 'E', 'B', 'A', 'C'];
-const SEQUENCIA_EQUIPES_NOMES = ['Delta', 'Echo', 'Bravo', 'Alfa', 'Charlie'];
 
 export function CalendarioSection({ currentUser: _currentUser }: CalendarioSectionProps) {
   const now = new Date();
@@ -124,8 +124,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       return null;
     }
 
-    // Para o período do dia (07h-19h), a sequência é: Delta → Echo → Bravo → Alfa → Charlie
-    // Para o período da noite (19h-07h), a sequência é: Charlie → Delta → Echo → Bravo → Alfa
+    // Para o período do dia (07h-19h), a sequência é: D → E → B → A → C
+    // Para o período da noite (19h-07h), a sequência é: C → D → E → B → A
     // A noite está sempre 1 posição atrás do dia na sequência circular
     // Para datas anteriores ao dia 20, usar módulo negativo para calcular retroativamente
     
@@ -135,17 +135,15 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       // Usar módulo com tratamento para números negativos
       const posicaoNaSequencia = ((diffDays % 5) + 5) % 5;
       const equipe = SEQUENCIA_EQUIPES[posicaoNaSequencia];
-      const nome = SEQUENCIA_EQUIPES_NOMES[posicaoNaSequencia];
-      return { equipe, nome };
+      return { equipe, nome: equipe };
     } else {
       // Sequência da noite: C, D, E, B, A, C, D, E, B, A...
-      // A noite está 1 posição atrás do dia: se o dia é posição 0 (Delta), a noite é posição 4 (Charlie)
-      // Se o dia é posição 1 (Echo), a noite é posição 0 (Delta)
+      // A noite está 1 posição atrás do dia: se o dia é posição 0 (D), a noite é posição 4 (C)
+      // Se o dia é posição 1 (E), a noite é posição 0 (D)
       const posicaoDia = ((diffDays % 5) + 5) % 5;
       const posicaoNoite = (posicaoDia - 1 + 5) % 5; // -1 + 5 para garantir valor positivo
       const equipe = SEQUENCIA_EQUIPES[posicaoNoite];
-      const nome = SEQUENCIA_EQUIPES_NOMES[posicaoNoite];
-      return { equipe, nome };
+      return { equipe, nome: equipe };
     }
   };
 
@@ -194,7 +192,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   const handleEquipeClick = async (equipe: Equipe, periodo: 'dia' | 'noite', dia: number) => {
     setModalOpen(true);
     setLoadingModal(true);
-    setModalTitle(`Equipe ${EQUIPE_FONETICA[equipe]} - ${periodo === 'dia' ? 'Dia' : 'Noite'} (${dia}/${mesSelecionado + 1}/${anoSelecionado})`);
+    setModalTitle(`Equipe ${formatEquipeLabel(equipe)} - ${periodo === 'dia' ? 'Dia' : 'Noite'} (${dia}/${mesSelecionado + 1}/${anoSelecionado})`);
     
     try {
       // Buscar policiais da equipe
@@ -600,7 +598,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                         )}
                         {policial.funcao && (
                           <Typography variant="caption" component="span" color="text.secondary">
-                            {policial.funcao.nome}
+                            {formatNome(policial.funcao.nome)}
                           </Typography>
                         )}
                       </Box>

@@ -47,8 +47,8 @@ export class AcessosService {
       const dataSaida = new Date();
       const dataEntrada = acesso.dataEntrada;
       const tempoSessao = Math.round(
-        (dataSaida.getTime() - dataEntrada.getTime()) / 1000 / 60,
-      ); // Tempo em minutos
+        (dataSaida.getTime() - dataEntrada.getTime()) / 1000,
+      ); // Tempo em segundos
 
       await this.prisma.acessoLog.update({
         where: { id: acessoId },

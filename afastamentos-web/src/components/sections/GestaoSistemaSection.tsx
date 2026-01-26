@@ -1,108 +1,80 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import type { Usuario } from '../../types';
-import type { TabKey } from '../../constants';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { NiveisAcessoSection } from './NiveisAcessoSection';
+import { CadastroUsuariosSection } from './CadastroUsuariosSection';
 
 interface GestaoSistemaSectionProps {
   currentUser: Usuario;
-  onTabChange: (tab: TabKey) => void;
-  availableTabs: { key: TabKey; label: string }[];
+  permissoes?: PermissoesPorTela | null;
 }
-
-type GestaoItem = {
-  tab: TabKey;
-  title: string;
-  description: string;
-};
 
 export function GestaoSistemaSection({
   currentUser,
-  onTabChange,
-  availableTabs,
+  permissoes,
 }: GestaoSistemaSectionProps) {
-  const availableKeys = useMemo(
-    () => new Set(availableTabs.map((tab) => tab.key)),
-    [availableTabs],
-  );
-
-  const itensGestao = useMemo<GestaoItem[]>(
-    () => [
-      {
-        tab: 'usuarios',
-        title: 'Usuários',
-        description: 'Cadastrar, editar e gerenciar acessos do sistema.',
-      },
-      {
-        tab: 'policiais',
-        title: 'Policiais',
-        description: 'Cadastrar, atualizar e gerenciar dados de policiais.',
-      },
-      {
-        tab: 'afastamentos',
-        title: 'Afastamentos',
-        description: 'Gerenciar afastamentos e suas restrições.',
-      },
-      {
-        tab: 'restricao-afastamento',
-        title: 'Restrições de afastamento',
-        description: 'Gerar restrições para afastamentos ativos.',
-      },
-      {
-        tab: 'calendario',
-        title: 'Calendário das Equipes',
-        description: 'Visualizar escalas e composição das equipes.',
-      },
-      {
-        tab: 'equipe',
-        title: 'Efetivo do COPOM',
-        description: 'Consultar o efetivo disponível por equipe.',
-      },
-      {
-        tab: 'relatorios',
-        title: 'Relatórios',
-        description: 'Emitir relatórios e acompanhamentos do sistema.',
-      },
-    ],
-    [],
-  );
-
-  const itensVisiveis = useMemo(
-    () => itensGestao.filter((item) => availableKeys.has(item.tab)),
-    [itensGestao, availableKeys],
-  );
+  const podeVerNiveis = true;
+  const [mostrarOpcoesNiveis, setMostrarOpcoesNiveis] = useState(false);
+  const [mostrarCadastroUsuarios, setMostrarCadastroUsuarios] = useState(false);
 
   return (
     <section>
       <div className="section-header">
         <div>
           <h2>Gestão do Sistema</h2>
-          <p className="subtitle">
-            Centralize as principais ações administrativas em um só lugar.
-          </p>
+          <p className="subtitle">Centralize as ações administrativas.</p>
         </div>
         <div style={{ fontSize: '0.9rem', color: '#475569' }}>
           Usuário: {currentUser.nome}
         </div>
       </div>
 
-      {itensVisiveis.length === 0 ? (
+      {podeVerNiveis ? (
+        <div className="management-grid">
+          <div className="management-item">
+            <button
+              type="button"
+              className="management-card"
+              onClick={() => setMostrarOpcoesNiveis((value) => !value)}
+              aria-expanded={mostrarOpcoesNiveis}
+            >
+              <span className="management-card-title">Níveis de acesso</span>
+              <span className="management-card-description">
+                Criar e ajustar os níveis de acesso do sistema.
+              </span>
+            </button>
+            <div className={`management-panel ${mostrarOpcoesNiveis ? 'management-panel--open' : ''}`}>
+              <div className="management-panel__content">
+                <NiveisAcessoSection currentUser={currentUser} embedded permissoes={permissoes} />
+              </div>
+            </div>
+          </div>
+          <div className="management-item">
+            <button
+              type="button"
+              className="management-card"
+              onClick={() => setMostrarCadastroUsuarios((value) => !value)}
+              aria-expanded={mostrarCadastroUsuarios}
+            >
+              <span className="management-card-title">Cadastro de usuários</span>
+              <span className="management-card-description">
+                Gerencie o cadastro e o acesso de usuários do sistema.
+              </span>
+            </button>
+            <div className={`management-panel ${mostrarCadastroUsuarios ? 'management-panel--open' : ''}`}>
+              <div className="management-panel__content">
+                <CadastroUsuariosSection currentUser={currentUser} permissoes={permissoes} />
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
         <p className="empty-state">
           Você não possui permissões para acessar módulos de gestão no momento.
         </p>
-      ) : (
-        <div className="management-grid">
-          {itensVisiveis.map((item) => (
-            <button
-              key={item.tab}
-              type="button"
-              className="management-card"
-              onClick={() => onTabChange(item.tab)}
-            >
-              <span className="management-card-title">{item.title}</span>
-              <span className="management-card-description">{item.description}</span>
-            </button>
-          ))}
-        </div>
       )}
+
+      
     </section>
   );
 }

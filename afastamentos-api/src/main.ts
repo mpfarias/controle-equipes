@@ -67,7 +67,7 @@ async function bootstrap() {
     }),
   );
 
-  const port = 3002;
+  const port = Number(process.env.PORT ?? 3002);
   await app.listen(port, '0.0.0.0');
   const host = process.env.SERVER_HOST ?? 'localhost';
   console.log(`🚀 API disponível em:`);

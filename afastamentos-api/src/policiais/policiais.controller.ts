@@ -20,6 +20,8 @@ import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
 import { RemoveRestricaoMedicaDto } from './dto/remove-restricao-medica.dto';
+import { CreateStatusDto } from './dto/create-status.dto';
+import { UpdateStatusDto } from './dto/update-status.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import type { Usuario } from '@prisma/client';
@@ -81,6 +83,33 @@ export class PoliciaisController {
   @Get('restricoes-medicas')
   listRestricoesMedicas() {
     return this.policiaisService.listRestricoesMedicas();
+  }
+
+  @Get('status')
+  listStatusPolicial() {
+    return this.policiaisService.listStatusPolicial();
+  }
+
+  @Post('status')
+  @Roles('ADMINISTRADOR', 'SAD')
+  createStatusPolicial(@Body() createStatusDto: CreateStatusDto, @CurrentUser() user: Usuario) {
+    return this.policiaisService.createStatusPolicial(createStatusDto, user.id);
+  }
+
+  @Patch('status/:id')
+  @Roles('ADMINISTRADOR', 'SAD')
+  updateStatusPolicial(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateStatusDto: UpdateStatusDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.updateStatusPolicial(id, updateStatusDto, user.id);
+  }
+
+  @Delete('status/:id')
+  @Roles('ADMINISTRADOR', 'SAD')
+  deleteStatusPolicial(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.policiaisService.deleteStatusPolicial(id, user.id);
   }
 
   @Get(':id')

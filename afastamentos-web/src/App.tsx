@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, getToken, removeToken } from './api.ts';
-import type { Usuario } from './types.ts';
+import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
 import { TABS, type TabKey } from './constants';
 import {
   LoginView,
@@ -44,6 +44,8 @@ export default function App() {
   });
   const [policiaisVersion, setPoliciaisVersion] = useState(0);
   const [afastamentosVersion, setAfastamentosVersion] = useState(0);
+  const [permissoesPorTela, setPermissoesPorTela] = useState<Record<TabKey, Record<PermissaoAcao, boolean>> | null>(null);
+  const [permissoesCarregando, setPermissoesCarregando] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -76,6 +78,72 @@ export default function App() {
     void loadUser();
 
   }, []);
+
+  const loadPermissoes = useCallback(async () => {
+    if (!currentUser?.nivelId) {
+      setPermissoesPorTela(null);
+      setPermissoesCarregando(false);
+      return;
+    }
+    try {
+      setPermissoesCarregando(true);
+      const data = await api.listUsuarioNivelPermissoes(currentUser.nivelId);
+      const base: Record<TabKey, Record<PermissaoAcao, boolean>> = {} as Record<TabKey, Record<PermissaoAcao, boolean>>;
+      // Inicializar todas as telas do TABS
+      TABS.forEach((tab) => {
+        base[tab.key] = {
+          VISUALIZAR: false,
+          EDITAR: false,
+          DESATIVAR: false,
+          EXCLUIR: false,
+        };
+      });
+      // Também inicializar relatorios-sistema e relatorios-servico (não estão no TABS mas são usados para permissões)
+      base['relatorios-sistema'] = {
+        VISUALIZAR: false,
+        EDITAR: false,
+        DESATIVAR: false,
+        EXCLUIR: false,
+      };
+      base['relatorios-servico'] = {
+        VISUALIZAR: false,
+        EDITAR: false,
+        DESATIVAR: false,
+        EXCLUIR: false,
+      };
+      
+      data.forEach((item: UsuarioNivelPermissao) => {
+        const key = item.telaKey as TabKey;
+        if (base[key]) {
+          base[key][item.acao] = true;
+        }
+      });
+      setPermissoesPorTela(base);
+    } catch (error) {
+      console.warn('Não foi possível carregar permissões.', error);
+      setPermissoesPorTela(null);
+    } finally {
+      setPermissoesCarregando(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    void loadPermissoes();
+  }, [loadPermissoes]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ nivelId?: number }>).detail;
+      if (!currentUser?.nivelId) {
+        return;
+      }
+      if (!detail?.nivelId || detail.nivelId === currentUser.nivelId) {
+        void loadPermissoes();
+      }
+    };
+    window.addEventListener('nivel-permissoes-atualizadas', handler);
+    return () => window.removeEventListener('nivel-permissoes-atualizadas', handler);
+  }, [currentUser, loadPermissoes]);
 
   const handleLoginSuccess = (loginResponse: { accessToken: string; usuario: Usuario }) => {
     setCurrentUser(loginResponse.usuario);
@@ -123,87 +191,25 @@ export default function App() {
     }
   }, [confirmDialog, closeConfirm]);
 
-  // Verificar se o usuário tem acesso à tela de usuários (apenas SAD e ADMINISTRADOR)
-  const usuarioTemAcessoUsuarios = useMemo(() => {
-    if (!currentUser) return false;
-    
-    // Verificar pelo nome do nível (prioritário)
-    const nivelNome = currentUser.nivel?.nome;
-    if (nivelNome === 'SAD' || nivelNome === 'ADMINISTRADOR') {
-      return true;
-    }
-    
-    // Verificar pelo isAdmin
-    if (currentUser.isAdmin === true) {
-      return true;
-    }
-    
-    return false;
-  }, [currentUser]);
-
-  // Filtrar tabs baseado no nível do usuário
+  // Filtrar tabs baseado apenas nas permissões do banco
   const tabsDisponiveis = useMemo(() => {
-    const nivelUsuario = currentUser?.nivel?.nome;
-    
-    // Filtrar tabs baseado no nível do usuário
-    return TABS.filter((tab) => {
-      // Relatórios só disponível para COMANDO e ADMINISTRADOR
-      if (tab.key === 'relatorios') {
-        return nivelUsuario === 'COMANDO' || nivelUsuario === 'ADMINISTRADOR';
-      }
-      // Cadastrar Policial só disponível para ADMINISTRADOR e SAD
-      if (tab.key === 'policiais') {
-        return nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
-      }
-      // Gerenciar afastamentos NÃO disponível para COMANDO e OPERAÇÕES
-      if (tab.key === 'afastamentos') {
-        return nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
-      }
-      // Afastamentos do mês - mesmo controle de acesso que afastamentos
-      if (tab.key === 'afastamentos-mes') {
-        return nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
-      }
-      // A aba de usuários só está disponível para SAD e ADMINISTRADOR
-      if (tab.key === 'usuarios') {
-        return usuarioTemAcessoUsuarios;
-      }
-      // Gestão do Sistema segue as mesmas permissões de usuários
-      if (tab.key === 'gestao-sistema') {
-        return usuarioTemAcessoUsuarios;
-      }
-      // Todas as outras abas estão disponíveis para todos
-      return true;
-    });
-  }, [currentUser, usuarioTemAcessoUsuarios]);
+    if (!permissoesPorTela) {
+      return [];
+    }
+    return TABS.filter((tab) => Boolean(permissoesPorTela[tab.key]?.VISUALIZAR));
+  }, [permissoesPorTela]);
 
   // Se o usuário não tem acesso à aba e está tentando acessá-la, redirecionar
   useEffect(() => {
     if (!currentUser) return;
-    
-    const nivelUsuario = currentUser.nivel?.nome;
-    const temAcessoRelatorios = nivelUsuario === 'COMANDO' || nivelUsuario === 'ADMINISTRADOR';
-    const temAcessoPoliciais = nivelUsuario === 'ADMINISTRADOR' || nivelUsuario === 'SAD';
-    const temAcessoAfastamentos = nivelUsuario !== 'COMANDO' && nivelUsuario !== 'OPERAÇÕES';
-    
-    if (activeTab === 'usuarios' && !usuarioTemAcessoUsuarios) {
+
+    if (!permissoesPorTela) {
+      return;
+    }
+    if (!permissoesPorTela[activeTab]?.VISUALIZAR) {
       setActiveTab('dashboard');
     }
-    if (activeTab === 'gestao-sistema' && !usuarioTemAcessoUsuarios) {
-      setActiveTab('dashboard');
-    }
-    if (activeTab === 'relatorios' && !temAcessoRelatorios) {
-      setActiveTab('dashboard');
-    }
-    if (activeTab === 'policiais' && !temAcessoPoliciais) {
-      setActiveTab('dashboard');
-    }
-    if (activeTab === 'afastamentos' && !temAcessoAfastamentos) {
-      setActiveTab('dashboard');
-    }
-    if (activeTab === 'afastamentos-mes' && !temAcessoAfastamentos) {
-      setActiveTab('dashboard');
-    }
-  }, [currentUser, activeTab, usuarioTemAcessoUsuarios]);
+  }, [currentUser, activeTab, permissoesPorTela]);
 
   if (!currentUser) {
     const handleForgotPassword = () => {
@@ -280,21 +286,25 @@ export default function App() {
         </div>
       </header>
 
-      <ul className="tabs" role="tablist">
-        {tabsDisponiveis.map((tab) => (
-          <li key={tab.key} role="presentation">
-            <button
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              type="button"
-              className={activeTab === tab.key ? 'tab active' : 'tab'}
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {permissoesCarregando ? (
+        <p className="empty-state">Carregando permissões...</p>
+      ) : (
+        <ul className="tabs" role="tablist">
+          {tabsDisponiveis.map((tab) => (
+            <li key={tab.key} role="presentation">
+              <button
+                role="tab"
+                aria-selected={activeTab === tab.key}
+                type="button"
+                className={activeTab === tab.key ? 'tab active' : 'tab'}
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       <Suspense fallback={<p className="empty-state">Carregando...</p>}>
         {activeTab === 'dashboard' && (
@@ -312,12 +322,14 @@ export default function App() {
             currentUser={currentUser}
             openConfirm={openConfirm}
             onChanged={notifyAfastamentosChanged}
+            permissoes={permissoesPorTela}
           />
         )}
         {activeTab === 'policiais' && (
           <PoliciaisSection
             currentUser={currentUser}
             onChanged={notifyPoliciaisChanged}
+            permissoes={permissoesPorTela}
           />
         )}
         {activeTab === 'equipe' && (
@@ -326,6 +338,7 @@ export default function App() {
             openConfirm={openConfirm}
             onChanged={notifyPoliciaisChanged}
             refreshKey={policiaisVersion}
+            permissoes={permissoesPorTela}
           />
         )}
         {activeTab === 'usuarios' && (
@@ -335,20 +348,23 @@ export default function App() {
             onCurrentUserUpdate={(updatedUser) => {
               setCurrentUser(updatedUser);
             }}
+            permissoes={permissoesPorTela}
           />
         )}
         {activeTab === 'gestao-sistema' && (
           <GestaoSistemaSection
             currentUser={currentUser}
-            onTabChange={setActiveTab}
-            availableTabs={tabsDisponiveis}
+            permissoes={permissoesPorTela}
           />
         )}
         {activeTab === 'relatorios' && (
-          <RelatoriosSection currentUser={currentUser} />
+          <RelatoriosSection currentUser={currentUser} permissoes={permissoesPorTela} />
         )}
         {activeTab === 'restricao-afastamento' && (
-          <GerarRestricaoAfastamentoSection openConfirm={openConfirm} />
+          <GerarRestricaoAfastamentoSection 
+            openConfirm={openConfirm}
+            permissoes={permissoesPorTela}
+          />
         )}
       </Suspense>
 

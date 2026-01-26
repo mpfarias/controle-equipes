@@ -35,3 +35,21 @@ export function formatPeriodo(dataInicio: string, dataFim?: string | null): stri
   
   return `${dataInicioFormatada} — ${dataFimFormatada} (${dias} ${dias === 1 ? 'dia' : 'dias'})`;
 }
+
+/**
+ * Formata um nome para ter apenas a primeira letra maiúscula
+ * Exemplo: "FÉRIAS" -> "Férias", "MOTORISTA DE DIA" -> "Motorista de dia"
+ */
+export function formatNome(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return '';
+  }
+  // Converter para minúsculas primeiro
+  const lowercased = trimmed.toLowerCase();
+  // Primeira letra maiúscula
+  return lowercased.charAt(0).toUpperCase() + lowercased.slice(1);
+}

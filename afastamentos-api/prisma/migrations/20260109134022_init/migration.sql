@@ -8,7 +8,7 @@ CREATE TYPE "PolicialStatus" AS ENUM ('ATIVO', 'DESIGNADO', 'COMISSIONADO', 'PTT
 CREATE TYPE "UsuarioStatus" AS ENUM ('ATIVO', 'DESATIVADO');
 
 -- CreateEnum
-CREATE TYPE "Equipe" AS ENUM ('A', 'B', 'C', 'D', 'E');
+CREATE TYPE "Equipe" AS ENUM ('A', 'B', 'C', 'D', 'E', 'SEM_EQUIPE');
 
 -- CreateEnum
 CREATE TYPE "AuditAction" AS ENUM ('CREATE', 'UPDATE', 'DELETE');

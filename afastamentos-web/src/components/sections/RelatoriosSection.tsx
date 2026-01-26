@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
 import type { AuditLog, Usuario, RelatorioLog, ErroLog, AcessoLog } from '../../types';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canView } from '../../utils/permissions';
 import jsPDF from 'jspdf';
 
 interface RelatoriosSectionProps {
   currentUser: Usuario;
+  permissoes?: PermissoesPorTela | null;
 }
 
-export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
+export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSectionProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
@@ -33,6 +36,8 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
   });
 
   const [expandedCard, setExpandedCard] = useState<'auditoria' | 'servico' | null>('auditoria');
+  const [dataFimFocada, setDataFimFocada] = useState(false);
+
 
   const carregarLogs = useCallback(async () => {
     try {
@@ -141,6 +146,7 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
       dataInicio: primeiroDiaMes.toISOString().split('T')[0],
       dataFim: ultimoDiaMes.toISOString().split('T')[0],
     });
+    setDataFimFocada(false);
   }, []);
 
   const fecharModalFiltro = useCallback(() => {
@@ -150,6 +156,7 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
       dataInicio: '',
       dataFim: '',
     });
+    setDataFimFocada(false);
   }, []);
 
   const gerarRelatorioCompleto = useCallback(async (dataInicio?: string, dataFim?: string) => {
@@ -816,7 +823,7 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
       // Cabeçalho da tabela
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      const headers = ['Data Entrada', 'Hora Entrada', 'Usuário', 'Matrícula', 'IP', 'Data Saída', 'Hora Saída', 'Tempo Sessão (min)'];
+      const headers = ['Data Entrada', 'Hora Entrada', 'Usuário', 'Matrícula', 'IP', 'Data Saída', 'Hora Saída', 'Tempo Sessão'];
       const colWidths = [25, 18, 60, 25, 30, 25, 18, 30];
       let xPosition = margin;
 
@@ -885,9 +892,41 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
         const usuario = acesso.userName || '-';
         const matricula = acesso.matricula || '-';
         const ip = acesso.ip || '-';
-        const tempoSessao = acesso.tempoSessao !== null && acesso.tempoSessao !== undefined 
-          ? acesso.tempoSessao.toString() 
-          : '-';
+        
+        // Calcular tempo de sessão diretamente das datas para garantir precisão
+        // Formato: hh:mm:ss
+        const calcularTempoSessao = (dataEntrada: Date | string, dataSaida: Date | string | null | undefined): string => {
+          if (!dataSaida) {
+            return '-';
+          }
+          
+          // Garantir que ambas as datas sejam objetos Date
+          const dateEntradaObj = dataEntrada instanceof Date ? dataEntrada : new Date(dataEntrada);
+          const dateSaidaObj = dataSaida instanceof Date ? dataSaida : new Date(dataSaida);
+          
+          // Verificar se as datas são válidas
+          if (isNaN(dateEntradaObj.getTime()) || isNaN(dateSaidaObj.getTime())) {
+            return '-';
+          }
+          
+          // Calcular diferença em segundos
+          const diferencaMs = dateSaidaObj.getTime() - dateEntradaObj.getTime();
+          const segundosTotal = Math.floor(diferencaMs / 1000);
+          
+          // Se a diferença for negativa, retornar '-'
+          if (segundosTotal < 0) {
+            return '-';
+          }
+          
+          // Converter para hh:mm:ss
+          const horas = Math.floor(segundosTotal / 3600);
+          const minutosRestantes = Math.floor((segundosTotal % 3600) / 60);
+          const segundos = segundosTotal % 60;
+          
+          return `${String(horas).padStart(2, '0')}:${String(minutosRestantes).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
+        };
+        
+        const tempoSessao = calcularTempoSessao(acesso.dataEntrada, acesso.dataSaida);
 
         xPosition = margin;
         
@@ -975,20 +1014,26 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
       )}
 
       {/* Cards principais */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.5rem',
-          marginTop: '1.5rem',
-        }}
-      >
-        {/* Card principal - Auditoria do Sistema */}
-        <button
-          type="button"
-          onClick={() =>
-            setExpandedCard((prev) => (prev === 'auditoria' ? null : 'auditoria'))
-          }
+      {!canView(permissoes, 'relatorios-sistema') && !canView(permissoes, 'relatorios-servico') ? (
+        <div className="empty-state" style={{ marginTop: '1.5rem' }}>
+          Você não possui permissão para visualizar nenhum tipo de relatório.
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+            gap: '1.5rem',
+            marginTop: '1.5rem',
+          }}
+        >
+          {/* Card principal - Auditoria do Sistema */}
+          {canView(permissoes, 'relatorios-sistema') && (
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedCard((prev) => (prev === 'auditoria' ? null : 'auditoria'))
+            }
           style={{
             textAlign: 'left',
             border: expandedCard === 'auditoria' ? '2px solid #2563eb' : '1px solid #e2e8f0',
@@ -1048,14 +1093,16 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
           >
             {expandedCard === 'auditoria' ? 'Clique para recolher' : 'Clique para ver opções'}
           </span>
-        </button>
+          </button>
+          )}
 
-        {/* Card principal - Relatórios de Serviço */}
-        <button
-          type="button"
-          onClick={() =>
-            setExpandedCard((prev) => (prev === 'servico' ? null : 'servico'))
-          }
+          {/* Card principal - Relatórios de Serviço */}
+          {canView(permissoes, 'relatorios-servico') && (
+          <button
+            type="button"
+            onClick={() =>
+              setExpandedCard((prev) => (prev === 'servico' ? null : 'servico'))
+            }
           style={{
             textAlign: 'left',
             border: expandedCard === 'servico' ? '2px solid #2563eb' : '1px solid #e2e8f0',
@@ -1115,14 +1162,17 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
           >
             {expandedCard === 'servico' ? 'Clique para recolher' : 'Clique para ver opções'}
           </span>
-        </button>
-      </div>
+          </button>
+          )}
+        </div>
+      )}
 
       {/* Área expandida - Auditoria do Sistema */}
-      <div
-        style={{
-          marginTop: '1.5rem',
-          maxHeight: expandedCard === 'auditoria' ? 1000 : 0,
+      {canView(permissoes, 'relatorios-sistema') && (
+        <div
+          style={{
+            marginTop: '1.5rem',
+            maxHeight: expandedCard === 'auditoria' ? 1000 : 0,
           opacity: expandedCard === 'auditoria' ? 1 : 0,
           transform:
             expandedCard === 'auditoria' ? 'translateY(0px)' : 'translateY(-8px)',
@@ -1295,12 +1345,14 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Área expandida - Relatórios de Serviço */}
-      <div
-        style={{
-          marginTop: '1.5rem',
-          maxHeight: expandedCard === 'servico' ? 600 : 0,
+      {canView(permissoes, 'relatorios-servico') && (
+        <div
+          style={{
+            marginTop: '1.5rem',
+            maxHeight: expandedCard === 'servico' ? 600 : 0,
           opacity: expandedCard === 'servico' ? 1 : 0,
           transform:
             expandedCard === 'servico' ? 'translateY(0px)' : 'translateY(-8px)',
@@ -1342,6 +1394,7 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
           </div>
         </div>
       </div>
+      )}
 
       {/* Modal de Seleção de Período */}
       {modalDataFiltro.open && (
@@ -1359,9 +1412,13 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
                   id="dataInicio"
                   type="date"
                   value={modalDataFiltro.dataInicio}
-                  onChange={(e) =>
-                    setModalDataFiltro((prev) => ({ ...prev, dataInicio: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setModalDataFiltro((prev) => ({ ...prev, dataInicio: e.target.value }));
+                    // Resetar o estado de foco quando a data de início mudar para permitir pré-seleção novamente
+                    if (!modalDataFiltro.dataFim) {
+                      setDataFimFocada(false);
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '0.5rem',
@@ -1380,9 +1437,21 @@ export function RelatoriosSection({ currentUser }: RelatoriosSectionProps) {
                   id="dataFim"
                   type="date"
                   value={modalDataFiltro.dataFim}
-                  onChange={(e) =>
-                    setModalDataFiltro((prev) => ({ ...prev, dataFim: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setModalDataFiltro((prev) => ({ ...prev, dataFim: e.target.value }));
+                    setDataFimFocada(true);
+                  }}
+                  min={modalDataFiltro.dataInicio || undefined}
+                  onFocus={(event) => {
+                    // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
+                    if (!modalDataFiltro.dataFim && modalDataFiltro.dataInicio && !dataFimFocada) {
+                      const input = event.currentTarget;
+                      // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
+                      input.value = modalDataFiltro.dataInicio;
+                      setModalDataFiltro((prev) => ({ ...prev, dataFim: prev.dataInicio }));
+                      setDataFimFocada(true);
+                    }
+                  }}
                   style={{
                     width: '100%',
                     padding: '0.5rem',

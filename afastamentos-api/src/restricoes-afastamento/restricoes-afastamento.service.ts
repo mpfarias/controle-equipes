@@ -3,6 +3,8 @@ import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateRestricaoAfastamentoDto } from './dto/create-restricao-afastamento.dto';
 import { UpdateRestricaoAfastamentoDto } from './dto/update-restricao-afastamento.dto';
+import { CreateTipoRestricaoDto } from './dto/create-tipo-restricao.dto';
+import { UpdateTipoRestricaoDto } from './dto/update-tipo-restricao.dto';
 import { Prisma, AuditAction } from '@prisma/client';
 
 type RestricaoAfastamentoWithRelations = Prisma.RestricaoAfastamentoGetPayload<{
@@ -38,6 +40,128 @@ export class RestricoesAfastamentoService {
   async listTiposRestricao() {
     return this.prisma.tipoRestricaoAfastamento.findMany({
       orderBy: { nome: 'asc' },
+    });
+  }
+
+  async createTipoRestricao(
+    data: CreateTipoRestricaoDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    // Verificar se já existe um tipo com o mesmo nome
+    const tipoExistente = await this.prisma.tipoRestricaoAfastamento.findUnique({
+      where: { nome: data.nome.trim() },
+    });
+
+    if (tipoExistente) {
+      throw new BadRequestException(`Já existe um tipo de restrição com o nome "${data.nome.trim()}".`);
+    }
+
+    const created = await this.prisma.tipoRestricaoAfastamento.create({
+      data: {
+        nome: data.nome.trim(),
+        descricao: data.descricao?.trim() || null,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'TipoRestricaoAfastamento',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+
+    return created;
+  }
+
+  async updateTipoRestricao(
+    id: number,
+    data: UpdateTipoRestricaoDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.tipoRestricaoAfastamento.findUnique({
+      where: { id },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Tipo de restrição ${id} não encontrado.`);
+    }
+
+    // Se está alterando o nome, verificar se já existe outro com o mesmo nome
+    if (data.nome && data.nome.trim() !== before.nome) {
+      const tipoExistente = await this.prisma.tipoRestricaoAfastamento.findUnique({
+        where: { nome: data.nome.trim() },
+      });
+
+      if (tipoExistente) {
+        throw new BadRequestException(`Já existe um tipo de restrição com o nome "${data.nome.trim()}".`);
+      }
+    }
+
+    const updateData: Prisma.TipoRestricaoAfastamentoUpdateInput = {};
+
+    if (data.nome !== undefined) {
+      updateData.nome = data.nome.trim();
+    }
+    if (data.descricao !== undefined) {
+      updateData.descricao = data.descricao?.trim() || null;
+    }
+
+    const updated = await this.prisma.tipoRestricaoAfastamento.update({
+      where: { id },
+      data: updateData,
+    });
+
+    await this.audit.record({
+      entity: 'TipoRestricaoAfastamento',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deleteTipoRestricao(id: number, responsavelId?: number): Promise<void> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.tipoRestricaoAfastamento.findUnique({
+      where: { id },
+      include: {
+        restricoes: {
+          select: { id: true },
+          take: 1,
+        },
+      },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Tipo de restrição ${id} não encontrado.`);
+    }
+
+    // Verificar se há restrições usando este tipo
+    if (before.restricoes.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir o tipo de restrição "${before.nome}" pois existem restrições cadastradas com este tipo.`,
+      );
+    }
+
+    await this.prisma.tipoRestricaoAfastamento.delete({
+      where: { id },
+    });
+
+    await this.audit.record({
+      entity: 'TipoRestricaoAfastamento',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
     });
   }
 
@@ -348,6 +472,46 @@ export class RestricoesAfastamentoService {
     return updated;
   }
 
+  async disable(id: number, responsavelId?: number): Promise<RestricaoAfastamentoWithRelations> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.restricaoAfastamento.findUnique({
+      where: { id },
+      include: { tipoRestricao: true },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Restrição de afastamento ${id} não encontrada.`);
+    }
+
+    if (!before.ativo) {
+      throw new BadRequestException(`Restrição de afastamento ${id} já está desativada.`);
+    }
+
+    const updated = await this.prisma.restricaoAfastamento.update({
+      where: { id },
+      data: {
+        ativo: false,
+        updatedById: actor?.id ?? null,
+        updatedByName: actor?.nome ?? null,
+      },
+      include: {
+        tipoRestricao: true,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'RestricaoAfastamento',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
   async remove(id: number, responsavelId?: number): Promise<void> {
     const actor = await this.audit.resolveActor(responsavelId);
 
@@ -449,6 +613,39 @@ export class RestricoesAfastamentoService {
 
     const restricoes = await this.prisma.restricaoAfastamento.findMany({
       where,
+      include: {
+        tipoRestricao: true,
+      },
+    });
+
+    if (restricoes.length > 0) {
+      return { bloqueado: true, restricao: restricoes[0] };
+    }
+
+    return { bloqueado: false };
+  }
+
+  /**
+   * Verifica se o mês inteiro está restrito (do dia 1 ao último dia do mês)
+   */
+  async verificarMesInteiroRestrito(
+    ano: number,
+    mes: number,
+    motivoId: number,
+  ): Promise<{ bloqueado: boolean; restricao?: RestricaoAfastamentoWithRelations }> {
+    // Calcular primeiro e último dia do mês
+    const primeiroDiaMes = new Date(ano, mes - 1, 1, 0, 0, 0, 0);
+    const ultimoDiaMes = new Date(ano, mes, 0, 23, 59, 59, 999);
+
+    // Verificar se existe uma restrição que cobre todo o mês (do dia 1 ao último dia)
+    const restricoes = await this.prisma.restricaoAfastamento.findMany({
+      where: {
+        ativo: true,
+        motivosRestritos: { has: motivoId },
+        // A restrição deve começar no dia 1 ou antes e terminar no último dia ou depois
+        dataInicio: { lte: primeiroDiaMes },
+        dataFim: { gte: ultimoDiaMes },
+      },
       include: {
         tipoRestricao: true,
       },

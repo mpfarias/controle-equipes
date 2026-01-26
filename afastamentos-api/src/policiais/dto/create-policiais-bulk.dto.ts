@@ -1,6 +1,5 @@
-import { ArrayMaxSize, IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, ValidateNested, ValidateIf, IsIn } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, ValidateNested, ValidateIf, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
-import { Equipe } from '@prisma/client';
 
 const POLICIAL_STATUS_VALUES = [
   'ATIVO',
@@ -33,8 +32,9 @@ export class PolicialBulkItemDto {
 
   @IsOptional()
   @ValidateIf((o) => o.equipe !== null)
-  @IsEnum(Equipe)
-  equipe?: Equipe | null;
+  @IsString()
+  @MaxLength(50)
+  equipe?: string | null;
 }
 
 export class CreatePoliciaisBulkDto {

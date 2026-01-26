@@ -13,6 +13,8 @@ import {
 import { AfastamentosService } from './afastamentos.service';
 import { CreateAfastamentoDto } from './dto/create-afastamento.dto';
 import { UpdateAfastamentoDto } from './dto/update-afastamento.dto';
+import { CreateMotivoDto } from './dto/create-motivo.dto';
+import { UpdateMotivoDto } from './dto/update-motivo.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { Usuario } from '@prisma/client';
 
@@ -66,6 +68,25 @@ export class AfastamentosController {
   @Get('motivos')
   listMotivos() {
     return this.afastamentosService.listMotivos();
+  }
+
+  @Post('motivos')
+  createMotivo(@Body() createMotivoDto: CreateMotivoDto, @CurrentUser() user: Usuario) {
+    return this.afastamentosService.createMotivo(createMotivoDto, user.id);
+  }
+
+  @Patch('motivos/:id')
+  updateMotivo(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateMotivoDto: UpdateMotivoDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.afastamentosService.updateMotivo(id, updateMotivoDto, user.id);
+  }
+
+  @Delete('motivos/:id')
+  deleteMotivo(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.afastamentosService.deleteMotivo(id, user.id);
   }
 
   @Get(':id')

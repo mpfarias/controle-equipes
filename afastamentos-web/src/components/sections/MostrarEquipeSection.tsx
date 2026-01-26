@@ -1,18 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario } from '../../types';
-import { EQUIPE_FONETICA, EQUIPE_OPTIONS, POLICIAL_STATUS_OPTIONS, STATUS_LABEL } from '../../constants';
+import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario, EquipeOption } from '../../types';
+import { POLICIAL_STATUS_OPTIONS, STATUS_LABEL, formatEquipeLabel } from '../../constants';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
 import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent } from '@mui/material';
 import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print } from '@mui/icons-material';
-import { formatPeriodo, calcularDiasEntreDatas } from '../../utils/dateUtils';
+import { formatPeriodo, calcularDiasEntreDatas, formatNome } from '../../utils/dateUtils';
+import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 
 interface MostrarEquipeSectionProps {
   currentUser: Usuario;
   openConfirm: (config: ConfirmConfig) => void;
   onChanged?: () => void;
   refreshKey?: number;
+  permissoes?: PermissoesPorTela | null;
 }
 
 export function MostrarEquipeSection({
@@ -20,6 +24,7 @@ export function MostrarEquipeSection({
   openConfirm,
   onChanged,
   refreshKey,
+  permissoes,
 }: MostrarEquipeSectionProps) {
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [totalPoliciaisGeral, setTotalPoliciaisGeral] = useState<number>(0);
@@ -85,6 +90,7 @@ export function MostrarEquipeSection({
     fotoUrl: undefined as string | null | undefined,
   });
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
+  const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [showImageCropper, setShowImageCropper] = useState(false);
@@ -497,6 +503,15 @@ export function MostrarEquipeSection({
     }
   }, []);
 
+  const carregarEquipes = useCallback(async () => {
+    try {
+      const data = await api.listEquipes();
+      setEquipes(data);
+    } catch (err) {
+      console.error('Erro ao carregar equipes:', err);
+    }
+  }, []);
+
   const carregarRestricoesMedicas = useCallback(async () => {
     try {
       setLoadingRestricoes(true);
@@ -510,9 +525,23 @@ export function MostrarEquipeSection({
   }, []);
 
   // Ordenar funções alfabeticamente
-  const funcoesOrdenadas = useMemo(() => {
-    return [...funcoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  const funcoesAtivas = useMemo(() => {
+    return funcoes.filter((f) => f.ativo !== false);
   }, [funcoes]);
+
+  const funcoesOrdenadas = useMemo(() => {
+    return [...funcoesAtivas].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoesAtivas]);
+
+  const equipesAtivas = useMemo(() => {
+    return [...equipes]
+      .filter((e) => e.ativo)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [equipes]);
+
+  const equipesDisponiveisCadastro = useMemo(() => {
+    return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
+  }, [equipesAtivas]);
  
   useEffect(() => {
     void carregarTotalGeral();
@@ -525,7 +554,8 @@ export function MostrarEquipeSection({
   useEffect(() => {
     void carregarFuncoes();
     void carregarRestricoesMedicas();
-  }, [carregarFuncoes, carregarRestricoesMedicas]);
+    void carregarEquipes();
+  }, [carregarFuncoes, carregarRestricoesMedicas, carregarEquipes]);
 
   const openEditModal = (policial: Policial) => {
     setEditingPolicial(policial);
@@ -610,7 +640,7 @@ export function MostrarEquipeSection({
       const funcaoSelecionada = funcoes.find(f => f.id === editForm.funcaoId);
       if (funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA')) {
         if (equipeFinal === 'E') {
-          setEditError('A função MOTORISTA DE DIA não pode ter equipe E (Echo). Selecione uma equipe de A até D.');
+          setEditError('A função MOTORISTA DE DIA não pode ter equipe E. Selecione uma equipe de A até D.');
           return;
         }
       }
@@ -1033,9 +1063,9 @@ export function MostrarEquipeSection({
                 style={{ width: '100%', marginTop: '8px' }}
               >
                 <option value="">Todas as equipes</option>
-                {EQUIPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {EQUIPE_FONETICA[option.value]} ({option.value})
+                {equipesDisponiveisCadastro.map((option) => (
+                  <option key={option.id} value={option.nome}>
+                    {formatNome(option.nome)}
                   </option>
                 ))}
               </select>
@@ -1065,7 +1095,7 @@ export function MostrarEquipeSection({
                 <option value="">Todas as funções</option>
                 {funcoesOrdenadas.map((funcao) => (
                   <option key={funcao.id} value={funcao.id}>
-                    {funcao.nome}
+                    {formatNome(funcao.nome)}
                   </option>
                 ))}
               </select>
@@ -1226,7 +1256,7 @@ export function MostrarEquipeSection({
                             fontWeight: 'bold',
                             lineHeight: 1,
                           }}
-                          title={`Restrição médica: ${policial.restricaoMedica.nome}`}
+                          title={`Restrição médica: ${formatNome(policial.restricaoMedica.nome)}`}
                         >
                           ⚠
                         </span>
@@ -1247,66 +1277,70 @@ export function MostrarEquipeSection({
                 </td>
                 <td>
                   {policial.funcao?.nome ? (
-                    policial.funcao.nome
+                    formatNome(policial.funcao.nome)
                   ) : (
                     <span style={{ color: '#64748b', fontStyle: 'italic' }}>-</span>
                   )}
                 </td>
                 <td>
-                  {policial.equipe && policial.equipe !== 'SEM_EQUIPE' ? (
-                    <>
-                      {EQUIPE_FONETICA[policial.equipe]} ({policial.equipe})
-                    </>
+                  {formatEquipeLabel(policial.equipe) === '—' ? (
+                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>—</span>
                   ) : (
-                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>-</span>
+                    policial.equipe
                   )}
                 </td>
                 <td className="actions">
                   {usuarioPodeVerTodosEAcoes ? (
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <IconButton
-                        onClick={() => openEditModal(policial)}
-                        title="Editar"
-                        size="small"
-                        sx={{
-                          color: '#3b82f6',
-                          '&:hover': {
-                            backgroundColor: '#eff6ff',
-                          },
-                        }}
-                      >
-                        <Edit fontSize="small" />
-                      </IconButton>
-                      {policial.status === 'DESATIVADO' ? (
+                      {canEdit(permissoes, 'equipe') && (
                         <IconButton
-                          onClick={() => handleActivate(policial)}
-                          title="Reativar"
+                          onClick={() => openEditModal(policial)}
+                          title="Editar"
                           size="small"
                           sx={{
-                            color: '#10b981',
+                            color: '#3b82f6',
                             '&:hover': {
-                              backgroundColor: '#d1fae5',
+                              backgroundColor: '#eff6ff',
                             },
                           }}
                         >
-                          <CheckCircle fontSize="small" />
-                        </IconButton>
-                      ) : (
-                        <IconButton
-                          onClick={() => handleDelete(policial)}
-                          title="Desativar"
-                          size="small"
-                          sx={{
-                            color: '#ef4444',
-                            '&:hover': {
-                              backgroundColor: '#fef2f2',
-                            },
-                          }}
-                        >
-                          <Block fontSize="small" />
+                          <Edit fontSize="small" />
                         </IconButton>
                       )}
-                      {usuarioPodeExcluirPermanentemente && (
+                      {policial.status === 'DESATIVADO' ? (
+                        canDesativar(permissoes, 'equipe') && (
+                          <IconButton
+                            onClick={() => handleActivate(policial)}
+                            title="Reativar"
+                            size="small"
+                            sx={{
+                              color: '#10b981',
+                              '&:hover': {
+                                backgroundColor: '#d1fae5',
+                              },
+                            }}
+                          >
+                            <CheckCircle fontSize="small" />
+                          </IconButton>
+                        )
+                      ) : (
+                        canDesativar(permissoes, 'equipe') && (
+                          <IconButton
+                            onClick={() => handleDelete(policial)}
+                            title="Desativar"
+                            size="small"
+                            sx={{
+                              color: '#ef4444',
+                              '&:hover': {
+                                backgroundColor: '#fef2f2',
+                              },
+                            }}
+                          >
+                            <Block fontSize="small" />
+                          </IconButton>
+                        )
+                      )}
+                      {usuarioPodeExcluirPermanentemente && canExcluir(permissoes, 'equipe') && (
                         <IconButton
                           onClick={() => handleOpenDeleteModal(policial)}
                           title="Excluir permanentemente"
@@ -1534,12 +1568,13 @@ export function MostrarEquipeSection({
                 Nome
                 <input
                   value={editForm.nome}
-                  onChange={(event) =>
+                  onChange={createNormalizedInputHandler((value) =>
                     setEditForm((prev) => ({
                       ...prev,
-                      nome: event.target.value.toUpperCase(),
+                      nome: value,
                     }))
-                  }
+                  )}
+                  onKeyDown={handleKeyDownNormalized}
                   required
                 />
               </label>
@@ -1614,7 +1649,7 @@ export function MostrarEquipeSection({
                   <option value="">Selecione uma função</option>
                   {funcoesOrdenadas.map((funcao) => (
                     <option key={funcao.id} value={funcao.id}>
-                      {funcao.nome}
+                      {formatNome(funcao.nome)}
                     </option>
                   ))}
                 </select>
@@ -1634,17 +1669,18 @@ export function MostrarEquipeSection({
                 
                 const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') || false;
                 
-                // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E (Echo)
+                // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E
                 const equipesDisponiveis = (() => {
-                  let equipes = currentUser.nivel?.nome === 'OPERAÇÕES'
-                    ? EQUIPE_OPTIONS.filter((option) => option.value === currentUser.equipe)
-                    : EQUIPE_OPTIONS;
-                  
+                  let equipesFiltradas =
+                    currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
+                      ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
+                      : equipesDisponiveisCadastro;
+
                   if (isMotoristaDia) {
-                    equipes = equipes.filter((option) => option.value !== 'E');
+                    equipesFiltradas = equipesFiltradas.filter((option) => option.nome !== 'E');
                   }
-                  
-                  return equipes;
+
+                  return equipesFiltradas;
                 })();
                 
                 return mostrarEquipe ? (
@@ -1662,8 +1698,8 @@ export function MostrarEquipeSection({
                     >
                       <option value="">Selecione uma equipe</option>
                       {equipesDisponiveis.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {EQUIPE_FONETICA[option.value]} ({option.value})
+                        <option key={option.id} value={option.nome}>
+                          {formatNome(option.nome)}
                         </option>
                       ))}
                     </select>
@@ -1721,7 +1757,7 @@ export function MostrarEquipeSection({
                 {viewingPolicial.restricaoMedica && (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
                     <Typography variant="body1" sx={{ color: 'error.main', fontWeight: 500 }}>
-                      Policial com restrição: {viewingPolicial.restricaoMedica.nome}
+                      Policial com restrição: {formatNome(viewingPolicial.restricaoMedica.nome)}
                     </Typography>
                     <button
                       type="button"
@@ -1842,25 +1878,23 @@ export function MostrarEquipeSection({
                               Função
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
-                              {viewingPolicial.funcao.nome}
+                              {formatNome(viewingPolicial.funcao.nome)}
                             </Typography>
                           </Box>
                         </>
                       )}
 
-                      {viewingPolicial.equipe && viewingPolicial.equipe !== 'SEM_EQUIPE' && (
-                        <>
-                          <Divider />
-                          <Box>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                              Equipe
-                            </Typography>
-                            <Typography variant="body1" sx={{ mt: 0.5 }}>
-                              {EQUIPE_FONETICA[viewingPolicial.equipe]} ({viewingPolicial.equipe})
-                            </Typography>
-                          </Box>
-                        </>
-                      )}
+                      <>
+                        <Divider />
+                        <Box>
+                          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            Equipe
+                          </Typography>
+                          <Typography variant="body1" sx={{ mt: 0.5 }}>
+                            {formatEquipeLabel(viewingPolicial.equipe)}
+                          </Typography>
+                        </Box>
+                      </>
 
                       {(viewingPolicial.restricaoMedica || (viewingPolicial.restricoesMedicasHistorico && viewingPolicial.restricoesMedicasHistorico.length > 0)) && (
                         <>
@@ -1897,7 +1931,7 @@ export function MostrarEquipeSection({
                                       sx={{ p: 1.5, backgroundColor: '#f9fafb', borderRadius: 1, border: '1px solid #e5e7eb' }}
                                     >
                                       <Typography variant="body2" sx={{ fontSize: '0.875rem', color: 'text.secondary', mb: 0.75, fontWeight: 500 }}>
-                                        {historico.restricaoMedica.nome}
+                                        {formatNome(historico.restricaoMedica.nome)}
                                       </Typography>
                                       <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
                                         Colocada em: {new Date(historico.dataInicio).toLocaleDateString('pt-BR')}
@@ -1957,7 +1991,7 @@ export function MostrarEquipeSection({
                               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
                                 <Box sx={{ flex: 1 }}>
                                   <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.25, fontSize: '0.9rem' }}>
-                                    {afastamento.motivo.nome}
+                                    {formatNome(afastamento.motivo.nome)}
                                   </Typography>
                                   {afastamento.descricao && (
                                     <Typography variant="body2" sx={{ color: 'text.secondary', mb: 0.5, fontSize: '0.8rem' }}>
@@ -2162,7 +2196,7 @@ export function MostrarEquipeSection({
                     <option value="">Nenhuma restrição</option>
                     {restricoesMedicas.map((restricao) => (
                       <option key={restricao.id} value={restricao.id}>
-                        {restricao.nome}
+                        {formatNome(restricao.nome)}
                       </option>
                     ))}
                   </select>
@@ -2249,7 +2283,7 @@ export function MostrarEquipeSection({
 
             <Box sx={{ p: 3 }}>
               <Typography variant="body1" sx={{ mb: 3 }}>
-                Tem certeza que deseja retirar a restrição médica <strong>{removeRestricaoModal.policial.restricaoMedica?.nome}</strong> deste policial?
+                Tem certeza que deseja retirar a restrição médica <strong>{formatNome(removeRestricaoModal.policial.restricaoMedica?.nome)}</strong> deste policial?
               </Typography>
 
               {removeRestricaoModal.error && (
@@ -2530,9 +2564,9 @@ export function MostrarEquipeSection({
                                   <Typography variant="caption" component="span" color="text.secondary">
                                     Matrícula: {policial.matricula}
                                   </Typography>
-                                  {policial.equipe && policial.equipe !== 'SEM_EQUIPE' && (
+                                  {formatEquipeLabel(policial.equipe) !== '—' && (
                                     <Chip
-                                      label={`Equipe ${EQUIPE_FONETICA[policial.equipe]}`}
+                                      label={`Equipe ${policial.equipe}`}
                                       size="small"
                                       sx={{
                                         height: '20px',
@@ -2544,7 +2578,7 @@ export function MostrarEquipeSection({
                                   )}
                                   {policial.funcao && (
                                     <Typography variant="caption" component="span" color="text.secondary">
-                                      {policial.funcao.nome}
+                                      {formatNome(policial.funcao.nome)}
                                     </Typography>
                                   )}
                                 </Box>
@@ -2576,14 +2610,12 @@ export function MostrarEquipeSection({
                             <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
                               <strong>Matrícula:</strong> {policial.matricula}
                             </Typography>
-                            {policial.equipe && policial.equipe !== 'SEM_EQUIPE' && (
-                              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                                <strong>Equipe:</strong> {EQUIPE_FONETICA[policial.equipe]}
-                              </Typography>
-                            )}
+                            <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                              <strong>Equipe:</strong> {formatEquipeLabel(policial.equipe)}
+                            </Typography>
                             {policial.funcao && (
                               <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                                <strong>Função:</strong> {policial.funcao.nome}
+                                <strong>Função:</strong> {formatNome(policial.funcao.nome)}
                               </Typography>
                             )}
                           </Box>

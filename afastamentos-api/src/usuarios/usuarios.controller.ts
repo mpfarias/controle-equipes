@@ -13,6 +13,9 @@ import { UsuariosService } from './usuarios.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { DeleteUsuarioDto } from './dto/delete-usuario.dto';
+import { CreateUsuarioNivelDto } from './dto/create-usuario-nivel.dto';
+import { UpdateUsuarioNivelDto } from './dto/update-usuario-nivel.dto';
+import { SetUsuarioNivelPermissoesDto } from './dto/set-usuario-nivel-permissoes.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import type { Usuario } from '@prisma/client';
@@ -47,9 +50,147 @@ export class UsuariosController {
     return this.usuariosService.findNiveis();
   }
 
+  @Post('niveis')
+  createNivel(
+    @Body() createUsuarioNivelDto: CreateUsuarioNivelDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.createNivel(createUsuarioNivelDto, user.id);
+  }
+
+  @Patch('niveis/:id')
+  updateNivel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateUsuarioNivelDto: UpdateUsuarioNivelDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.updateNivel(id, updateUsuarioNivelDto, user.id);
+  }
+
+  @Patch('niveis/:id/desativar')
+  disableNivel(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.usuariosService.disableNivel(id, user.id);
+  }
+
+  @Delete('niveis/:id')
+  deleteNivel(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.usuariosService.deleteNivel(id, user.id);
+  }
+
+  @Get('niveis/:id/permissoes')
+  listPermissoes(@Param('id', ParseIntPipe) id: number) {
+    return this.usuariosService.listNivelPermissoes(id);
+  }
+
+  @Post('niveis/:id/permissoes')
+  setPermissoes(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() setPermissoesDto: SetUsuarioNivelPermissoesDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.setNivelPermissoes(id, setPermissoesDto, user.id);
+  }
+
   @Get('funcoes')
   listFuncoes() {
     return this.usuariosService.listFuncoes();
+  }
+
+  @Post('funcoes')
+  createFuncao(
+    @Body() body: { nome: string; descricao?: string | null },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.createFuncao(body, user.id);
+  }
+
+  @Patch('funcoes/:id')
+  updateFuncao(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { nome?: string; descricao?: string | null },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.updateFuncao(id, body, user.id);
+  }
+
+  @Patch('funcoes/:id/desativar')
+  disableFuncao(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.usuariosService.disableFuncao(id, user.id);
+  }
+
+  @Delete('funcoes/:id')
+  deleteFuncao(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.usuariosService.deleteFuncao(id, user.id);
+  }
+
+  @Get('equipes')
+  listEquipes() {
+    return this.usuariosService.listEquipes();
+  }
+
+  @Post('equipes')
+  createEquipe(
+    @Body() body: { nome: string; descricao?: string | null },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.createEquipe(body, user.id);
+  }
+
+  @Patch('equipes/:id')
+  updateEquipe(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { nome?: string; descricao?: string | null },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.updateEquipe(id, body, user.id);
+  }
+
+  @Patch('equipes/:id/desativar')
+  disableEquipe(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.usuariosService.disableEquipe(id, user.id);
+  }
+
+  @Delete('equipes/:id')
+  deleteEquipe(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.usuariosService.deleteEquipe(id, user.id);
+  }
+
+  @Get('perguntas-seguranca')
+  listPerguntasSeguranca() {
+    return this.usuariosService.listPerguntasSeguranca();
+  }
+
+  @Post('perguntas-seguranca')
+  createPerguntaSeguranca(
+    @Body() body: { texto: string },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.createPerguntaSeguranca(body, user.id);
+  }
+
+  @Patch('perguntas-seguranca/:id')
+  updatePerguntaSeguranca(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { texto?: string },
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.updatePerguntaSeguranca(id, body, user.id);
+  }
+
+  @Patch('perguntas-seguranca/:id/desativar')
+  disablePerguntaSeguranca(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.disablePerguntaSeguranca(id, user.id);
+  }
+
+  @Delete('perguntas-seguranca/:id')
+  deletePerguntaSeguranca(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.usuariosService.deletePerguntaSeguranca(id, user.id);
   }
 
   @Get(':id')

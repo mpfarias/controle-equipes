@@ -35,6 +35,7 @@ export class AuthService {
             id: true,
             nome: true,
             descricao: true,
+            ativo: true,
           },
         },
         funcao: {
@@ -55,6 +56,12 @@ export class AuthService {
     if (usuario.status === UsuarioStatus.DESATIVADO) {
       throw new ForbiddenException(
         'Você foi desativado. Contate o Adjunto ou o Oficial de Operações',
+      );
+    }
+
+    if (usuario.nivelId && usuario.nivel && usuario.nivel.ativo === false) {
+      throw new ForbiddenException(
+        'Erro: Nível de acesso bloqueado. Entre em contato com o Administrador do sistema',
       );
     }
 

@@ -1,11 +1,20 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { AuditAction, Prisma, UsuarioStatus } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { AuditAction, PermissaoAcao, Prisma, UsuarioStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateUsuarioDto } from './dto/create-usuario.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
 import { DeleteUsuarioDto } from './dto/delete-usuario.dto';
+import { CreateUsuarioNivelDto } from './dto/create-usuario-nivel.dto';
+import { UpdateUsuarioNivelDto } from './dto/update-usuario-nivel.dto';
+import { SetUsuarioNivelPermissoesDto } from './dto/set-usuario-nivel-permissoes.dto';
 
 type UsuarioEntity = Prisma.UsuarioGetPayload<{
   select: typeof usuarioSelect;
@@ -25,6 +34,7 @@ const usuarioSelect = {
       id: true,
       nome: true,
       descricao: true,
+      ativo: true,
     },
   },
   funcaoId: true,
@@ -56,6 +66,26 @@ export class UsuariosService {
     return matricula.trim().toUpperCase().replace(/[^0-9X]/g, '');
   }
 
+  private sanitizeNivelNome(nome: string): string {
+    return nome.trim().toUpperCase();
+  }
+
+  private sanitizeEquipeNome(nome: string): string {
+    return nome.trim().toUpperCase();
+  }
+
+  private async ensureEquipeAtiva(nome: string): Promise<string> {
+    const normalizado = this.sanitizeEquipeNome(nome);
+    const equipe = await this.prisma.equipeOption.findFirst({
+      where: { nome: normalizado, ativo: true },
+      select: { id: true },
+    });
+    if (!equipe) {
+      throw new BadRequestException('Equipe inválida ou inativa.');
+    }
+    return normalizado;
+  }
+
   async create(
     data: Omit<CreateUsuarioDto, 'responsavelId'>,
     responsavelId?: number,
@@ -70,6 +100,7 @@ export class UsuariosService {
       ? await bcrypt.hash(data.respostaSeguranca.trim().toLowerCase(), 10)
       : null;
 
+    const equipe = await this.ensureEquipeAtiva(data.equipe ?? 'A');
     const created = await this.prisma.usuario.create({
       data: {
         nome: this.sanitizeNome(data.nome),
@@ -77,7 +108,7 @@ export class UsuariosService {
         senhaHash,
         perguntaSeguranca: data.perguntaSeguranca?.trim() || null,
         respostaSegurancaHash,
-        equipe: data.equipe ?? 'A',
+        equipe,
         nivel: { connect: { id: data.nivelId } },
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         status: UsuarioStatus.ATIVO,
@@ -184,15 +215,588 @@ export class UsuariosService {
     });
   }
 
-  async listFuncoes(): Promise<{ id: number; nome: string; descricao: string | null }[]> {
+  async createNivel(
+    data: CreateUsuarioNivelDto,
+    responsavelId?: number,
+  ) {
+    const actor = await this.audit.resolveActor(responsavelId);
+    const nome = this.sanitizeNivelNome(data.nome);
+
+    const existente = await this.prisma.usuarioNivel.findUnique({
+      where: { nome },
+    });
+
+    if (existente) {
+      throw new ConflictException('Já existe um nível de acesso com esse nome.');
+    }
+
+    const created = await this.prisma.usuarioNivel.create({
+      data: {
+        nome,
+        descricao: data.descricao?.trim() || null,
+        ativo: true,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'UsuarioNivel',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+
+    return created;
+  }
+
+  async updateNivel(
+    id: number,
+    data: UpdateUsuarioNivelDto,
+    responsavelId?: number,
+  ) {
+    const before = await this.prisma.usuarioNivel.findUnique({
+      where: { id },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Nível de acesso ${id} não encontrado.`);
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updateData: Prisma.UsuarioNivelUpdateInput = {};
+
+    if (data.nome !== undefined) {
+      const nome = this.sanitizeNivelNome(data.nome);
+      if (nome !== before.nome) {
+        const existente = await this.prisma.usuarioNivel.findUnique({
+          where: { nome },
+        });
+        if (existente) {
+          throw new ConflictException('Já existe um nível de acesso com esse nome.');
+        }
+      }
+      updateData.nome = nome;
+    }
+
+    if (data.descricao !== undefined) {
+      updateData.descricao = data.descricao?.trim() || null;
+    }
+
+    const updated = await this.prisma.usuarioNivel.update({
+      where: { id },
+      data: updateData,
+    });
+
+    await this.audit.record({
+      entity: 'UsuarioNivel',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async listNivelPermissoes(nivelId: number) {
+    const nivel = await this.prisma.usuarioNivel.findUnique({
+      where: { id: nivelId },
+      select: { id: true },
+    });
+
+    if (!nivel) {
+      throw new NotFoundException(`Nível de acesso ${nivelId} não encontrado.`);
+    }
+
+    return this.prisma.usuarioNivelPermissao.findMany({
+      where: { nivelId },
+      select: { telaKey: true, acao: true },
+      orderBy: [{ telaKey: 'asc' }, { acao: 'asc' }],
+    });
+  }
+
+  async setNivelPermissoes(
+    nivelId: number,
+    data: SetUsuarioNivelPermissoesDto,
+    responsavelId?: number,
+  ) {
+    const nivel = await this.prisma.usuarioNivel.findUnique({
+      where: { id: nivelId },
+      select: { id: true, nome: true },
+    });
+
+    if (!nivel) {
+      throw new NotFoundException(`Nível de acesso ${nivelId} não encontrado.`);
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+    const before = await this.prisma.usuarioNivelPermissao.findMany({
+      where: { nivelId },
+      select: { telaKey: true, acao: true },
+      orderBy: [{ telaKey: 'asc' }, { acao: 'asc' }],
+    });
+
+    const itens = data.itens.map((item) => ({
+      nivelId,
+      telaKey: item.telaKey,
+      acao: item.acao as PermissaoAcao,
+    }));
+
+    await this.prisma.$transaction([
+      this.prisma.usuarioNivelPermissao.deleteMany({ where: { nivelId } }),
+      ...(itens.length > 0 ? [this.prisma.usuarioNivelPermissao.createMany({ data: itens })] : []),
+    ]);
+
+    const after = await this.prisma.usuarioNivelPermissao.findMany({
+      where: { nivelId },
+      select: { telaKey: true, acao: true },
+      orderBy: [{ telaKey: 'asc' }, { acao: 'asc' }],
+    });
+
+    await this.audit.record({
+      entity: 'UsuarioNivelPermissao',
+      entityId: nivelId,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after,
+    });
+
+    return after;
+  }
+
+  async disableNivel(id: number, responsavelId?: number) {
+    const before = await this.prisma.usuarioNivel.findUnique({
+      where: { id },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Nível de acesso ${id} não encontrado.`);
+    }
+
+    if (before.ativo === false) {
+      return before;
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.usuarioNivel.update({
+      where: { id },
+      data: { ativo: false },
+    });
+
+    await this.audit.record({
+      entity: 'UsuarioNivel',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deleteNivel(id: number, responsavelId?: number) {
+    const before = await this.prisma.usuarioNivel.findUnique({
+      where: { id },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Nível de acesso ${id} não encontrado.`);
+    }
+
+    const usuariosVinculados = await this.prisma.usuario.count({
+      where: { nivelId: id },
+    });
+
+    if (usuariosVinculados > 0) {
+      throw new ConflictException('Não é possível excluir um nível em uso.');
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+    const deleted = await this.prisma.usuarioNivel.delete({
+      where: { id },
+    });
+
+    await this.audit.record({
+      entity: 'UsuarioNivel',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
+      after: deleted,
+    });
+
+    return deleted;
+  }
+
+  async listFuncoes(): Promise<{ id: number; nome: string; descricao: string | null; ativo: boolean }[]> {
     return this.prisma.funcao.findMany({
       select: {
         id: true,
         nome: true,
         descricao: true,
+        ativo: true,
       },
       orderBy: { id: 'asc' },
     });
+  }
+
+  async createFuncao(
+    data: { nome: string; descricao?: string | null },
+    responsavelId?: number,
+  ) {
+    const nome = data.nome.trim().toUpperCase();
+    const existente = await this.prisma.funcao.findUnique({
+      where: { nome },
+    });
+    if (existente) {
+      throw new ConflictException('Já existe uma função com esse nome.');
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const created = await this.prisma.funcao.create({
+      data: {
+        nome,
+        descricao: data.descricao?.trim() || null,
+      },
+    });
+    await this.audit.record({
+      entity: 'Funcao',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+    return created;
+  }
+
+  async updateFuncao(
+    id: number,
+    data: { nome?: string; descricao?: string | null },
+    responsavelId?: number,
+  ) {
+    const before = await this.prisma.funcao.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Função ${id} não encontrada.`);
+    }
+    const nome = data.nome ? data.nome.trim().toUpperCase() : before.nome;
+    if (nome !== before.nome) {
+      const existente = await this.prisma.funcao.findUnique({ where: { nome } });
+      if (existente) {
+        throw new ConflictException('Já existe uma função com esse nome.');
+      }
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.funcao.update({
+      where: { id },
+      data: {
+        nome,
+        descricao:
+          data.descricao === undefined ? before.descricao : data.descricao?.trim() || null,
+      },
+    });
+    await this.audit.record({
+      entity: 'Funcao',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async disableFuncao(id: number, responsavelId?: number) {
+    const before = await this.prisma.funcao.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Função ${id} não encontrada.`);
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.funcao.update({
+      where: { id },
+      data: { ativo: false },
+    });
+    await this.audit.record({
+      entity: 'Funcao',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async deleteFuncao(id: number, responsavelId?: number) {
+    const before = await this.prisma.funcao.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Função ${id} não encontrada.`);
+    }
+    const usuariosVinculados = await this.prisma.usuario.count({ where: { funcaoId: id } });
+    const policiaisVinculados = await this.prisma.policial.count({ where: { funcaoId: id } });
+    if (usuariosVinculados > 0 || policiaisVinculados > 0) {
+      throw new ConflictException('Não é possível excluir uma função em uso.');
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const deleted = await this.prisma.funcao.delete({ where: { id } });
+    await this.audit.record({
+      entity: 'Funcao',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
+      after: deleted,
+    });
+    return deleted;
+  }
+
+  async listEquipes() {
+    return this.prisma.equipeOption.findMany({
+      orderBy: { nome: 'asc' },
+    });
+  }
+
+  async createEquipe(
+    data: { nome: string; descricao?: string | null },
+    responsavelId?: number,
+  ) {
+    const nome = this.sanitizeEquipeNome(data.nome);
+    const existente = await this.prisma.equipeOption.findUnique({
+      where: { nome },
+    });
+    if (existente) {
+      throw new ConflictException('Já existe uma equipe com esse nome.');
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const created = await this.prisma.equipeOption.create({
+      data: {
+        nome,
+        descricao: data.descricao?.trim() || null,
+      },
+    });
+    await this.audit.record({
+      entity: 'EquipeOption',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+    return created;
+  }
+
+  async updateEquipe(
+    id: number,
+    data: { nome?: string; descricao?: string | null },
+    responsavelId?: number,
+  ) {
+    const before = await this.prisma.equipeOption.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Equipe ${id} não encontrada.`);
+    }
+    const nome = data.nome ? this.sanitizeEquipeNome(data.nome) : before.nome;
+    if (nome !== before.nome) {
+      const existente = await this.prisma.equipeOption.findUnique({ where: { nome } });
+      if (existente) {
+        throw new ConflictException('Já existe uma equipe com esse nome.');
+      }
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (nome !== before.nome) {
+        await tx.usuario.updateMany({
+          where: { equipe: before.nome },
+          data: { equipe: nome },
+        });
+        await tx.policial.updateMany({
+          where: { equipe: before.nome },
+          data: { equipe: nome },
+        });
+      }
+      return tx.equipeOption.update({
+        where: { id },
+        data: {
+          nome,
+          descricao:
+            data.descricao === undefined ? before.descricao : data.descricao?.trim() || null,
+        },
+      });
+    });
+    await this.audit.record({
+      entity: 'EquipeOption',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async disableEquipe(id: number, responsavelId?: number) {
+    const before = await this.prisma.equipeOption.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Equipe ${id} não encontrada.`);
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.equipeOption.update({
+      where: { id },
+      data: { ativo: false },
+    });
+    await this.audit.record({
+      entity: 'EquipeOption',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async deleteEquipe(id: number, responsavelId?: number) {
+    const before = await this.prisma.equipeOption.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Equipe ${id} não encontrada.`);
+    }
+    const usuariosVinculados = await this.prisma.usuario.count({ where: { equipe: before.nome } });
+    const policiaisVinculados = await this.prisma.policial.count({ where: { equipe: before.nome } });
+    if (usuariosVinculados > 0 || policiaisVinculados > 0) {
+      throw new ConflictException('Não é possível excluir uma equipe em uso.');
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const deleted = await this.prisma.equipeOption.delete({ where: { id } });
+    await this.audit.record({
+      entity: 'EquipeOption',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
+      after: deleted,
+    });
+    return deleted;
+  }
+
+  async listPerguntasSeguranca() {
+    return this.prisma.perguntaSeguranca.findMany({
+      orderBy: { texto: 'asc' },
+    });
+  }
+
+  async createPerguntaSeguranca(
+    data: { texto: string },
+    responsavelId?: number,
+  ) {
+    const texto = data.texto.trim();
+    if (!texto) {
+      throw new BadRequestException('Informe a pergunta de segurança.');
+    }
+    const existente = await this.prisma.perguntaSeguranca.findUnique({
+      where: { texto },
+    });
+    if (existente) {
+      throw new ConflictException('Já existe essa pergunta de segurança.');
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const created = await this.prisma.perguntaSeguranca.create({
+      data: { texto },
+    });
+    await this.audit.record({
+      entity: 'PerguntaSeguranca',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+    return created;
+  }
+
+  async updatePerguntaSeguranca(
+    id: number,
+    data: { texto?: string },
+    responsavelId?: number,
+  ) {
+    const before = await this.prisma.perguntaSeguranca.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Pergunta ${id} não encontrada.`);
+    }
+    const texto = data.texto ? data.texto.trim() : before.texto;
+    if (!texto) {
+      throw new BadRequestException('Informe a pergunta de segurança.');
+    }
+    if (texto !== before.texto) {
+      const existente = await this.prisma.perguntaSeguranca.findUnique({ where: { texto } });
+      if (existente) {
+        throw new ConflictException('Já existe essa pergunta de segurança.');
+      }
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (texto !== before.texto) {
+        await tx.usuario.updateMany({
+          where: { perguntaSeguranca: before.texto },
+          data: { perguntaSeguranca: texto },
+        });
+      }
+      return tx.perguntaSeguranca.update({
+        where: { id },
+        data: { texto },
+      });
+    });
+    await this.audit.record({
+      entity: 'PerguntaSeguranca',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async disablePerguntaSeguranca(id: number, responsavelId?: number) {
+    const before = await this.prisma.perguntaSeguranca.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Pergunta ${id} não encontrada.`);
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const updated = await this.prisma.perguntaSeguranca.update({
+      where: { id },
+      data: { ativo: false },
+    });
+    await this.audit.record({
+      entity: 'PerguntaSeguranca',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+    return updated;
+  }
+
+  async deletePerguntaSeguranca(id: number, responsavelId?: number) {
+    const before = await this.prisma.perguntaSeguranca.findUnique({ where: { id } });
+    if (!before) {
+      throw new NotFoundException(`Pergunta ${id} não encontrada.`);
+    }
+    const usuariosVinculados = await this.prisma.usuario.count({
+      where: { perguntaSeguranca: before.texto },
+    });
+    if (usuariosVinculados > 0) {
+      throw new ConflictException('Não é possível excluir uma pergunta em uso.');
+    }
+    const actor = await this.audit.resolveActor(responsavelId);
+    const deleted = await this.prisma.perguntaSeguranca.delete({ where: { id } });
+    await this.audit.record({
+      entity: 'PerguntaSeguranca',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
+      after: deleted,
+    });
+    return deleted;
   }
 
   async findOne(id: number): Promise<UsuarioEntity> {
@@ -250,7 +854,7 @@ export class UsuariosService {
     }
 
     if (data.equipe !== undefined) {
-      updateData.equipe = data.equipe;
+      updateData.equipe = await this.ensureEquipeAtiva(data.equipe);
     }
 
     if (data.nivelId !== undefined && data.nivelId !== null && data.nivelId > 0) {

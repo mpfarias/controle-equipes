@@ -1,7 +1,13 @@
+import 'dotenv/config';
 import { PrismaClient, UsuarioStatus } from '@prisma/client';
+import { Pool } from 'pg';
+import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({
+  adapter: new PrismaPg(pool),
+});
 
 async function main() {
   console.log('🌱 Iniciando seed do banco de dados...\n');
@@ -45,6 +51,48 @@ async function main() {
   });
 
   console.log('✅ Níveis de usuário criados/verificados!\n');
+
+  // Criar equipes padrão
+  console.log('📋 Criando equipes padrão...');
+  const equipes = [
+    { nome: 'A', descricao: 'Equipe A' },
+    { nome: 'B', descricao: 'Equipe B' },
+    { nome: 'C', descricao: 'Equipe C' },
+    { nome: 'D', descricao: 'Equipe D' },
+    { nome: 'E', descricao: 'Equipe E' },
+    { nome: 'SEM_EQUIPE', descricao: 'Sem Equipe' },
+  ];
+  for (const equipeData of equipes) {
+    await prisma.equipeOption.upsert({
+      where: { nome: equipeData.nome },
+      update: { descricao: equipeData.descricao },
+      create: equipeData,
+    });
+  }
+  console.log('✅ Equipes padrão criadas/verificadas!\n');
+
+  // Criar perguntas de segurança
+  console.log('📋 Criando perguntas de segurança...');
+  const perguntas = [
+    'Qual o nome da sua mãe?',
+    'Qual o nome do seu pai?',
+    'Qual o nome do seu primeiro animal de estimação?',
+    'Qual o nome da cidade onde você nasceu?',
+    'Qual o nome da sua escola primária?',
+    'Qual o nome do seu melhor amigo de infância?',
+    'Qual o nome do seu primeiro professor?',
+    'Qual o apelido que você tinha na infância?',
+    'Qual o nome da sua primeira rua?',
+    'Qual o nome do seu primeiro emprego?',
+  ];
+  for (const texto of perguntas) {
+    await prisma.perguntaSeguranca.upsert({
+      where: { texto },
+      update: {},
+      create: { texto },
+    });
+  }
+  console.log('✅ Perguntas de segurança criadas/verificadas!\n');
 
   // Criar funções (apenas funções em UPPERCASE)
   console.log('📋 Criando funções...');

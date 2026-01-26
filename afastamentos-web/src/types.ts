@@ -9,12 +9,13 @@ export type PolicialStatus =
 
 export type UsuarioStatus = 'ATIVO' | 'DESATIVADO';
 
-export type Equipe = 'A' | 'B' | 'C' | 'D' | 'E' | 'SEM_EQUIPE';
+export type Equipe = string;
 
 export interface UsuarioNivel {
   id: number;
   nome: string;
   descricao?: string | null;
+  ativo?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -28,7 +29,7 @@ export interface Usuario {
   status: UsuarioStatus;
   isAdmin?: boolean;
   nivelId?: number | null;
-  nivel?: { id: number; nome: string; descricao?: string | null };
+  nivel?: { id: number; nome: string; descricao?: string | null; ativo?: boolean };
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null };
   createdById?: number | null;
@@ -133,16 +134,56 @@ export interface MotivoAfastamentoOption {
   descricao?: string | null;
 }
 
+export interface StatusPolicialOption {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface UsuarioNivelOption {
   id: number;
   nome: string;
   descricao?: string | null;
+  ativo?: boolean;
+}
+
+export interface EquipeOption {
+  id: number;
+  nome: string;
+  descricao?: string | null;
+  ativo: boolean;
+}
+
+export interface PerguntaSegurancaOption {
+  id: number;
+  texto: string;
+  ativo: boolean;
+}
+
+export interface CreateUsuarioNivelInput {
+  nome: string;
+  descricao?: string;
+}
+
+export interface UpdateUsuarioNivelInput {
+  nome?: string;
+  descricao?: string | null;
+}
+
+export type PermissaoAcao = 'VISUALIZAR' | 'EDITAR' | 'DESATIVAR' | 'EXCLUIR';
+
+export interface UsuarioNivelPermissao {
+  telaKey: string;
+  acao: PermissaoAcao;
 }
 
 export interface FuncaoOption {
   id: number;
   nome: string;
   descricao?: string | null;
+  ativo?: boolean;
 }
 
 export interface PolicialExtraido {

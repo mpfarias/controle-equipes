@@ -1,4 +1,4 @@
-import { PrismaClient, Equipe } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -40,7 +40,7 @@ async function main() {
   console.log(`Encontrados ${policiais.length} policial(is) com a função "EXPEDIENTE ADM".\n`);
   
   // Contar quantos já estão com SEM_EQUIPE
-  const jaSemEquipe = policiais.filter(p => p.equipe === Equipe.SEM_EQUIPE).length;
+  const jaSemEquipe = policiais.filter((p) => p.equipe === 'SEM_EQUIPE').length;
   console.log(`- ${jaSemEquipe} já estão com equipe "SEM_EQUIPE"`);
   console.log(`- ${policiais.length - jaSemEquipe} precisam ser atualizados\n`);
   
@@ -49,11 +49,11 @@ async function main() {
     where: {
       funcaoId: funcaoExpedienteAdm.id,
       equipe: {
-        not: Equipe.SEM_EQUIPE,
+        not: 'SEM_EQUIPE',
       },
     },
     data: {
-      equipe: Equipe.SEM_EQUIPE,
+      equipe: 'SEM_EQUIPE',
     },
   });
   

@@ -10,6 +10,11 @@ import type {
   MotivoAfastamentoOption,
   Usuario,
   UsuarioNivelOption,
+  CreateUsuarioNivelInput,
+  UpdateUsuarioNivelInput,
+  UsuarioNivelPermissao,
+  EquipeOption,
+  PerguntaSegurancaOption,
   FuncaoOption,
   ProcessFileResponse,
   BulkCreateResponse,
@@ -23,6 +28,7 @@ import type {
   TipoRestricaoAfastamento,
   CreateRestricaoAfastamentoInput,
   UpdateRestricaoAfastamentoInput,
+  StatusPolicialOption,
 } from './types.ts';
 
 const envApiUrl = import.meta.env.VITE_API_URL;
@@ -242,6 +248,59 @@ export const api = {
     return data;
   },
 
+  async createUsuarioNivel(payload: CreateUsuarioNivelInput): Promise<UsuarioNivelOption> {
+    const data = await request<UsuarioNivelOption>('/usuarios/niveis', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateUsuarioNivel(
+    id: number,
+    payload: UpdateUsuarioNivelInput,
+  ): Promise<UsuarioNivelOption> {
+    const data = await request<UsuarioNivelOption>(`/usuarios/niveis/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async disableUsuarioNivel(id: number): Promise<UsuarioNivelOption> {
+    const data = await request<UsuarioNivelOption>(`/usuarios/niveis/${id}/desativar`, {
+      method: 'PATCH',
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteUsuarioNivel(id: number): Promise<UsuarioNivelOption> {
+    const data = await request<UsuarioNivelOption>(`/usuarios/niveis/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+    return data;
+  },
+
+  async listUsuarioNivelPermissoes(id: number): Promise<UsuarioNivelPermissao[]> {
+    return request(`/usuarios/niveis/${id}/permissoes`);
+  },
+
+  async setUsuarioNivelPermissoes(
+    id: number,
+    itens: UsuarioNivelPermissao[],
+  ): Promise<UsuarioNivelPermissao[]> {
+    const data = await request<UsuarioNivelPermissao[]>(`/usuarios/niveis/${id}/permissoes`, {
+      method: 'POST',
+      body: JSON.stringify({ itens }),
+    });
+    clearCache();
+    return data;
+  },
+
   async listFuncoes(): Promise<FuncaoOption[]> {
     const cacheKey = 'GET:/usuarios/funcoes';
     const cached = getCached<FuncaoOption[]>(cacheKey);
@@ -250,6 +309,139 @@ export const api = {
     }
     const data = await request<FuncaoOption[]>('/usuarios/funcoes');
     setCached(cacheKey, data);
+    return data;
+  },
+
+  async createFuncao(payload: { nome: string; descricao?: string | null }): Promise<FuncaoOption> {
+    const data = await request<FuncaoOption>('/usuarios/funcoes', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateFuncao(
+    id: number,
+    payload: { nome?: string; descricao?: string | null },
+  ): Promise<FuncaoOption> {
+    const data = await request<FuncaoOption>(`/usuarios/funcoes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async disableFuncao(id: number): Promise<FuncaoOption> {
+    const data = await request<FuncaoOption>(`/usuarios/funcoes/${id}/desativar`, {
+      method: 'PATCH',
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteFuncao(id: number): Promise<FuncaoOption> {
+    const data = await request<FuncaoOption>(`/usuarios/funcoes/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+    return data;
+  },
+
+  async listEquipes(): Promise<EquipeOption[]> {
+    const cacheKey = 'GET:/usuarios/equipes';
+    const cached = getCached<EquipeOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<EquipeOption[]>('/usuarios/equipes');
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async createEquipe(payload: { nome: string; descricao?: string | null }): Promise<EquipeOption> {
+    const data = await request<EquipeOption>('/usuarios/equipes', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateEquipe(
+    id: number,
+    payload: { nome?: string; descricao?: string | null },
+  ): Promise<EquipeOption> {
+    const data = await request<EquipeOption>(`/usuarios/equipes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async disableEquipe(id: number): Promise<EquipeOption> {
+    const data = await request<EquipeOption>(`/usuarios/equipes/${id}/desativar`, {
+      method: 'PATCH',
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteEquipe(id: number): Promise<EquipeOption> {
+    const data = await request<EquipeOption>(`/usuarios/equipes/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+    return data;
+  },
+
+  async listPerguntasSeguranca(): Promise<PerguntaSegurancaOption[]> {
+    const cacheKey = 'GET:/usuarios/perguntas-seguranca';
+    const cached = getCached<PerguntaSegurancaOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<PerguntaSegurancaOption[]>('/usuarios/perguntas-seguranca');
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async createPerguntaSeguranca(payload: { texto: string }): Promise<PerguntaSegurancaOption> {
+    const data = await request<PerguntaSegurancaOption>('/usuarios/perguntas-seguranca', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updatePerguntaSeguranca(
+    id: number,
+    payload: { texto?: string },
+  ): Promise<PerguntaSegurancaOption> {
+    const data = await request<PerguntaSegurancaOption>(`/usuarios/perguntas-seguranca/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async disablePerguntaSeguranca(id: number): Promise<PerguntaSegurancaOption> {
+    const data = await request<PerguntaSegurancaOption>(`/usuarios/perguntas-seguranca/${id}/desativar`, {
+      method: 'PATCH',
+    });
+    clearCache();
+    return data;
+  },
+
+  async deletePerguntaSeguranca(id: number): Promise<PerguntaSegurancaOption> {
+    const data = await request<PerguntaSegurancaOption>(`/usuarios/perguntas-seguranca/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
     return data;
   },
 
@@ -727,8 +919,114 @@ export const api = {
     return data;
   },
 
+  async disableRestricaoAfastamento(id: number): Promise<RestricaoAfastamento> {
+    const data = await request<RestricaoAfastamento>(`/restricoes-afastamento/${id}/desativar`, {
+      method: 'PATCH',
+    });
+    clearCache();
+    return data;
+  },
+
   async deleteRestricaoAfastamento(id: number): Promise<void> {
     await request(`/restricoes-afastamento/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+  },
+
+  // Motivos de Afastamento CRUD
+  async createMotivo(payload: { nome: string; descricao?: string | null }): Promise<MotivoAfastamentoOption> {
+    const data = await request<MotivoAfastamentoOption>('/afastamentos/motivos', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateMotivo(
+    id: number,
+    payload: { nome?: string; descricao?: string | null },
+  ): Promise<MotivoAfastamentoOption> {
+    const data = await request<MotivoAfastamentoOption>(`/afastamentos/motivos/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteMotivo(id: number): Promise<void> {
+    await request(`/afastamentos/motivos/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+  },
+
+  // Tipos de Restrição de Afastamento CRUD
+  async createTipoRestricaoAfastamento(payload: { nome: string; descricao?: string | null }): Promise<TipoRestricaoAfastamento> {
+    const data = await request<TipoRestricaoAfastamento>('/restricoes-afastamento/tipos', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateTipoRestricaoAfastamento(
+    id: number,
+    payload: { nome?: string; descricao?: string | null },
+  ): Promise<TipoRestricaoAfastamento> {
+    const data = await request<TipoRestricaoAfastamento>(`/restricoes-afastamento/tipos/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteTipoRestricaoAfastamento(id: number): Promise<void> {
+    await request(`/restricoes-afastamento/tipos/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+  },
+
+  // Status de Policial CRUD
+  async listStatusPolicial(): Promise<StatusPolicialOption[]> {
+    const cacheKey = 'GET:/policiais/status';
+    const cached = getCached<StatusPolicialOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<StatusPolicialOption[]>('/policiais/status');
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async createStatusPolicial(payload: { nome: string; descricao?: string | null }): Promise<StatusPolicialOption> {
+    const data = await request<StatusPolicialOption>('/policiais/status', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateStatusPolicial(
+    id: number,
+    payload: { nome?: string; descricao?: string | null },
+  ): Promise<StatusPolicialOption> {
+    const data = await request<StatusPolicialOption>(`/policiais/status/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteStatusPolicial(id: number): Promise<void> {
+    await request(`/policiais/status/${id}`, {
       method: 'DELETE',
     });
     clearCache();

@@ -22,7 +22,8 @@ import {
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { api } from '../../api';
-import { EQUIPE_FONETICA } from '../../constants';
+import { formatEquipeLabel } from '../../constants';
+import { formatNome } from '../../utils/dateUtils';
 
 interface DashboardHomeSectionProps {
   currentUser: Usuario;
@@ -228,7 +229,8 @@ export function DashboardHomeSection({
         
         // Buscar função MOTORISTA DE DIA para excluir dos cálculos das equipes
         const funcoes = await api.listFuncoes();
-        const funcaoMotorista = funcoes.find((f) => 
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        const funcaoMotorista = funcoesAtivas.find((f) => 
           f.nome.toUpperCase().includes('MOTORISTA DE DIA')
         );
         const funcaoMotoristaId = funcaoMotorista?.id;
@@ -392,7 +394,8 @@ export function DashboardHomeSection({
 
         // Buscar função "EXPEDIENTE ADM"
         const funcoes = await api.listFuncoes();
-        const funcaoExpediente = funcoes.find((f) => 
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        const funcaoExpediente = funcoesAtivas.find((f) => 
           f.nome.toUpperCase().includes('EXPEDIENTE ADM')
         );
 
@@ -463,7 +466,8 @@ export function DashboardHomeSection({
 
         // Buscar função "MOTORISTA DE DIA"
         const funcoes = await api.listFuncoes();
-        const funcaoMotorista = funcoes.find((f) => 
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        const funcaoMotorista = funcoesAtivas.find((f) => 
           f.nome.toUpperCase().includes('MOTORISTA DE DIA')
         );
 
@@ -643,7 +647,8 @@ export function DashboardHomeSection({
     const carregarFuncaoExpediente = async () => {
       try {
         const funcoes = await api.listFuncoes();
-        const funcaoExpediente = funcoes.find((f) => 
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        const funcaoExpediente = funcoesAtivas.find((f) => 
           f.nome.toUpperCase().includes('EXPEDIENTE ADM')
         );
         if (funcaoExpediente) {
@@ -661,7 +666,8 @@ export function DashboardHomeSection({
     const carregarFuncaoMotorista = async () => {
       try {
         const funcoes = await api.listFuncoes();
-        const funcaoMotorista = funcoes.find((f) => 
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        const funcaoMotorista = funcoesAtivas.find((f) => 
           f.nome.toUpperCase().includes('MOTORISTA DE DIA')
         );
         if (funcaoMotorista) {
@@ -679,18 +685,19 @@ export function DashboardHomeSection({
     const carregarFuncoesCopomMulher = async () => {
       try {
         const funcoes = await api.listFuncoes();
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
         
         // Buscar função ANALISTA (busca exata primeiro, depois busca parcial)
-        const funcaoAnalista = funcoes.find((f) => {
+        const funcaoAnalista = funcoesAtivas.find((f) => {
           const nomeUpper = f.nome.toUpperCase().trim();
           return nomeUpper === 'ANALISTA';
-        }) || funcoes.find((f) => {
+        }) || funcoesAtivas.find((f) => {
           const nomeUpper = f.nome.toUpperCase().trim();
           return nomeUpper.includes('ANALISTA') && !nomeUpper.includes('SUPERVISOR');
         });
         
         // Buscar função TELEFONISTA 190 - AUXILIAR (deve conter "TELEFONISTA", "190" E "AUXILIAR")
-        const funcaoTelefonista = funcoes.find((f) => {
+        const funcaoTelefonista = funcoesAtivas.find((f) => {
           const nomeUpper = f.nome.toUpperCase().trim();
           return nomeUpper.includes('TELEFONISTA') && 
                  nomeUpper.includes('190') && 
@@ -772,7 +779,7 @@ export function DashboardHomeSection({
       filters: funcaoExpedienteId ? { funcaoId: funcaoExpedienteId } : undefined,
     },
     {
-      title: 'Equipe Alfa',
+      title: 'Equipe A',
       description: '',
       tab: 'equipe' as TabKey,
       color: '#8b5cf6',
@@ -783,7 +790,7 @@ export function DashboardHomeSection({
       filters: { equipe: 'A' },
     },
     {
-      title: 'Equipe Bravo',
+      title: 'Equipe B',
       description: '',
       tab: 'equipe' as TabKey,
       color: '#a855f7',
@@ -794,7 +801,7 @@ export function DashboardHomeSection({
       filters: { equipe: 'B' },
     },
     {
-      title: 'Equipe Charlie',
+      title: 'Equipe C',
       description: '',
       tab: 'equipe' as TabKey,
       color: '#c084fc',
@@ -805,7 +812,7 @@ export function DashboardHomeSection({
       filters: { equipe: 'C' },
     },
     {
-      title: 'Equipe Delta',
+      title: 'Equipe D',
       description: '',
       tab: 'equipe' as TabKey,
       color: '#d8b4fe',
@@ -816,7 +823,7 @@ export function DashboardHomeSection({
       filters: { equipe: 'D' },
     },
     {
-      title: 'Equipe Echo',
+      title: 'Equipe E',
       description: '',
       tab: 'equipe' as TabKey,
       color: '#e9d5ff',
@@ -1671,9 +1678,9 @@ export function DashboardHomeSection({
                                 policial.status === 'PTTC' ? '#1d4ed8' : '#991b1b',
                             }}
                           />
-                          {policial.equipe && policial.equipe !== 'SEM_EQUIPE' && (
+                          {formatEquipeLabel(policial.equipe) !== '—' && policial.equipe && (
                             <Chip 
-                              label={`Equipe ${policial.equipe} - ${EQUIPE_FONETICA[policial.equipe]}`}
+                              label={`Equipe ${policial.equipe}`}
                               size="small"
                               variant="outlined"
                             />
@@ -1687,7 +1694,7 @@ export function DashboardHomeSection({
                           </Box>
                           {policial.funcao && (
                             <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
-                              Função: {policial.funcao.nome}
+                              Função: {formatNome(policial.funcao.nome)}
                             </Box>
                           )}
                         </>
@@ -1713,7 +1720,7 @@ export function DashboardHomeSection({
                             {afastamento.policial.nome}
                           </Typography>
                           <Chip 
-                            label={afastamento.motivo.nome} 
+                            label={formatNome(afastamento.motivo.nome)} 
                             size="small"
                             color="primary"
                             variant="outlined"
@@ -1729,11 +1736,9 @@ export function DashboardHomeSection({
                             Período: {new Date(afastamento.dataInicio).toLocaleDateString('pt-BR')} 
                             {afastamento.dataFim ? ` até ${new Date(afastamento.dataFim).toLocaleDateString('pt-BR')}` : ' (sem data fim)'}
                           </Box>
-                          {afastamento.policial.equipe && afastamento.policial.equipe !== 'SEM_EQUIPE' && (
-                            <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
-                              Equipe: {afastamento.policial.equipe} - {EQUIPE_FONETICA[afastamento.policial.equipe]}
-                            </Box>
-                          )}
+                          <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                            Equipe: {formatEquipeLabel(afastamento.policial.equipe)}
+                          </Box>
                         </>
                       }
                     />

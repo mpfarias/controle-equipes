@@ -1,6 +1,4 @@
-import { Equipe } from '@prisma/client';
 import {
-  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -39,8 +37,9 @@ export class CreatePolicialDto {
 
   @IsOptional()
   @ValidateIf((o) => o.equipe !== null)
-  @IsEnum(Equipe)
-  equipe?: Equipe | null;
+  @IsString()
+  @MaxLength(50)
+  equipe?: string | null;
 
   @IsOptional()
   @IsInt()

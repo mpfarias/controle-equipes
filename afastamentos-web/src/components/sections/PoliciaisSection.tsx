@@ -5,25 +5,33 @@ import type {
   PolicialExtraido,
   PolicialBulkItem,
   Equipe,
+  EquipeOption,
   FuncaoOption,
   PolicialStatus,
   ProcessFileResponse,
   Usuario,
 } from '../../types';
-import { EQUIPE_FONETICA, EQUIPE_OPTIONS, POLICIAL_STATUS_OPTIONS } from '../../constants';
+import { POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
+import { formatNome } from '../../utils/dateUtils';
+import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 
 interface PoliciaisSectionProps {
   currentUser: Usuario;
   onChanged?: () => void;
+  permissoes?: PermissoesPorTela | null;
 }
 
 export function PoliciaisSection({
   currentUser,
   onChanged,
+  permissoes,
 }: PoliciaisSectionProps) {
   const initialForm = { nome: '', matricula: '', status: 'ATIVO' as PolicialStatus, funcaoId: undefined as number | undefined, equipe: undefined as Equipe | undefined };
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
+  const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,10 +83,23 @@ export function PoliciaisSection({
     }
   }, []);
 
+  const carregarEquipes = useCallback(async () => {
+    try {
+      const data = await api.listEquipes();
+      setEquipes(data);
+    } catch (err) {
+      console.error('Erro ao carregar equipes:', err);
+    }
+  }, []);
+
+  const funcoesAtivas = useMemo(() => {
+    return funcoes.filter((f) => f.ativo !== false);
+  }, [funcoes]);
+
   // Ordenar funções alfabeticamente
   const funcoesOrdenadas = useMemo(() => {
-    return [...funcoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
-  }, [funcoes]);
+    return [...funcoesAtivas].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoesAtivas]);
 
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
@@ -144,7 +165,18 @@ export function PoliciaisSection({
   useEffect(() => {
     void carregarPoliciais();
     void carregarFuncoes();
-  }, [carregarPoliciais, carregarFuncoes]);
+    void carregarEquipes();
+  }, [carregarPoliciais, carregarFuncoes, carregarEquipes]);
+
+  const equipesAtivas = useMemo(() => {
+    return [...equipes]
+      .filter((e) => e.ativo)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [equipes]);
+
+  const equipesDisponiveisCadastro = useMemo(() => {
+    return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
+  }, [equipesAtivas]);
 
   // Revalidar matrícula quando a lista de policiais for atualizada
   useEffect(() => {
@@ -649,7 +681,7 @@ export function PoliciaisSection({
               <option value="">Selecione uma função</option>
               {funcoesOrdenadas.map((funcao) => (
                 <option key={funcao.id} value={funcao.id}>
-                  {funcao.nome}
+                  {formatNome(funcao.nome)}
                 </option>
               ))}
             </select>
@@ -692,17 +724,18 @@ export function PoliciaisSection({
           
           const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') || false;
           
-          // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E (Echo)
+          // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E
           const equipesDisponiveis = (() => {
-            let equipes = currentUser.nivel?.nome === 'OPERAÇÕES'
-              ? EQUIPE_OPTIONS.filter((option) => option.value === currentUser.equipe)
-              : EQUIPE_OPTIONS;
-            
+            let equipesFiltradas =
+              currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
+                ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
+                : equipesDisponiveisCadastro;
+
             if (isMotoristaDia) {
-              equipes = equipes.filter((option) => option.value !== 'E');
+              equipesFiltradas = equipesFiltradas.filter((option) => option.nome !== 'E');
             }
-            
-            return equipes;
+
+            return equipesFiltradas;
           })();
           
           return mostrarEquipe ? (
@@ -721,8 +754,8 @@ export function PoliciaisSection({
                 >
                   <option value="">Selecione uma equipe</option>
                   {equipesDisponiveis.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {EQUIPE_FONETICA[option.value]} ({option.value})
+                    <option key={option.id} value={option.nome}>
+                      {formatNome(option.nome)}
                     </option>
                   ))}
                 </select>
@@ -801,12 +834,12 @@ export function PoliciaisSection({
                       style={{ width: '100%', marginTop: '8px' }}
                     >
                       <option value="">Selecione uma equipe</option>
-                      {(currentUser.nivel?.nome === 'OPERAÇÕES'
-                        ? EQUIPE_OPTIONS.filter((option) => option.value === currentUser.equipe)
-                        : EQUIPE_OPTIONS
+                      {(currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
+                        ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
+                        : equipesDisponiveisCadastro
                       ).map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {EQUIPE_FONETICA[option.value]} ({option.value})
+                        <option key={option.id} value={option.nome}>
+                          {formatNome(option.nome)}
                         </option>
                       ))}
                     </select>
@@ -865,7 +898,7 @@ export function PoliciaisSection({
                             <option value="">Selecione uma função</option>
                             {funcoesOrdenadas.map((funcao) => (
                               <option key={funcao.id} value={funcao.id}>
-                                {funcao.nome}
+                                {formatNome(funcao.nome)}
                               </option>
                             ))}
                           </select>
@@ -912,13 +945,13 @@ export function PoliciaisSection({
                               required
                             >
                               <option value="">Selecione uma equipe</option>
-                              {EQUIPE_OPTIONS
-                                .filter((option) => !isMotoristaDia || option.value !== 'E')
+                              {equipesDisponiveisCadastro
+                                .filter((option) => !isMotoristaDia || option.nome !== 'E')
                                 .map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {EQUIPE_FONETICA[option.value]} ({option.value})
-                                </option>
-                              ))}
+                                  <option key={option.id} value={option.nome}>
+                                    {option.nome}
+                                  </option>
+                                ))}
                             </select>
                           ) : (
                             <span style={{ color: '#64748b', fontSize: '0.9rem' }}>-</span>

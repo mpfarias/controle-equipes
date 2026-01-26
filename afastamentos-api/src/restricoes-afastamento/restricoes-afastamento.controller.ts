@@ -11,6 +11,8 @@ import {
 import { RestricoesAfastamentoService } from './restricoes-afastamento.service';
 import { CreateRestricaoAfastamentoDto } from './dto/create-restricao-afastamento.dto';
 import { UpdateRestricaoAfastamentoDto } from './dto/update-restricao-afastamento.dto';
+import { CreateTipoRestricaoDto } from './dto/create-tipo-restricao.dto';
+import { UpdateTipoRestricaoDto } from './dto/update-tipo-restricao.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { Usuario } from '@prisma/client';
 
@@ -36,6 +38,28 @@ export class RestricoesAfastamentoController {
     return this.restricoesAfastamentoService.listTiposRestricao();
   }
 
+  @Post('tipos')
+  createTipoRestricao(
+    @Body() createTipoRestricaoDto: CreateTipoRestricaoDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.restricoesAfastamentoService.createTipoRestricao(createTipoRestricaoDto, user.id);
+  }
+
+  @Patch('tipos/:id')
+  updateTipoRestricao(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateTipoRestricaoDto: UpdateTipoRestricaoDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.restricoesAfastamentoService.updateTipoRestricao(id, updateTipoRestricaoDto, user.id);
+  }
+
+  @Delete('tipos/:id')
+  deleteTipoRestricao(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.restricoesAfastamentoService.deleteTipoRestricao(id, user.id);
+  }
+
   @Get()
   findAll() {
     return this.restricoesAfastamentoService.findAll();
@@ -57,6 +81,11 @@ export class RestricoesAfastamentoController {
       updateRestricaoAfastamentoDto,
       user.id,
     );
+  }
+
+  @Patch(':id/desativar')
+  disable(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.restricoesAfastamentoService.disable(id, user.id);
   }
 
   @Delete(':id')

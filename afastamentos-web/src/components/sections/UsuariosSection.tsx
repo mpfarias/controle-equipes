@@ -1,25 +1,35 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import type {
   CreateUsuarioInput,
   Equipe,
+  EquipeOption,
   FuncaoOption,
+  PerguntaSegurancaOption,
   Usuario,
   UsuarioNivelOption,
 } from '../../types';
-import { EQUIPE_OPTIONS, PERGUNTAS_SEGURANCA } from '../../constants';
+import { formatEquipeLabel } from '../../constants';
+import { formatNome } from '../../utils/dateUtils';
+import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
+import { IconButton, Tooltip } from '@mui/material';
+import { Edit, Block, CheckCircle, Delete } from '@mui/icons-material';
 
 interface UsuariosSectionProps {
   currentUser: Usuario;
   openConfirm: (config: ConfirmConfig) => void;
   onCurrentUserUpdate?: (user: Usuario) => void;
+  permissoes?: PermissoesPorTela | null;
 }
 
 export function UsuariosSection({
   currentUser,
   openConfirm,
   onCurrentUserUpdate,
+  permissoes,
 }: UsuariosSectionProps) {
   const initialCreateForm = {
     nome: '',
@@ -48,6 +58,8 @@ export function UsuariosSection({
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [usuarioNiveis, setUsuarioNiveis] = useState<UsuarioNivelOption[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
+  const [equipes, setEquipes] = useState<EquipeOption[]>([]);
+  const [perguntasSeguranca, setPerguntasSeguranca] = useState<PerguntaSegurancaOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
@@ -124,6 +136,28 @@ export function UsuariosSection({
     }
   }, []);
 
+  const carregarEquipes = useCallback(async () => {
+    try {
+      const data = await api.listEquipes();
+      setEquipes(data);
+    } catch (err) {
+      console.error('Erro ao carregar equipes:', err);
+    }
+  }, []);
+
+  const carregarPerguntasSeguranca = useCallback(async () => {
+    try {
+      const data = await api.listPerguntasSeguranca();
+      setPerguntasSeguranca(data);
+    } catch (err) {
+      console.error('Erro ao carregar perguntas de segurança:', err);
+    }
+  }, []);
+
+  const funcoesAtivas = useMemo(() => {
+    return funcoes.filter((f) => f.ativo !== false);
+  }, [funcoes]);
+
   // Função helper para filtrar funções baseado no nível
   const filtrarFuncoesPorNivel = useCallback((nivelId: number | undefined | null): FuncaoOption[] => {
     if (!nivelId) {
@@ -140,24 +174,24 @@ export function UsuariosSection({
     switch (nivelSelecionado.nome) {
       case 'ADMINISTRADOR':
         // ADMINISTRADOR: todas as funções
-        funcoesFiltradas = funcoes;
+        funcoesFiltradas = funcoesAtivas;
         break;
       case 'COMANDO':
         // COMANDO: CMT UPM e SUBCMT UPM
-        funcoesFiltradas = funcoes.filter(f => 
+        funcoesFiltradas = funcoesAtivas.filter(f => 
           f.nome === 'CMT UPM' || f.nome === 'SUBCMT UPM'
         );
         break;
       case 'SAD':
         // SAD: EXPEDIENTE ADM
-        funcoesFiltradas = funcoes.filter(f => 
+        funcoesFiltradas = funcoesAtivas.filter(f => 
           f.nome === 'EXPEDIENTE ADM'
         );
         break;
       case 'OPERAÇÕES':
         // OPERAÇÕES: OFICIAL DE OPERAÇÕES COPOM, OFICIAL DE OPERAÇÕES COPOM - AUXILIAR, DESPACHANTE 190, 
         // TELEFONISTA 190, TELEFONISTA 190 - AUXILIAR, ANALISTA, SUPERVISOR ATENDIMENTO 190, SUPERVISOR DESPACHO 190
-        funcoesFiltradas = funcoes.filter(f => 
+        funcoesFiltradas = funcoesAtivas.filter(f => 
           f.nome === 'OFICIAL DE OPERAÇÕES COPOM' ||
           f.nome === 'OFICIAL DE OPERAÇÕES COPOM - AUXILIAR' ||
           f.nome === 'DESPACHANTE 190' ||
@@ -174,7 +208,7 @@ export function UsuariosSection({
     
     // Ordenar alfabeticamente
     return funcoesFiltradas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
-  }, [funcoes, usuarioNiveis]);
+  }, [funcoesAtivas, usuarioNiveis]);
 
   // Filtrar e ordenar funções de acordo com o nível selecionado no formulário de criação
   const funcoesDisponiveis = useMemo(() => {
@@ -185,6 +219,22 @@ export function UsuariosSection({
   const funcoesDisponiveisEdit = useMemo(() => {
     return filtrarFuncoesPorNivel(editForm.nivelId);
   }, [editForm.nivelId, filtrarFuncoesPorNivel]);
+
+  const equipesAtivas = useMemo(() => {
+    return [...equipes]
+      .filter((e) => e.ativo)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [equipes]);
+
+  const equipesAtivasSemSemEquipe = useMemo(() => {
+    return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
+  }, [equipesAtivas]);
+
+  const perguntasAtivas = useMemo(() => {
+    return [...perguntasSeguranca]
+      .filter((p) => p.ativo)
+      .sort((a, b) => a.texto.localeCompare(b.texto, 'pt-BR', { sensitivity: 'base' }));
+  }, [perguntasSeguranca]);
 
   // Função helper para verificar se o usuário é administrador
   const isUsuarioAdministrador = useCallback((usuario: Usuario): boolean => {
@@ -286,7 +336,25 @@ export function UsuariosSection({
   useEffect(() => {
     void carregarNiveis();
     void carregarFuncoes();
-  }, [carregarNiveis, carregarFuncoes]);
+    void carregarEquipes();
+    void carregarPerguntasSeguranca();
+  }, [carregarNiveis, carregarFuncoes, carregarEquipes, carregarPerguntasSeguranca]);
+
+  useEffect(() => {
+    if (equipesAtivasSemSemEquipe.length === 0) {
+      return;
+    }
+    const equipePadrao = equipesAtivasSemSemEquipe[0].nome;
+    if (!form.equipe || !equipesAtivasSemSemEquipe.some((e) => e.nome === form.equipe)) {
+      setForm((prev) => ({ ...prev, equipe: equipePadrao }));
+    }
+    if (
+      editingUsuario &&
+      (!editForm.equipe || !equipesAtivasSemSemEquipe.some((e) => e.nome === editForm.equipe))
+    ) {
+      setEditForm((prev) => ({ ...prev, equipe: equipePadrao }));
+    }
+  }, [equipesAtivasSemSemEquipe, form.equipe, editForm.equipe, editingUsuario]);
 
   // Quando os níveis forem carregados, definir o primeiro como padrão se não houver seleção
   useEffect(() => {
@@ -830,7 +898,7 @@ export function UsuariosSection({
             <input
               autoFocus
               value={form.nome}
-              onChange={(event) => handleChange('nome', event.target.value)}
+              onChange={(event) => handleChange('nome', event.target.value.toUpperCase())}
               placeholder="2º SGT MARIA SILVA"
               required
             />
@@ -864,7 +932,7 @@ export function UsuariosSection({
               <option value="">Selecione um nível</option>
               {niveisDisponiveis.map((nivel) => (
                 <option key={nivel.id} value={nivel.id}>
-                  {nivel.nome}
+                  {formatNome(nivel.nome)}
                 </option>
               ))}
             </select>
@@ -879,9 +947,10 @@ export function UsuariosSection({
                 onChange={(event) => handleChange('equipe', event.target.value)}
                 required
               >
-                {EQUIPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
+                <option value="">Selecione uma equipe</option>
+                {equipesAtivasSemSemEquipe.map((option) => (
+                  <option key={option.id} value={option.nome}>
+                    {formatNome(option.nome)}
                   </option>
                 ))}
               </select>
@@ -901,7 +970,7 @@ export function UsuariosSection({
               <option value="">Selecione uma função</option>
               {funcoesDisponiveis.map((funcao) => (
                 <option key={funcao.id} value={funcao.id}>
-                  {funcao.nome}
+                  {formatNome(funcao.nome)}
                 </option>
               ))}
             </select>
@@ -977,9 +1046,9 @@ export function UsuariosSection({
               onChange={(event) => handleChange('perguntaSeguranca', event.target.value)}
             >
               <option value="">Selecione uma pergunta</option>
-              {PERGUNTAS_SEGURANCA.map((pergunta) => (
-                <option key={pergunta} value={pergunta}>
-                  {pergunta}
+              {perguntasAtivas.map((pergunta) => (
+                <option key={pergunta.id} value={pergunta.texto}>
+                  {formatNome(pergunta.texto)}
                 </option>
               ))}
             </select>
@@ -1053,44 +1122,55 @@ export function UsuariosSection({
               >
                 <td>{usuario.nome}</td>
                 <td>{usuario.matricula}</td>
-                <td>{usuario.equipe === 'SEM_EQUIPE' ? 'Sem Equipe' : usuario.equipe}</td>
+                <td>{formatEquipeLabel(usuario.equipe)}</td>
                 <td>{usuario.nivel?.nome || '-'}</td>
                 <td className="actions">
-                  {usuario.status === 'ATIVO' && (
-                    <button
-                      className="secondary"
-                      type="button"
-                      onClick={() => handleEdit(usuario)}
-                    >
-                      Editar
-                    </button>
+                  {usuario.status === 'ATIVO' && canEdit(permissoes, 'usuarios') && (
+                    <Tooltip title="Editar" arrow>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleEdit(usuario)}
+                        color="primary"
+                      >
+                        <Edit />
+                      </IconButton>
+                    </Tooltip>
                   )}
                   {usuario.id !== currentUser.id && (
                     <>
-                      {usuario.status === 'ATIVO' ? (
-                        <button
-                          className="danger"
-                          type="button"
-                          onClick={() => handleDelete(usuario)}
-                        >
-                          Desativar
-                        </button>
-                      ) : (
-                        <button
-                          className="primary"
-                          type="button"
-                          onClick={() => handleActivate(usuario)}
-                        >
-                          Ativar
-                        </button>
+                      {usuario.status === 'ATIVO' && canDesativar(permissoes, 'usuarios') && (
+                        <Tooltip title="Desativar" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDelete(usuario)}
+                            color="warning"
+                          >
+                            <Block />
+                          </IconButton>
+                        </Tooltip>
                       )}
-                      <button
-                        className="danger-delete"
-                        type="button"
-                        onClick={() => handleDeletePermanent(usuario)}
-                      >
-                        Excluir
-                      </button>
+                      {usuario.status === 'DESATIVADO' && canDesativar(permissoes, 'usuarios') && (
+                        <Tooltip title="Ativar" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleActivate(usuario)}
+                            color="success"
+                          >
+                            <CheckCircle />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {canExcluir(permissoes, 'usuarios') && (
+                        <Tooltip title="Excluir" arrow>
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDeletePermanent(usuario)}
+                            color="error"
+                          >
+                            <Delete />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </>
                   )}
                 </td>
@@ -1183,9 +1263,7 @@ export function UsuariosSection({
                   Nome
                   <input
                     value={editForm.nome}
-                    onChange={(event) =>
-                      handleEditChange('nome', event.target.value)
-                    }
+                    onChange={(event) => handleEditChange('nome', event.target.value.toUpperCase())}
                     required
                   />
                 </label>
@@ -1237,9 +1315,10 @@ export function UsuariosSection({
                       }
                       required
                     >
-                      {EQUIPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
+                      <option value="">Selecione uma equipe</option>
+                      {equipesAtivasSemSemEquipe.map((option) => (
+                        <option key={option.id} value={option.nome}>
+                          {formatNome(option.nome)}
                         </option>
                       ))}
                     </select>
@@ -1339,9 +1418,9 @@ export function UsuariosSection({
                     }
                   >
                     <option value="">Selecione uma pergunta</option>
-                    {PERGUNTAS_SEGURANCA.map((pergunta) => (
-                      <option key={pergunta} value={pergunta}>
-                        {pergunta}
+                    {perguntasAtivas.map((pergunta) => (
+                      <option key={pergunta.id} value={pergunta.texto}>
+                        {formatNome(pergunta.texto)}
                       </option>
                     ))}
                   </select>

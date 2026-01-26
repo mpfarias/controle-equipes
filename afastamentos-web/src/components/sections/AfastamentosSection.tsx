@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../../api';
 import type {
   Afastamento,
@@ -6,8 +6,11 @@ import type {
   MotivoAfastamentoOption,
   Usuario,
 } from '../../types';
-import { STATUS_LABEL, EQUIPE_FONETICA, POLICIAL_STATUS_OPTIONS } from '../../constants';
-import { calcularDiasEntreDatas, formatDate, formatPeriodo } from '../../utils/dateUtils';
+import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
+import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome } from '../../utils/dateUtils';
+import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { Autocomplete, TextField, Button, Checkbox, Box, Typography, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Paper, Chip, Tooltip } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -27,12 +30,14 @@ interface AfastamentosSectionProps {
   currentUser: Usuario;
   openConfirm: (config: ConfirmConfig) => void;
   onChanged?: () => void;
+  permissoes?: PermissoesPorTela | null;
 }
 
 export function AfastamentosSection({
   currentUser,
   openConfirm,
   onChanged,
+  permissoes,
 }: AfastamentosSectionProps) {
   const initialForm = {
     policialId: '',
@@ -58,6 +63,7 @@ export function AfastamentosSection({
   const [selectedMonth, setSelectedMonth] = useState<string>('');
   const [dataInicioFiltro, setDataInicioFiltro] = useState<string>('');
   const [dataFimFiltro, setDataFimFiltro] = useState<string>('');
+  const [dataFimFiltroFocada, setDataFimFiltroFocada] = useState(false);
   const [conflitosModal, setConflitosModal] = useState<{
     open: boolean;
     conflitos: Afastamento[];
@@ -70,6 +76,7 @@ export function AfastamentosSection({
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
+  const [dataFimFocada, setDataFimFocada] = useState(false);
   
   // Estados para paginação na aba "Previsão de férias"
   const [paginaAtualPrevisao, setPaginaAtualPrevisao] = useState(1);
@@ -562,7 +569,7 @@ export function AfastamentosSection({
 
       if (haSobreposicao) {
         setError(
-          `Este policial já possui um afastamento ativo no período selecionado (${afastamentoExistente.motivo.nome} de ${formatDate(afastamentoExistente.dataInicio)} até ${formatDate(afastamentoExistente.dataFim)}). Por favor, altere as datas.`,
+          `Este policial já possui um afastamento ativo no período selecionado (${formatNome(afastamentoExistente.motivo.nome)} de ${formatDate(afastamentoExistente.dataInicio)} até ${formatDate(afastamentoExistente.dataFim)}). Por favor, altere as datas.`,
         );
         return;
       }
@@ -706,7 +713,7 @@ export function AfastamentosSection({
   const handleDelete = (afastamento: Afastamento) => {
     openConfirm({
       title: 'Remover afastamento',
-      message: `Deseja remover o afastamento "${afastamento.motivo.nome}" do policial ${afastamento.policial.nome}?`,
+      message: `Deseja remover o afastamento "${formatNome(afastamento.motivo.nome)}" do policial ${afastamento.policial.nome}?`,
       confirmLabel: 'Remover',
       onConfirm: async () => {
         try {
@@ -1049,7 +1056,7 @@ export function AfastamentosSection({
               <option value="">Selecione</option>
               {motivosOrdenados.map((motivo) => (
                 <option key={motivo.id} value={motivo.id}>
-                  {motivo.nome}
+                  {formatNome(motivo.nome)}
                 </option>
               ))}
             </select>
@@ -1066,7 +1073,8 @@ export function AfastamentosSection({
                 Especifique o motivo
                 <input
                   value={motivoOutroTexto}
-                  onChange={(event) => setMotivoOutroTexto(event.target.value)}
+                  onChange={createNormalizedInputHandler(setMotivoOutroTexto)}
+                  onKeyDown={handleKeyDownNormalized}
                   placeholder="Descreva o motivo"
                   required
                 />
@@ -1095,9 +1103,11 @@ export function AfastamentosSection({
           <textarea
             rows={3}
             value={form.descricao}
-            onChange={(event) =>
-              setForm((prev) => ({ ...prev, descricao: event.target.value }))
-            }
+            onChange={(event) => {
+              const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+              setForm((prev) => ({ ...prev, descricao: normalized }));
+            }}
+            onKeyDown={handleKeyDownNormalized}
             placeholder="Detalhes adicionais..."
           />
         </label>
@@ -1108,9 +1118,13 @@ export function AfastamentosSection({
               <input
                 type="date"
                 value={form.dataInicio}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, dataInicio: event.target.value }))
-                }
+                onChange={(event) => {
+                  setForm((prev) => ({ ...prev, dataInicio: event.target.value }));
+                  // Resetar o estado de foco quando a data de início mudar para permitir pré-seleção novamente
+                  if (!form.dataFim) {
+                    setDataFimFocada(false);
+                  }
+                }}
                 required
               />
             </label>
@@ -1145,9 +1159,21 @@ export function AfastamentosSection({
                     <input
                       type="date"
                       value={form.dataFim}
-                      onChange={(event) =>
-                        setForm((prev) => ({ ...prev, dataFim: event.target.value }))
-                      }
+                      min={form.dataInicio || undefined}
+                      onChange={(event) => {
+                        setForm((prev) => ({ ...prev, dataFim: event.target.value }));
+                        setDataFimFocada(true);
+                      }}
+                      onFocus={(event) => {
+                        // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
+                        if (!form.dataFim && form.dataInicio && !dataFimFocada) {
+                          const input = event.currentTarget;
+                          // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
+                          input.value = form.dataInicio;
+                          setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
+                          setDataFimFocada(true);
+                        }
+                      }}
                     />
                   )}
                 </label>
@@ -1159,6 +1185,7 @@ export function AfastamentosSection({
                   setForm((prev) => ({ ...prev, dataInicio: '', dataFim: '' }));
                   setQuantidadeDias('');
                   setCalcularPeriodo(false);
+                  setDataFimFocada(false);
                 }}
                 sx={{
                   textTransform: 'none',
@@ -1230,7 +1257,7 @@ export function AfastamentosSection({
             <option value="">Todos os motivos</option>
             {motivosOrdenados.map((motivo) => (
               <option key={motivo.id} value={motivo.nome}>
-                {motivo.nome}
+                {formatNome(motivo.nome)}
               </option>
             ))}
           </select>
@@ -1252,6 +1279,10 @@ export function AfastamentosSection({
               if (event.target.value) {
                 setSelectedMonth('');
               }
+              // Resetar o estado de foco quando a data de início mudar para permitir pré-seleção novamente
+              if (!dataFimFiltro) {
+                setDataFimFiltroFocada(false);
+              }
             }}
             placeholder="Data início"
             title="Data início do período"
@@ -1266,10 +1297,21 @@ export function AfastamentosSection({
               if (event.target.value) {
                 setSelectedMonth('');
               }
+              setDataFimFiltroFocada(true);
             }}
             placeholder="Data fim"
             title="Data fim do período"
             min={dataInicioFiltro || undefined}
+            onFocus={(event) => {
+              // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
+              if (!dataFimFiltro && dataInicioFiltro && !dataFimFiltroFocada) {
+                const input = event.currentTarget;
+                // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
+                input.value = dataInicioFiltro;
+                setDataFimFiltro(dataInicioFiltro);
+                setDataFimFiltroFocada(true);
+              }
+            }}
           />
           <input
             type="month"
@@ -1281,6 +1323,7 @@ export function AfastamentosSection({
               if (event.target.value) {
                 setDataInicioFiltro('');
                 setDataFimFiltro('');
+                setDataFimFiltroFocada(false);
               }
             }}
             title="Filtrar por mês"
@@ -1295,6 +1338,7 @@ export function AfastamentosSection({
                 setDataInicioFiltro('');
                 setDataFimFiltro('');
                 setSelectedMonth('');
+                setDataFimFiltroFocada(false);
               }}
               title="Limpar todos os filtros de período"
               sx={{
@@ -1335,7 +1379,7 @@ export function AfastamentosSection({
                     <small>{afastamento.policial.matricula}</small>
                   </td>
                   <td>
-                    <div>{afastamento.motivo.nome}</div>
+                    <div>{formatNome(afastamento.motivo.nome)}</div>
                     {afastamento.descricao && (
                       <small>{afastamento.descricao}</small>
                     )}
@@ -1351,70 +1395,74 @@ export function AfastamentosSection({
                   </td>
                   <td className="actions" style={{ verticalAlign: 'middle' }}>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
-                      <Tooltip title="Editar afastamento">
-                        <IconButton
-                          size="small"
-                          color="primary"
-                          onClick={() => {
-                            // TODO: Implementar edição de afastamento
-                            setError('Funcionalidade de edição em desenvolvimento.');
-                          }}
-                          sx={{
-                            border: '1px solid',
-                            borderColor: 'primary.main',
-                            '&:hover': {
-                              backgroundColor: 'primary.light',
-                              color: 'white',
-                            },
-                          }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title={afastamento.status === 'ENCERRADO' ? 'Afastamento já está desativado' : 'Desativar afastamento'}>
-                        <span>
+                      {canEdit(permissoes, 'afastamentos') && (
+                        <Tooltip title="Editar afastamento">
                           <IconButton
                             size="small"
-                            color="warning"
+                            color="primary"
                             onClick={() => {
-                              openConfirm({
-                                title: 'Desativar afastamento',
-                                message: `Deseja desativar o afastamento "${afastamento.motivo.nome}" do policial ${afastamento.policial.nome}? O afastamento será marcado como encerrado.`,
-                                confirmLabel: 'Desativar',
-                                onConfirm: async () => {
-                                  try {
-                                    setError(null);
-                                    await api.desativarAfastamento(afastamento.id);
-                                    setSuccess('Afastamento desativado com sucesso.');
-                                    await carregarDados();
-                                    onChanged?.();
-                                  } catch (err) {
-                                    setError(
-                                      err instanceof Error
-                                        ? err.message
-                                        : 'Não foi possível desativar o afastamento.',
-                                    );
-                                  }
-                                },
-                              });
+                              // TODO: Implementar edição de afastamento
+                              setError('Funcionalidade de edição em desenvolvimento.');
                             }}
-                            disabled={afastamento.status === 'ENCERRADO'}
                             sx={{
                               border: '1px solid',
-                              borderColor: 'warning.main',
+                              borderColor: 'primary.main',
                               '&:hover': {
-                                backgroundColor: 'warning.light',
+                                backgroundColor: 'primary.light',
                                 color: 'white',
                               },
-                              opacity: afastamento.status === 'ENCERRADO' ? 0.5 : 1,
                             }}
                           >
-                            <BlockIcon fontSize="small" />
+                            <EditIcon fontSize="small" />
                           </IconButton>
-                        </span>
-                      </Tooltip>
-                      {(currentUser.nivel?.nome === 'ADMINISTRADOR' || currentUser.isAdmin === true) && (
-                        <Tooltip title="Remover afastamento (apenas ADMINISTRADOR)">
+                        </Tooltip>
+                      )}
+                      {canDesativar(permissoes, 'afastamentos') && (
+                        <Tooltip title={afastamento.status === 'ENCERRADO' ? 'Afastamento já está desativado' : 'Desativar afastamento'}>
+                          <span>
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              onClick={() => {
+                                openConfirm({
+                                  title: 'Desativar afastamento',
+                                  message: `Deseja desativar o afastamento "${formatNome(afastamento.motivo.nome)}" do policial ${afastamento.policial.nome}? O afastamento será marcado como encerrado.`,
+                                  confirmLabel: 'Desativar',
+                                  onConfirm: async () => {
+                                    try {
+                                      setError(null);
+                                      await api.desativarAfastamento(afastamento.id);
+                                      setSuccess('Afastamento desativado com sucesso.');
+                                      await carregarDados();
+                                      onChanged?.();
+                                    } catch (err) {
+                                      setError(
+                                        err instanceof Error
+                                          ? err.message
+                                          : 'Não foi possível desativar o afastamento.',
+                                      );
+                                    }
+                                  },
+                                });
+                              }}
+                              disabled={afastamento.status === 'ENCERRADO'}
+                              sx={{
+                                border: '1px solid',
+                                borderColor: 'warning.main',
+                                '&:hover': {
+                                  backgroundColor: 'warning.light',
+                                  color: 'white',
+                                },
+                                opacity: afastamento.status === 'ENCERRADO' ? 0.5 : 1,
+                              }}
+                            >
+                              <BlockIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      )}
+                      {canExcluir(permissoes, 'afastamentos') && (
+                        <Tooltip title="Remover afastamento">
                           <IconButton
                             size="small"
                             color="error"
@@ -1564,45 +1612,47 @@ export function AfastamentosSection({
                                 ? (policial.feriasConfirmadas ? 'Reprogramar férias' : 'Alterar mês') 
                                 : 'Inserir mês'
                           }>
-                            <IconButton
-                              size="small"
-                              color={policial.feriasConfirmadas ? 'warning' : 'primary'}
-                              onClick={() => {
-                                setPolicialParaMesPrevisao(policial);
-                                setMesSelecionado(policial.mesPrevisaoFerias ? String(policial.mesPrevisaoFerias) : '');
-                                if (policial.feriasConfirmadas) {
-                                  // Se for reprogramação, limpar o campo SEI e abrir a modal
-                                  setDocumentoSei('');
-                                }
-                                setModalMesPrevisaoOpen(true);
-                              }}
-                              disabled={policial.feriasReprogramadas && policial.feriasConfirmadas}
-                              sx={{
-                                border: '1px solid',
-                                borderColor: policial.feriasReprogramadas 
-                                  ? 'grey.400' 
-                                  : policial.feriasConfirmadas 
-                                    ? 'warning.main' 
-                                    : 'primary.main',
-                                '&:hover': {
-                                  backgroundColor: policial.feriasReprogramadas 
-                                    ? 'transparent' 
+                            <span>
+                              <IconButton
+                                size="small"
+                                color={policial.feriasConfirmadas ? 'warning' : 'primary'}
+                                onClick={() => {
+                                  setPolicialParaMesPrevisao(policial);
+                                  setMesSelecionado(policial.mesPrevisaoFerias ? String(policial.mesPrevisaoFerias) : '');
+                                  if (policial.feriasConfirmadas) {
+                                    // Se for reprogramação, limpar o campo SEI e abrir a modal
+                                    setDocumentoSei('');
+                                  }
+                                  setModalMesPrevisaoOpen(true);
+                                }}
+                                disabled={policial.feriasReprogramadas && policial.feriasConfirmadas}
+                                sx={{
+                                  border: '1px solid',
+                                  borderColor: policial.feriasReprogramadas 
+                                    ? 'grey.400' 
                                     : policial.feriasConfirmadas 
-                                      ? 'warning.light' 
-                                      : 'primary.light',
-                                  color: policial.feriasReprogramadas ? 'inherit' : 'white',
-                                },
-                                opacity: policial.feriasReprogramadas ? 0.5 : 1,
-                              }}
-                            >
-                              {policial.feriasConfirmadas ? (
-                                <CalendarTodayIcon fontSize="small" />
-                              ) : policial.mesPrevisaoFerias ? (
-                                <EditIcon fontSize="small" />
-                              ) : (
-                                <AddCircleOutlineIcon fontSize="small" />
-                              )}
-                            </IconButton>
+                                      ? 'warning.main' 
+                                      : 'primary.main',
+                                  '&:hover': {
+                                    backgroundColor: policial.feriasReprogramadas 
+                                      ? 'transparent' 
+                                      : policial.feriasConfirmadas 
+                                        ? 'warning.light' 
+                                        : 'primary.light',
+                                    color: policial.feriasReprogramadas ? 'inherit' : 'white',
+                                  },
+                                  opacity: policial.feriasReprogramadas ? 0.5 : 1,
+                                }}
+                              >
+                                {policial.feriasConfirmadas ? (
+                                  <CalendarTodayIcon fontSize="small" />
+                                ) : policial.mesPrevisaoFerias ? (
+                                  <EditIcon fontSize="small" />
+                                ) : (
+                                  <AddCircleOutlineIcon fontSize="small" />
+                                )}
+                              </IconButton>
+                            </span>
                           </Tooltip>
                           {policial.mesPrevisaoFerias && !policial.feriasConfirmadas && (
                             <Tooltip title="Confirmar férias">
@@ -1764,12 +1814,15 @@ export function AfastamentosSection({
                         {afastamento.policial.funcao?.nome || '-'}
                       </td>
                       <td>
-                        {afastamento.policial.equipe 
-                          ? `${EQUIPE_FONETICA[afastamento.policial.equipe]} (${afastamento.policial.equipe})`
-                          : '-'}
+                        {(() => {
+                          const equipeLabel = formatEquipeLabel(afastamento.policial.equipe);
+                          return equipeLabel === '—'
+                            ? '—'
+                            : `${equipeLabel} (${afastamento.policial.equipe})`;
+                        })()}
                       </td>
                       <td>
-                        <div>{afastamento.motivo.nome}</div>
+                        <div>{formatNome(afastamento.motivo.nome)}</div>
                         {afastamento.descricao && (
                           <small>{afastamento.descricao}</small>
                         )}
@@ -1943,11 +1996,7 @@ export function AfastamentosSection({
                   </Typography>
                 </Box>
                 <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
-                  {policialSelecionado.equipe && policialSelecionado.equipe !== 'SEM_EQUIPE' ? (
-                    EQUIPE_FONETICA[policialSelecionado.equipe]
-                  ) : (
-                    '-'
-                  )}
+                  {formatEquipeLabel(policialSelecionado.equipe)}
                 </Typography>
               </Paper>
 
