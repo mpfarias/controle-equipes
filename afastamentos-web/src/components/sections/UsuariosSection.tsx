@@ -158,67 +158,6 @@ export function UsuariosSection({
     return funcoes.filter((f) => f.ativo !== false);
   }, [funcoes]);
 
-  // Função helper para filtrar funções baseado no nível
-  const filtrarFuncoesPorNivel = useCallback((nivelId: number | undefined | null): FuncaoOption[] => {
-    if (!nivelId) {
-      return [];
-    }
-    
-    const nivelSelecionado = usuarioNiveis.find(n => n.id === nivelId);
-    if (!nivelSelecionado) {
-      return [];
-    }
-    
-    let funcoesFiltradas: FuncaoOption[] = [];
-    
-    switch (nivelSelecionado.nome) {
-      case 'ADMINISTRADOR':
-        // ADMINISTRADOR: todas as funções
-        funcoesFiltradas = funcoesAtivas;
-        break;
-      case 'COMANDO':
-        // COMANDO: CMT UPM e SUBCMT UPM
-        funcoesFiltradas = funcoesAtivas.filter(f => 
-          f.nome === 'CMT UPM' || f.nome === 'SUBCMT UPM'
-        );
-        break;
-      case 'SAD':
-        // SAD: EXPEDIENTE ADM
-        funcoesFiltradas = funcoesAtivas.filter(f => 
-          f.nome === 'EXPEDIENTE ADM'
-        );
-        break;
-      case 'OPERAÇÕES':
-        // OPERAÇÕES: OFICIAL DE OPERAÇÕES COPOM, OFICIAL DE OPERAÇÕES COPOM - AUXILIAR, DESPACHANTE 190, 
-        // TELEFONISTA 190, TELEFONISTA 190 - AUXILIAR, ANALISTA, SUPERVISOR ATENDIMENTO 190, SUPERVISOR DESPACHO 190
-        funcoesFiltradas = funcoesAtivas.filter(f => 
-          f.nome === 'OFICIAL DE OPERAÇÕES COPOM' ||
-          f.nome === 'OFICIAL DE OPERAÇÕES COPOM - AUXILIAR' ||
-          f.nome === 'DESPACHANTE 190' ||
-          f.nome === 'TELEFONISTA 190' ||
-          f.nome === 'TELEFONISTA 190 - AUXILIAR' ||
-          f.nome === 'ANALISTA' ||
-          f.nome === 'SUPERVISOR ATENDIMENTO 190' ||
-          f.nome === 'SUPERVISOR DESPACHO 190'
-        );
-        break;
-      default:
-        funcoesFiltradas = [];
-    }
-    
-    // Ordenar alfabeticamente
-    return funcoesFiltradas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
-  }, [funcoesAtivas, usuarioNiveis]);
-
-  // Filtrar e ordenar funções de acordo com o nível selecionado no formulário de criação
-  const funcoesDisponiveis = useMemo(() => {
-    return filtrarFuncoesPorNivel(form.nivelId);
-  }, [form.nivelId, filtrarFuncoesPorNivel]);
-
-  // Filtrar e ordenar funções de acordo com o nível selecionado no formulário de edição
-  const funcoesDisponiveisEdit = useMemo(() => {
-    return filtrarFuncoesPorNivel(editForm.nivelId);
-  }, [editForm.nivelId, filtrarFuncoesPorNivel]);
 
   const equipesAtivas = useMemo(() => {
     return [...equipes]
@@ -227,6 +166,7 @@ export function UsuariosSection({
   }, [equipes]);
 
   const equipesAtivasSemSemEquipe = useMemo(() => {
+    // Filtrar SEM_EQUIPE se ainda existir no banco (para compatibilidade)
     return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
   }, [equipesAtivas]);
 
@@ -413,27 +353,46 @@ export function UsuariosSection({
     if (field === 'equipe' && typeof value === 'string') {
       value = value.toUpperCase();
     }
-    // Se o campo alterado for nivelId, verificar se precisa limpar a equipe e função
+    // Se o campo alterado for nivelId, verificar se precisa limpar a equipe
     if (field === 'nivelId') {
-      setForm((prev) => {
-        const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
-        const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
-        
-        // Verificar se a função atual ainda está disponível para o novo nível
-        const funcoesDisponiveisNovoNivel = filtrarFuncoesPorNivel(value as number);
-        const funcaoAindaDisponivel = prev.funcaoId 
-          ? funcoesDisponiveisNovoNivel.some(f => f.id === prev.funcaoId)
-          : true;
-        
-        return {
-          ...prev,
-          nivelId: (value as number) || 0,
-          // Se não for OPERAÇÕES, manter 'A' como padrão (mas não será enviado)
-          equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
-          // Se a função não estiver mais disponível, limpar
-          funcaoId: funcaoAindaDisponivel ? prev.funcaoId : undefined,
-        };
-      });
+      const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
+      const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
+      
+      setForm((prev) => ({
+        ...prev,
+        nivelId: (value as number) || 0,
+        // Se não for OPERAÇÕES, manter 'A' como padrão (mas não será enviado)
+        equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
+      }));
+      
+      // Carregar funções do backend para o novo nível
+      const carregarFuncoes = async () => {
+        if (!value) {
+          setFuncoesDisponiveis([]);
+          return;
+        }
+        try {
+          const funcoesFiltradas = await api.listFuncoes(value as number);
+          setFuncoesDisponiveis(funcoesFiltradas);
+          
+          // Verificar se a função atual ainda está disponível para o novo nível
+          setForm((prevForm) => {
+            const funcaoAindaDisponivel = prevForm.funcaoId 
+              ? funcoesFiltradas.some(f => f.id === prevForm.funcaoId)
+              : true;
+            
+            // Se a função não estiver mais disponível, limpar
+            return {
+              ...prevForm,
+              funcaoId: funcaoAindaDisponivel ? prevForm.funcaoId : undefined,
+            };
+          });
+        } catch (err) {
+          console.error('Erro ao carregar funções:', err);
+          setFuncoesDisponiveis([]);
+        }
+      };
+      void carregarFuncoes();
       return;
     }
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -528,8 +487,8 @@ export function UsuariosSection({
         respostaSeguranca: form.respostaSeguranca.trim() || undefined,
         nivelId: form.nivelId,
         funcaoId: form.funcaoId,
-        // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar "SEM_EQUIPE"
-        equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : 'SEM_EQUIPE' as Equipe,
+        // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar null (sem equipe)
+        equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : undefined,
       };
       await api.createUsuario(payload);
       resetForm();
@@ -557,25 +516,17 @@ export function UsuariosSection({
     if (field === 'equipe' && typeof value === 'string') {
       value = value.toUpperCase();
     }
-    // Se o campo alterado for nivelId, verificar se precisa limpar a equipe e função
+    // Se o campo alterado for nivelId, verificar se precisa limpar a equipe
     if (field === 'nivelId') {
       setEditForm((prev) => {
         const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
         const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
         
-        // Verificar se a função atual ainda está disponível para o novo nível
-        const funcoesDisponiveisNovoNivel = filtrarFuncoesPorNivel(value as number);
-        const funcaoAindaDisponivel = prev.funcaoId 
-          ? funcoesDisponiveisNovoNivel.some(f => f.id === prev.funcaoId)
-          : true;
-        
         return {
           ...prev,
           nivelId: (value as number) || 0,
-          // Se não for OPERAÇÕES, definir equipe como SEM_EQUIPE
-          equipe: isOperacoes ? prev.equipe : 'SEM_EQUIPE' as Equipe,
-          // Se a função não estiver mais disponível, limpar
-          funcaoId: funcaoAindaDisponivel ? prev.funcaoId : undefined,
+          // Se não for OPERAÇÕES, definir equipe como null (sem equipe)
+          equipe: isOperacoes ? prev.equipe : undefined,
         };
       });
       return;
@@ -599,12 +550,6 @@ export function UsuariosSection({
       nivelId = primeiroNivel?.id ?? 0;
     }
     
-    // Verificar se a função do usuário está disponível para o nível dele
-    const funcoesDisponiveisParaNivel = filtrarFuncoesPorNivel(nivelId);
-    const funcaoDisponivel = usuario.funcaoId 
-      ? funcoesDisponiveisParaNivel.some(f => f.id === usuario.funcaoId)
-      : true;
-    
     const nivelDoUsuario = usuarioNiveis.find(n => n.id === nivelId);
     const isOperacoes = nivelDoUsuario?.nome === 'OPERAÇÕES';
     
@@ -615,10 +560,10 @@ export function UsuariosSection({
       confirmarSenha: '',
       perguntaSeguranca: usuario.perguntaSeguranca || '',
       respostaSeguranca: '',
-      // Se for OPERAÇÕES, usar a equipe do usuário (ou 'A' como padrão); caso contrário, usar 'SEM_EQUIPE'
-      equipe: isOperacoes ? (usuario.equipe ?? 'A') : 'SEM_EQUIPE' as Equipe,
+      // Se for OPERAÇÕES, usar a equipe do usuário (ou 'A' como padrão); caso contrário, usar null (sem equipe)
+      equipe: isOperacoes ? (usuario.equipe ?? 'A') : undefined,
       nivelId: nivelId,
-      funcaoId: funcaoDisponivel ? (usuario.funcaoId ?? undefined) : undefined,
+      funcaoId: usuario.funcaoId ?? undefined,
     });
     setEditError(null);
   };
@@ -676,8 +621,8 @@ export function UsuariosSection({
       matricula,
       perguntaSeguranca: editForm.perguntaSeguranca.trim() || undefined,
       respostaSeguranca: editForm.respostaSeguranca.trim() || undefined,
-      // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar "SEM_EQUIPE"
-      equipe: nivelSelecionadoEdit?.nome === 'OPERAÇÕES' ? editForm.equipe : 'SEM_EQUIPE' as Equipe,
+      // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar null (sem equipe)
+      equipe: nivelSelecionadoEdit?.nome === 'OPERAÇÕES' ? editForm.equipe : undefined,
       nivelId: editForm.nivelId,
       funcaoId: editForm.funcaoId,
     };
@@ -968,7 +913,7 @@ export function UsuariosSection({
               }
             >
               <option value="">Selecione uma função</option>
-              {funcoesDisponiveis.map((funcao) => (
+              {funcoesAtivas.map((funcao) => (
                 <option key={funcao.id} value={funcao.id}>
                   {formatNome(funcao.nome)}
                 </option>
@@ -1336,7 +1281,7 @@ export function UsuariosSection({
                     }
                   >
                     <option value="">Selecione uma função</option>
-                    {funcoesDisponiveisEdit.map((funcao) => (
+                    {funcoesAtivas.map((funcao) => (
                       <option key={funcao.id} value={funcao.id}>
                         {funcao.nome}
                       </option>

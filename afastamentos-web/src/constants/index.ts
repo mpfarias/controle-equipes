@@ -40,7 +40,7 @@ export const POLICIAL_STATUS_OPTIONS: { value: PolicialStatus; label: string }[]
 ];
 
 export const formatEquipeLabel = (equipe?: string | null) => {
-  if (!equipe || equipe === 'SEM_EQUIPE') {
+  if (!equipe) {
     return '—';
   }
   return equipe;

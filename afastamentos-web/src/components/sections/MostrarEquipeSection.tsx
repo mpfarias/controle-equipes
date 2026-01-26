@@ -106,24 +106,52 @@ export function MostrarEquipeSection({
   const [loadingEfetivo, setLoadingEfetivo] = useState(false);
   const [funcaoExpedienteId, setFuncaoExpedienteId] = useState<number | null>(null);
   const [modalEfetivoOpen, setModalEfetivoOpen] = useState(false);
+  
+  // Verificar se o usuário é do nível Cpmulher
+  const usuarioEhCpmulher = useMemo(() => {
+    const nivelNome = currentUser.nivel?.nome;
+    return nivelNome === 'CPMULHER' || nivelNome === 'Cpmulher';
+  }, [currentUser]);
+  
+  // IDs das funções permitidas para Cpmulher: "Analista" e "Telefonista 190 - Auxiliar"
+  const [funcoesCpmulherIds, setFuncoesCpmulherIds] = useState<number[]>([]);
 
-  // Buscar função do expediente
+  // Buscar função do expediente e funções permitidas para Cpmulher
   useEffect(() => {
-    const buscarFuncaoExpediente = async () => {
+    const buscarFuncoes = async () => {
       try {
         const funcoes = await api.listFuncoes();
-        const funcaoExpediente = funcoes.find((f) => 
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        
+        // Buscar função do expediente
+        const funcaoExpediente = funcoesAtivas.find((f) => 
           f.nome.toUpperCase().includes('EXPEDIENTE ADM')
         );
         if (funcaoExpediente) {
           setFuncaoExpedienteId(funcaoExpediente.id);
         }
+        
+        // Se for Cpmulher, buscar IDs das funções permitidas
+        if (usuarioEhCpmulher) {
+          const funcaoAnalista = funcoesAtivas.find((f) => 
+            f.nome.toUpperCase() === 'ANALISTA'
+          );
+          const funcaoTelefonistaAuxiliar = funcoesAtivas.find((f) => 
+            f.nome.toUpperCase() === 'TELEFONISTA 190 - AUXILIAR'
+          );
+          
+          const ids: number[] = [];
+          if (funcaoAnalista) ids.push(funcaoAnalista.id);
+          if (funcaoTelefonistaAuxiliar) ids.push(funcaoTelefonistaAuxiliar.id);
+          
+          setFuncoesCpmulherIds(ids);
+        }
       } catch (error) {
-        console.error('Erro ao buscar função do expediente:', error);
+        console.error('Erro ao buscar funções:', error);
       }
     };
-    void buscarFuncaoExpediente();
-  }, []);
+    void buscarFuncoes();
+  }, [usuarioEhCpmulher]);
 
   // Constantes para cálculo de escalas (mesmas do CalendarioSection)
   const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
@@ -305,7 +333,7 @@ export function MostrarEquipeSection({
         //    b) É de alguma equipe e está na segunda ou terceira folga
         
         const eDoExpediente = policial.funcaoId === funcaoExpedienteId;
-        const temEquipe = policial.equipe && policial.equipe !== 'SEM_EQUIPE';
+        const temEquipe = !!policial.equipe; // Verifica se tem equipe (não null/undefined)
         const estaNaFolga = temEquipe && policial.equipe ? equipeEstaNaSegundaOuTerceiraFolga(policial.equipe, dataSelecionada) : false;
         
         // Incluir se for do expediente OU se tiver equipe e estiver na folga
@@ -323,7 +351,7 @@ export function MostrarEquipeSection({
       }));
       
       const policiaisExpediente = todosPoliciais.filter(p => p.funcaoId === funcaoExpedienteId);
-      const policiaisComEquipe = todosPoliciais.filter(p => p.equipe && p.equipe !== 'SEM_EQUIPE');
+      const policiaisComEquipe = todosPoliciais.filter(p => !!p.equipe); // Verifica se tem equipe (não null/undefined)
       const policiaisComEquipeNaFolga = policiaisComEquipe.filter(p => 
         equipeEstaNaSegundaOuTerceiraFolga(p.equipe!, dataSelecionada)
       );
@@ -337,7 +365,7 @@ export function MostrarEquipeSection({
         equipesNaFolga,
         totalFiltrado: efetivoFiltrado.length,
         expediente: efetivoFiltrado.filter(p => p.funcaoId === funcaoExpedienteId).length,
-        equipes: efetivoFiltrado.filter(p => p.equipe && p.equipe !== 'SEM_EQUIPE').length
+        equipes: efetivoFiltrado.filter(p => !!p.equipe).length // Verifica se tem equipe (não null/undefined)
       });
       
       setSuccess(`Efetivo disponível gerado: ${efetivoFiltrado.length} policiais encontrados.`);
@@ -422,23 +450,46 @@ export function MostrarEquipeSection({
         nivelNome === 'SAD' ||
         nivelNome === 'COMANDO' ||
         currentUser.isAdmin === true;
+      
+      // Se for Cpmulher e ainda não temos os IDs das funções, aguardar
+      if (usuarioEhCpmulher && funcoesCpmulherIds.length === 0) {
+        setTotalPoliciaisGeral(0);
+        return;
+      }
+      
+      // Para Cpmulher, precisamos buscar todos e filtrar por função
+      const buscarTodosParaTotal = usuarioEhCpmulher && funcoesCpmulherIds.length > 0;
+      
       const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
         page: 1,
-        pageSize: 1, // Apenas precisamos do total
+        pageSize: buscarTodosParaTotal ? 10000 : 1, // Buscar todos se precisar filtrar por função
         includeAfastamentos: false,
         includeRestricoes: false,
-        // Não passar nenhum filtro para pegar o total geral
       };
-      if (!usuarioPodeVerTodos && currentUser.equipe) {
-        params.equipe = currentUser.equipe; // Usuário só pode ver sua equipe
+      
+      // Para Cpmulher, não aplicar filtro de equipe (precisa ver todos)
+      if (!usuarioEhCpmulher) {
+        if (!usuarioPodeVerTodos && currentUser.equipe) {
+          params.equipe = currentUser.equipe; // Usuário só pode ver sua equipe
+        }
       }
+      
       const data = await api.listPoliciaisPaginated(params);
-      setTotalPoliciaisGeral(data.total);
+      
+      // Se for Cpmulher, filtrar por função e contar
+      if (buscarTodosParaTotal) {
+        const policiaisFiltrados = data.Policiales.filter((p) => 
+          p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
+        );
+        setTotalPoliciaisGeral(policiaisFiltrados.length);
+      } else {
+        setTotalPoliciaisGeral(data.total);
+      }
     } catch (err) {
       console.error('Erro ao carregar total geral de policiais:', err);
       setTotalPoliciaisGeral(0);
     }
-  }, [currentUser]);
+  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds]);
 
   const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
@@ -449,9 +500,22 @@ export function MostrarEquipeSection({
         nivelNome === 'SAD' ||
         nivelNome === 'COMANDO' ||
         currentUser.isAdmin === true;
+      
+      // Se for Cpmulher e ainda não temos os IDs das funções, aguardar
+      if (usuarioEhCpmulher && funcoesCpmulherIds.length === 0) {
+        setPoliciais([]);
+        setTotalPoliciais(0);
+        setTotalPaginas(1);
+        return;
+      }
+      
+      // Para Cpmulher, precisamos buscar TODOS os policiais primeiro para filtrar por função
+      // porque o backend não suporta múltiplos funcaoId
+      const buscarTodosParaFiltro = usuarioEhCpmulher && funcoesCpmulherIds.length > 0;
+      
       const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
-        page,
-        pageSize,
+        page: buscarTodosParaFiltro ? 1 : page,
+        pageSize: buscarTodosParaFiltro ? 10000 : pageSize, // Buscar todos se precisar filtrar por função (aumentar limite)
         includeAfastamentos: false,
         includeRestricoes: true,
       };
@@ -459,29 +523,58 @@ export function MostrarEquipeSection({
       if (busca) {
         params.search = busca;
       }
-      if (!usuarioPodeVerTodos && currentUser.equipe) {
-        params.equipe = currentUser.equipe;
+      // Para Cpmulher, não aplicar filtro de equipe (precisa ver todos)
+      if (!usuarioEhCpmulher) {
+        if (!usuarioPodeVerTodos && currentUser.equipe) {
+          params.equipe = currentUser.equipe;
+        } else if (filtroEquipe) {
+          params.equipe = filtroEquipe;
+        }
       } else if (filtroEquipe) {
+        // Se for Cpmulher mas tiver filtro manual de equipe, aplicar
         params.equipe = filtroEquipe;
       }
       if (filtroStatus) {
         params.status = filtroStatus;
       }
-      if (filtroFuncao) {
+      // Não aplicar filtroFuncao aqui se for Cpmulher, vamos filtrar depois
+      if (filtroFuncao && !buscarTodosParaFiltro) {
         params.funcaoId = filtroFuncao;
       }
-      if (ordenacao) {
+      if (ordenacao && !buscarTodosParaFiltro) {
         params.orderBy = ordenacao.campo;
         params.orderDir = ordenacao.direcao;
       }
+      
       const data = await api.listPoliciaisPaginated(params);
-      setPoliciais(data.Policiales);
-      const totalPages = Math.max(1, data.totalPages);
-      setTotalPoliciais(data.total);
-      setTotalPaginas(totalPages);
-      if (page > totalPages) {
-        setPaginaAtual(totalPages);
+      let policiaisFiltrados = data.Policiales;
+      
+      // Se for Cpmulher, filtrar apenas policiais com as funções permitidas
+      if (usuarioEhCpmulher && funcoesCpmulherIds.length > 0) {
+        policiaisFiltrados = policiaisFiltrados.filter((p) => 
+          p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
+        );
       }
+      
+      // Se buscamos todos para filtrar (Cpmulher), armazenar TODOS os policiais filtrados
+      // A paginação será aplicada depois no filteredPoliciales
+      if (buscarTodosParaFiltro) {
+        // Armazenar TODOS os policiais filtrados (sem paginação)
+        setPoliciais(policiaisFiltrados);
+        // O total e totalPages serão calculados depois baseado nos filtros do frontend
+        setTotalPoliciais(policiaisFiltrados.length);
+        setTotalPaginas(1); // Será recalculado depois
+      } else {
+        // Paginação normal do backend
+        setPoliciais(policiaisFiltrados);
+        const totalPages = Math.max(1, data.totalPages);
+        setTotalPoliciais(data.total);
+        setTotalPaginas(totalPages);
+        if (page > totalPages) {
+          setPaginaAtual(totalPages);
+        }
+      }
+      
       setError(null);
     } catch (err) {
       setError(
@@ -492,7 +585,7 @@ export function MostrarEquipeSection({
     } finally {
       setLoading(false);
     }
-  }, [currentUser, filtroEquipe, filtroFuncao, filtroStatus, ordenacao, searchTerm]);
+  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds, filtroEquipe, filtroFuncao, filtroStatus, ordenacao, searchTerm]);
 
   const carregarFuncoes = useCallback(async () => {
     try {
@@ -530,8 +623,15 @@ export function MostrarEquipeSection({
   }, [funcoes]);
 
   const funcoesOrdenadas = useMemo(() => {
-    return [...funcoesAtivas].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
-  }, [funcoesAtivas]);
+    let funcoesParaOrdenar = funcoesAtivas;
+    
+    // Se for Cpmulher, mostrar apenas as funções permitidas
+    if (usuarioEhCpmulher && funcoesCpmulherIds.length > 0) {
+      funcoesParaOrdenar = funcoesAtivas.filter((f) => funcoesCpmulherIds.includes(f.id));
+    }
+    
+    return [...funcoesParaOrdenar].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoesAtivas, usuarioEhCpmulher, funcoesCpmulherIds]);
 
   const equipesAtivas = useMemo(() => {
     return [...equipes]
@@ -540,12 +640,13 @@ export function MostrarEquipeSection({
   }, [equipes]);
 
   const equipesDisponiveisCadastro = useMemo(() => {
+    // Filtrar SEM_EQUIPE se ainda existir no banco (para compatibilidade)
     return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
   }, [equipesAtivas]);
  
   useEffect(() => {
     void carregarTotalGeral();
-  }, [carregarTotalGeral, refreshKey]);
+  }, [carregarTotalGeral, refreshKey, funcoesCpmulherIds]);
 
   useEffect(() => {
     void carregarPoliciais(paginaAtual, itensPorPagina);
@@ -821,12 +922,16 @@ export function MostrarEquipeSection({
       if (usuarioPodeVerTodos) {
         return policiais;
       }
+      // Se for Cpmulher, retornar todos os policiais (já filtrados por função no carregarPoliciais)
+      if (usuarioEhCpmulher) {
+        return policiais;
+      }
       // Caso contrário (OPERAÇÕES), filtrar apenas pela equipe do usuário (incluindo desativados)
       return policiais.filter(
         (policial) => policial.equipe === equipeAtual,
       );
     },
-    [policiais, equipeAtual, usuarioPodeVerTodos],
+    [policiais, equipeAtual, usuarioPodeVerTodos, usuarioEhCpmulher],
   );
 
   const filteredPoliciales = useMemo(() => {
@@ -897,12 +1002,30 @@ export function MostrarEquipeSection({
     return resultado;
   }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao]);
 
-  const registroInicio = totalPoliciais === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
-  const registroFim = totalPoliciais === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalPoliciais);
+  // Recalcular total e paginação baseado nos dados filtrados
+  const totalPoliciaisFiltrado = useMemo(() => {
+    return filteredPoliciales.length;
+  }, [filteredPoliciales]);
+  
+  const totalPaginasFiltrado = useMemo(() => {
+    return Math.max(1, Math.ceil(totalPoliciaisFiltrado / itensPorPagina));
+  }, [totalPoliciaisFiltrado, itensPorPagina]);
+  
+  const registroInicio = totalPoliciaisFiltrado === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
+  const registroFim = totalPoliciaisFiltrado === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalPoliciaisFiltrado);
 
   const policiaisPaginados = useMemo(() => {
-    return filteredPoliciales;
-  }, [filteredPoliciales]);
+    const inicio = (paginaAtual - 1) * itensPorPagina;
+    const fim = inicio + itensPorPagina;
+    return filteredPoliciales.slice(inicio, fim);
+  }, [filteredPoliciales, paginaAtual, itensPorPagina]);
+  
+  // Ajustar página atual se necessário
+  useEffect(() => {
+    if (paginaAtual > totalPaginasFiltrado && totalPaginasFiltrado > 0) {
+      setPaginaAtual(totalPaginasFiltrado);
+    }
+  }, [paginaAtual, totalPaginasFiltrado]);
 
   // Calcular totais de dias por tipo de afastamento para a modal de visualização
   const resumoDiasPorTipo = useMemo(() => {
@@ -1044,7 +1167,7 @@ export function MostrarEquipeSection({
               Com filtros aplicados:
             </Typography>
             <Chip 
-              label={totalPoliciais} 
+              label={totalPoliciaisFiltrado} 
               size="small" 
               sx={{ fontWeight: 600, backgroundColor: '#10b981', color: 'white' }}
             />
@@ -1368,7 +1491,7 @@ export function MostrarEquipeSection({
         </table>
 
         {/* Controles de Paginação */}
-        {totalPaginas > 1 && (
+        {totalPaginasFiltrado > 1 && (
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -1402,13 +1525,13 @@ export function MostrarEquipeSection({
                 ‹ Anterior
               </button>
               <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
-                Página {paginaAtual} de {totalPaginas}
+                Página {paginaAtual} de {totalPaginasFiltrado}
               </span>
               <button
                 type="button"
                 className="ghost"
-                onClick={() => setPaginaAtual((prev) => Math.min(totalPaginas, prev + 1))}
-                disabled={paginaAtual === totalPaginas}
+                onClick={() => setPaginaAtual((prev) => Math.min(totalPaginasFiltrado, prev + 1))}
+                disabled={paginaAtual === totalPaginasFiltrado}
                 style={{ padding: '6px 12px' }}
               >
                 Próxima ›
@@ -1416,8 +1539,8 @@ export function MostrarEquipeSection({
               <button
                 type="button"
                 className="ghost"
-                onClick={() => setPaginaAtual(totalPaginas)}
-                disabled={paginaAtual === totalPaginas}
+                onClick={() => setPaginaAtual(totalPaginasFiltrado)}
+                disabled={paginaAtual === totalPaginasFiltrado}
                 style={{ padding: '6px 12px' }}
               >
                 »»

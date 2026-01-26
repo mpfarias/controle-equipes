@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -18,6 +19,7 @@ import { UpdateUsuarioNivelDto } from './dto/update-usuario-nivel.dto';
 import { SetUsuarioNivelPermissoesDto } from './dto/set-usuario-nivel-permissoes.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { AnyAuthenticated } from '../auth/any-authenticated.decorator';
 import type { Usuario } from '@prisma/client';
 
 @Controller('usuarios')
@@ -78,6 +80,7 @@ export class UsuariosController {
   }
 
   @Get('niveis/:id/permissoes')
+  @AnyAuthenticated() // Permite acesso para qualquer usuário autenticado
   listPermissoes(@Param('id', ParseIntPipe) id: number) {
     return this.usuariosService.listNivelPermissoes(id);
   }
@@ -92,6 +95,7 @@ export class UsuariosController {
   }
 
   @Get('funcoes')
+  @AnyAuthenticated() // Permite acesso para qualquer usuário autenticado
   listFuncoes() {
     return this.usuariosService.listFuncoes();
   }

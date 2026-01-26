@@ -7,35 +7,35 @@ datasource db {
 }
 
 model Policial {
-  id                            Int                        @id @default(autoincrement())
-  nome                          String
-  matricula                     String                     @unique
-  equipe                        String?
-  statusId                      Int
-  status                        StatusPolicial             @relation(fields: [statusId], references: [id])
-  funcaoId                      Int?
-  funcao                        Funcao?                    @relation(fields: [funcaoId], references: [id])
-  restricaoMedicaId             Int?
-  restricaoMedica               RestricaoMedica?           @relation(fields: [restricaoMedicaId], references: [id])
-  restricoesMedicasHistorico    RestricaoMedicaHistorico[]
-  fotoUrl                       String?
-  ferias                        FeriasPolicial[]
-  afastamentos                  Afastamento[]
-  createdById                   Int?
-  createdByName                 String?
-  updatedById                   Int?
-  updatedByName                 String?
-  createdAt                     DateTime                   @default(now())
-  updatedAt                     DateTime                   @updatedAt
+  id                         Int                        @id @default(autoincrement())
+  nome                       String
+  matricula                  String                     @unique
+  equipe                     String?
+  statusId                   Int
+  status                     StatusPolicial             @relation(fields: [statusId], references: [id])
+  funcaoId                   Int?
+  funcao                     Funcao?                    @relation(fields: [funcaoId], references: [id])
+  restricaoMedicaId          Int?
+  restricaoMedica            RestricaoMedica?           @relation(fields: [restricaoMedicaId], references: [id])
+  restricoesMedicasHistorico RestricaoMedicaHistorico[]
+  fotoUrl                    String?
+  ferias                     FeriasPolicial[]
+  afastamentos               Afastamento[]
+  createdById                Int?
+  createdByName              String?
+  updatedById                Int?
+  updatedByName              String?
+  createdAt                  DateTime                   @default(now())
+  updatedAt                  DateTime                   @updatedAt
 }
 
 model StatusPolicial {
-  id          Int        @id @default(autoincrement())
-  nome        String     @unique
-  descricao   String?
-  policiais   Policial[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id        Int        @id @default(autoincrement())
+  nome      String     @unique
+  descricao String?
+  policiais Policial[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 model FeriasPolicial {
@@ -88,14 +88,14 @@ model Afastamento {
 }
 
 model UsuarioNivel {
-  id        Int       @id @default(autoincrement())
-  nome      String    @unique
-  descricao String?
-  ativo     Boolean   @default(true)
-  usuarios  Usuario[]
+  id         Int                     @id @default(autoincrement())
+  nome       String                  @unique
+  descricao  String?
+  ativo      Boolean                 @default(true)
+  usuarios   Usuario[]
   permissoes UsuarioNivelPermissao[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
 }
 
 model Funcao {
@@ -116,7 +116,7 @@ model Usuario {
   senhaHash             String
   perguntaSeguranca     String?
   respostaSegurancaHash String?
-  equipe                String        @default("A")
+  equipe                String?
   status                UsuarioStatus @default(ATIVO)
   isAdmin               Boolean       @default(false)
   nivelId               Int?
@@ -193,92 +193,92 @@ model RelatorioLog {
 }
 
 model ErroLog {
-  id            Int      @id @default(autoincrement())
-  mensagem      String
-  stack         String?
-  endpoint      String?
-  metodo        String?
-  userId        Int?
-  userName      String?
-  matricula     String?
-  ip            String?
-  userAgent     String?
-  requestBody   Json?
-  statusCode    Int?
-  erro          Json?
-  createdAt     DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  mensagem    String
+  stack       String?
+  endpoint    String?
+  metodo      String?
+  userId      Int?
+  userName    String?
+  matricula   String?
+  ip          String?
+  userAgent   String?
+  requestBody Json?
+  statusCode  Int?
+  erro        Json?
+  createdAt   DateTime @default(now())
 }
 
 model AcessoLog {
-  id            Int       @id @default(autoincrement())
-  userId        Int?
-  userName      String?
-  matricula     String?
-  ip            String?
-  userAgent     String?
-  dataEntrada   DateTime  @default(now())
-  dataSaida     DateTime?
-  tempoSessao   Int?      // Tempo em segundos
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          Int       @id @default(autoincrement())
+  userId      Int?
+  userName    String?
+  matricula   String?
+  ip          String?
+  userAgent   String?
+  dataEntrada DateTime  @default(now())
+  dataSaida   DateTime?
+  tempoSessao Int? // Tempo em segundos
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model RestricaoMedica {
-  id        Int        @id @default(autoincrement())
-  nome      String     @unique
+  id        Int                        @id @default(autoincrement())
+  nome      String                     @unique
   descricao String?
   policiais Policial[]
   historico RestricaoMedicaHistorico[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  createdAt DateTime                   @default(now())
+  updatedAt DateTime                   @updatedAt
 }
 
 model RestricaoMedicaHistorico {
-  id                        Int              @id @default(autoincrement())
-  policialId                Int
-  policial                  Policial         @relation(fields: [policialId], references: [id], onDelete: Cascade)
-  restricaoMedicaId         Int
-  restricaoMedica           RestricaoMedica  @relation(fields: [restricaoMedicaId], references: [id])
-  dataInicio                DateTime         // Quando a restrição foi colocada
-  dataFim                   DateTime         // Quando a restrição foi removida
-  removidoPorId             Int?
-  removidoPorNome           String?
-  createdAt                 DateTime         @default(now())
+  id                Int             @id @default(autoincrement())
+  policialId        Int
+  policial          Policial        @relation(fields: [policialId], references: [id], onDelete: Cascade)
+  restricaoMedicaId Int
+  restricaoMedica   RestricaoMedica @relation(fields: [restricaoMedicaId], references: [id])
+  dataInicio        DateTime // Quando a restrição foi colocada
+  dataFim           DateTime // Quando a restrição foi removida
+  removidoPorId     Int?
+  removidoPorNome   String?
+  createdAt         DateTime        @default(now())
 }
 
 model TipoRestricaoAfastamento {
-  id                Int                      @id @default(autoincrement())
-  nome              String                   @unique
-  descricao         String?
-  restricoes        RestricaoAfastamento[]
-  createdAt         DateTime                 @default(now())
-  updatedAt         DateTime                 @updatedAt
+  id         Int                    @id @default(autoincrement())
+  nome       String                 @unique
+  descricao  String?
+  restricoes RestricaoAfastamento[]
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
 }
 
 model RestricaoAfastamento {
-  id                      Int                        @id @default(autoincrement())
-  tipoRestricaoId         Int
-  tipoRestricao           TipoRestricaoAfastamento   @relation(fields: [tipoRestricaoId], references: [id])
-  ano                     Int                        // Ano da restrição (ex: 2026, 2027)
-  dataInicio              DateTime
-  dataFim                 DateTime
-  motivosRestritos        Int[]                      // Array de IDs de MotivoAfastamento
-  ativo                   Boolean                    @default(true)
-  createdById             Int?
-  createdByName           String?
-  updatedById             Int?
-  updatedByName           String?
-  createdAt               DateTime                   @default(now())
-  updatedAt               DateTime                   @updatedAt
+  id               Int                      @id @default(autoincrement())
+  tipoRestricaoId  Int
+  tipoRestricao    TipoRestricaoAfastamento @relation(fields: [tipoRestricaoId], references: [id])
+  ano              Int // Ano da restrição (ex: 2026, 2027)
+  dataInicio       DateTime
+  dataFim          DateTime
+  motivosRestritos Int[] // Array de IDs de MotivoAfastamento
+  ativo            Boolean                  @default(true)
+  createdById      Int?
+  createdByName    String?
+  updatedById      Int?
+  updatedByName    String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 }
 
 model UsuarioNivelPermissao {
-  id        Int          @id @default(autoincrement())
+  id        Int           @id @default(autoincrement())
   nivelId   Int
-  nivel     UsuarioNivel @relation(fields: [nivelId], references: [id], onDelete: Cascade)
+  nivel     UsuarioNivel  @relation(fields: [nivelId], references: [id], onDelete: Cascade)
   telaKey   String
   acao      PermissaoAcao
-  createdAt DateTime     @default(now())
+  createdAt DateTime      @default(now())
 
   @@unique([nivelId, telaKey, acao])
 }

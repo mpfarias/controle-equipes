@@ -100,7 +100,7 @@ export class UsuariosService {
       ? await bcrypt.hash(data.respostaSeguranca.trim().toLowerCase(), 10)
       : null;
 
-    const equipe = await this.ensureEquipeAtiva(data.equipe ?? 'A');
+    const equipe = data.equipe ? await this.ensureEquipeAtiva(data.equipe) : null;
     const created = await this.prisma.usuario.create({
       data: {
         nome: this.sanitizeNome(data.nome),
@@ -433,13 +433,14 @@ export class UsuariosService {
 
   async listFuncoes(): Promise<{ id: number; nome: string; descricao: string | null; ativo: boolean }[]> {
     return this.prisma.funcao.findMany({
+      where: { ativo: true },
       select: {
         id: true,
         nome: true,
         descricao: true,
         ativo: true,
       },
-      orderBy: { id: 'asc' },
+      orderBy: { nome: 'asc' },
     });
   }
 
@@ -854,7 +855,7 @@ export class UsuariosService {
     }
 
     if (data.equipe !== undefined) {
-      updateData.equipe = await this.ensureEquipeAtiva(data.equipe);
+      updateData.equipe = data.equipe ? await this.ensureEquipeAtiva(data.equipe) : null;
     }
 
     if (data.nivelId !== undefined && data.nivelId !== null && data.nivelId > 0) {

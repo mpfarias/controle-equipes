@@ -60,7 +60,14 @@ export function DashboardHomeSection({
     total: number;
     afastados: number;
     disponiveis: number;
-  }>>({});
+  }>>(() => {
+    // Inicializar todas as equipes com zero para evitar "Carregando..."
+    const inicial: Record<string, { total: number; afastados: number; disponiveis: number }> = {};
+    ['A', 'B', 'C', 'D', 'E'].forEach(equipe => {
+      inicial[equipe] = { total: 0, afastados: 0, disponiveis: 0 };
+    });
+    return inicial;
+  });
   const [loadingAfastamentos, setLoadingAfastamentos] = useState(false);
   const [loadingPoliciais, setLoadingPoliciais] = useState(false);
   const [loadingExpediente, setLoadingExpediente] = useState(false);
@@ -86,6 +93,13 @@ export function DashboardHomeSection({
   const usuarioPodeVerTodos = useMemo(() => {
     const nivelNome = currentUser.nivel?.nome;
     return nivelNome === 'ADMINISTRADOR' || nivelNome === 'COMANDO' || nivelNome === 'SAD' || currentUser.isAdmin === true;
+  }, [currentUser]);
+
+  // Verificar se o usuário é do nível Cpmulher
+  const usuarioEhCpmulher = useMemo(() => {
+    const nivelNome = currentUser.nivel?.nome;
+    const nivelNomeUpper = nivelNome?.toUpperCase();
+    return nivelNomeUpper === 'CPMULHER' || nivelNomeUpper === 'COPOM MULHER' || nivelNomeUpper === 'COPOMULHER';
   }, [currentUser]);
 
   // Função helper para calcular primeiro e último dia do mês selecionado
@@ -188,8 +202,35 @@ export function DashboardHomeSection({
 
         const afastamentos = await api.listAfastamentos(params);
         
+        // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
+        let afastamentosFiltrados = afastamentos;
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          // Buscar todos os policiais com as funções permitidas
+          const todosPoliciaisCpmulher: Policial[] = [];
+          for (const funcaoId of funcoesCopomMulherIds) {
+            const dataPoliciais = await api.listPoliciaisPaginated({
+              page: 1,
+              pageSize: 1000,
+              includeAfastamentos: false,
+              includeRestricoes: false,
+              funcaoId: funcaoId,
+            });
+            todosPoliciaisCpmulher.push(...dataPoliciais.Policiales);
+          }
+          
+          // Remover duplicatas e criar Set de IDs
+          const idsPoliciaisCpmulher = new Set(
+            Array.from(new Map(todosPoliciaisCpmulher.map(p => [p.id, p])).values())
+              .filter((p) => p.status !== 'DESATIVADO')
+              .map((p) => p.id)
+          );
+          
+          // Filtrar afastamentos apenas dos policiais permitidos
+          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
+        }
+        
         // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
-        const afastamentosNoMes = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        const afastamentosNoMes = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
         
         // Debug: verificar se há afastamentos sendo filtrados incorretamente
         const afastamentosForaDoMes = afastamentos.filter((af) => {
@@ -236,15 +277,30 @@ export function DashboardHomeSection({
         const funcaoMotoristaId = funcaoMotorista?.id;
         
         // Buscar total de policiais por equipe PRIMEIRO para ter os dados atualizados
-        const equipes = ['A', 'B', 'C', 'D', 'E'];
+        // Se o usuário não pode ver todos, carregar apenas a equipe dele
+        // EXCEÇÃO: Se for Cpmulher, carregar todas as equipes (pois os policiais do COPOM Mulher podem estar em qualquer equipe)
+        const equipesParaCarregar = (usuarioPodeVerTodos || usuarioEhCpmulher)
+          ? ['A', 'B', 'C', 'D', 'E']
+          : (currentUser.equipe ? [currentUser.equipe] : []);
+        
         const dadosPorEquipe: Record<string, {
           total: number;
           afastados: number;
           disponiveis: number;
         }> = {};
         
+        // SEMPRE inicializar todas as equipes com zero primeiro
+        // Isso garante que o objeto tenha todas as chaves, evitando "Carregando..."
+        ['A', 'B', 'C', 'D', 'E'].forEach(equipe => {
+          dadosPorEquipe[equipe] = {
+            total: 0,
+            afastados: 0,
+            disponiveis: 0,
+          };
+        });
+        
         // Buscar todos os policiais por equipe para garantir dados atualizados
-        for (const equipe of equipes) {
+        for (const equipe of equipesParaCarregar) {
           try {
             // Buscar todos os policiais da equipe (ATIVO, DESIGNADO, COMISSIONADO, PTTC)
             // Não incluir DESATIVADO
@@ -267,34 +323,22 @@ export function DashboardHomeSection({
               policiaisAtivos = policiaisAtivos.filter(p => p.funcaoId !== funcaoMotoristaId);
             }
             
+            // Se for Cpmulher, filtrar apenas policiais com as funções permitidas (Analista e Telefonista 190 - Auxiliar)
+            if (usuarioEhCpmulher) {
+              if (funcoesCopomMulherIds.length === 0) {
+                // Se ainda não temos os IDs das funções, não mostrar nenhum policial
+                policiaisAtivos = [];
+              } else {
+                policiaisAtivos = policiaisAtivos.filter((p) => 
+                  p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+                );
+              }
+            }
+            
             const totalEquipe = policiaisAtivos.length;
             
             // Criar um Set com os IDs dos policiais ativos da equipe
             const idsPoliciaisEquipe = new Set(policiaisAtivos.map(p => p.id));
-            
-            // Debug: verificar dados retornados
-            console.log(`Equipe ${equipe}:`, {
-              totalNoBanco: dataEquipe.total,
-              totalFiltrado: totalEquipe,
-              policiaisRetornados: dataEquipe.Policiales.length,
-              policiaisAtivos: policiaisAtivos.length,
-              idsPoliciais: Array.from(idsPoliciaisEquipe),
-              statusDetalhes: dataEquipe.Policiales.map(p => ({ 
-                id: p.id, 
-                nome: p.nome, 
-                matricula: p.matricula, 
-                equipe: p.equipe,
-                status: p.status 
-              })),
-            });
-            
-            // Debug: verificar dados retornados
-            console.log(`Equipe ${equipe}:`, {
-              total: totalEquipe,
-              policiaisRetornados: dataEquipe.Policiales.length,
-              idsPoliciais: Array.from(idsPoliciaisEquipe),
-              nomesPoliciais: dataEquipe.Policiales.map(p => ({ id: p.id, nome: p.nome, matricula: p.matricula, equipe: p.equipe })),
-            });
             
             // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
             const afastamentosNoMesEquipe = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
@@ -331,17 +375,6 @@ export function DashboardHomeSection({
         }
         
         setPoliciaisPorEquipe(dadosPorEquipe);
-        
-        // Debug: log dos afastamentos retornados
-        console.log('Dashboard - Afastamentos do mês:', {
-          totalAfastamentos: afastamentos.length,
-          totalPoliciaisUnicos: policiaisUnicos.size,
-          totalFerias: ferias.length,
-          totalAbono: abono.length,
-          dadosPorEquipe,
-          periodo: `${primeiroDia} até ${ultimoDiaStr}`,
-          policiaisIds: Array.from(policiaisUnicos),
-        });
       } catch (error) {
         console.error('Erro ao carregar afastamentos do mês:', error);
         setTotalPoliciaisAfastados(0);
@@ -351,7 +384,7 @@ export function DashboardHomeSection({
     };
 
     void carregarAfastamentosMes();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
 
   // Carregar total de policiais cadastrados
   useEffect(() => {
@@ -372,7 +405,21 @@ export function DashboardHomeSection({
 
         const data = await api.listPoliciaisPaginated(params);
         // Filtrar para excluir DESATIVADOS (incluir ATIVO, DESIGNADO, COMISSIONADO, PTTC)
-        const policiaisAtivos = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        let policiaisAtivos = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        
+        // Se for Cpmulher, filtrar apenas policiais com as funções permitidas
+        // Se não houver funções configuradas ainda, aguardar até que sejam carregadas
+        if (usuarioEhCpmulher) {
+          if (funcoesCopomMulherIds.length === 0) {
+            // Aguardar até que as funções sejam carregadas
+            setTotalPoliciaisCadastrados(0);
+            return;
+          }
+          policiaisAtivos = policiaisAtivos.filter((p) => 
+            p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+          );
+        }
+        
         setTotalPoliciaisCadastrados(policiaisAtivos.length);
       } catch (error) {
         console.error('Erro ao carregar total de policiais:', error);
@@ -383,7 +430,7 @@ export function DashboardHomeSection({
     };
 
     void carregarTotalPoliciais();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais]);
+  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyPoliciais]);
 
   // Carregar policiais do Expediente Administrativo
   useEffect(() => {
@@ -430,9 +477,43 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(paramsAfastamentos);
+        
+        // Se for Cpmulher, filtrar apenas afastamentos de policiais com as funções permitidas
+        let afastamentosFiltrados = afastamentos;
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          const idsPoliciaisPermitidos = new Set(
+            policiaisExpedienteAtivos
+              .filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId))
+              .map((p) => p.id)
+          );
+          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisPermitidos.has(af.policialId));
+          
+          // Filtrar também os policiais do expediente
+          const policiaisExpedienteFiltrados = policiaisExpedienteAtivos.filter((p) => 
+            p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+          );
+          const idsExpediente = new Set(policiaisExpedienteFiltrados.map((p) => p.id));
+          const policiaisUnicosAfastados = new Set(
+            afastamentosFiltrados
+              .filter((af) => idsExpediente.has(af.policialId))
+              .map((af) => af.policialId)
+          );
+          
+          const totalExpediente = policiaisExpedienteFiltrados.length;
+          const afastadosExpediente = policiaisUnicosAfastados.size;
+          const disponiveisExpediente = Math.max(0, totalExpediente - afastadosExpediente);
+          
+          setExpedienteData({
+            total: totalExpediente,
+            afastados: afastadosExpediente,
+            disponiveis: disponiveisExpediente,
+          });
+          return;
+        }
+        
         const idsExpediente = new Set(policiaisExpedienteAtivos.map((p) => p.id));
         const policiaisUnicosAfastados = new Set(
-          afastamentos
+          afastamentosFiltrados
             .filter((af) => idsExpediente.has(af.policialId))
             .map((af) => af.policialId)
         );
@@ -455,7 +536,7 @@ export function DashboardHomeSection({
     };
 
     void carregarExpediente();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
 
   // Carregar policiais Motoristas de Dia
   useEffect(() => {
@@ -502,15 +583,30 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(paramsAfastamentos);
-        const afastamentosNoMesMotoristas = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
-        const idsMotoristas = new Set(policiaisMotoristasAtivos.map((p) => p.id));
+        
+        // Se for Cpmulher, filtrar apenas afastamentos de policiais com as funções permitidas
+        let afastamentosFiltrados = afastamentos;
+        let policiaisMotoristasFiltrados = policiaisMotoristasAtivos;
+        
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          // Filtrar apenas motoristas que também têm as funções permitidas (intersecção)
+          policiaisMotoristasFiltrados = policiaisMotoristasAtivos.filter((p) => 
+            p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+          );
+          
+          const idsMotoristas = new Set(policiaisMotoristasFiltrados.map((p) => p.id));
+          afastamentosFiltrados = afastamentos.filter((af) => idsMotoristas.has(af.policialId));
+        }
+        
+        const afastamentosNoMesMotoristas = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
+        const idsMotoristas = new Set(policiaisMotoristasFiltrados.map((p) => p.id));
         const policiaisUnicosAfastados = new Set(
           afastamentosNoMesMotoristas
             .filter((af) => idsMotoristas.has(af.policialId))
             .map((af) => af.policialId)
         );
 
-        const totalMotoristas = policiaisMotoristasAtivos.length;
+        const totalMotoristas = policiaisMotoristasFiltrados.length;
         const afastadosMotoristas = policiaisUnicosAfastados.size;
         const disponiveisMotoristas = Math.max(0, totalMotoristas - afastadosMotoristas);
         
@@ -528,14 +624,13 @@ export function DashboardHomeSection({
     };
 
     void carregarMotoristas();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
 
   // Carregar policiais COPOM Mulher (ANALISTA e TELEFONISTA 190 - AUXILIAR)
   useEffect(() => {
     const carregarCopomMulher = async () => {
       // Aguardar até que os IDs das funções estejam disponíveis
       if (funcoesCopomMulherIds.length === 0) {
-        console.log('COPOM Mulher: Aguardando IDs das funções...');
         setCopomMulherData({ total: 0, afastados: 0, disponiveis: 0 });
         setLoadingCopomMulher(false);
         return;
@@ -544,8 +639,6 @@ export function DashboardHomeSection({
       try {
         setLoadingCopomMulher(true);
         const { primeiroDia, ultimoDiaStr } = getDataRange();
-
-        console.log('COPOM Mulher: Carregando dados com IDs:', funcoesCopomMulherIds);
 
         // Buscar policiais com qualquer uma das funções
         const todosPoliciaisCopomMulher: Policial[] = [];
@@ -556,11 +649,6 @@ export function DashboardHomeSection({
             includeAfastamentos: false,
             includeRestricoes: false,
             funcaoId: funcaoId,
-          });
-          console.log(`COPOM Mulher - Policiais encontrados para função ID ${funcaoId}:`, {
-            total: data.total,
-            policiais: data.Policiales.length,
-            nomes: data.Policiales.map(p => ({ id: p.id, nome: p.nome, funcaoId: p.funcaoId, funcaoNome: p.funcao?.nome }))
           });
           todosPoliciaisCopomMulher.push(...data.Policiales);
         }
@@ -573,29 +661,14 @@ export function DashboardHomeSection({
         // Filtrar para excluir DESATIVADOS
         const policiaisCopomMulherAtivos = policiaisUnicos.filter((p) => p.status !== 'DESATIVADO');
         
-        console.log('COPOM Mulher - Resumo:', {
-          totalAntesFiltro: todosPoliciaisCopomMulher.length,
-          totalUnicos: policiaisUnicos.length,
-          totalAtivos: policiaisCopomMulherAtivos.length,
-          policiaisAtivos: policiaisCopomMulherAtivos.map(p => ({ 
-            id: p.id, 
-            nome: p.nome, 
-            funcaoId: p.funcaoId, 
-            funcaoNome: p.funcao?.nome,
-            status: p.status 
-          }))
-        });
-        
         // Buscar afastamentos do mês para policiais do COPOM Mulher
+        // O cartão COPOM Mulher sempre mostra todos os policiais com essas funções,
+        // independente da equipe do usuário
         const paramsAfastamentos: Parameters<typeof api.listAfastamentos>[0] = {
           dataInicio: primeiroDia,
           dataFim: ultimoDiaStr,
           includePolicialFuncao: false,
         };
-
-        if (!usuarioPodeVerTodos && currentUser.equipe) {
-          paramsAfastamentos.equipe = currentUser.equipe;
-        }
 
         const afastamentos = await api.listAfastamentos(paramsAfastamentos);
         const afastamentosNoMesCopomMulher = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
@@ -616,7 +689,6 @@ export function DashboardHomeSection({
           disponiveis: disponiveisCopomMulher,
         };
         
-        console.log('COPOM Mulher - Setando dados:', dadosCopomMulher);
         setCopomMulherData(dadosCopomMulher);
       } catch (error) {
         console.error('Erro ao carregar COPOM Mulher:', error);
@@ -704,12 +776,6 @@ export function DashboardHomeSection({
                  nomeUpper.includes('AUXILIAR');
         });
         
-        console.log('Funções COPOM Mulher encontradas (useEffect):', {
-          todasFuncoes: funcoes.map(f => ({ id: f.id, nome: f.nome })),
-          funcaoAnalista: funcaoAnalista ? { id: funcaoAnalista.id, nome: funcaoAnalista.nome } : null,
-          funcaoTelefonista: funcaoTelefonista ? { id: funcaoTelefonista.id, nome: funcaoTelefonista.nome } : null,
-        });
-        
         const ids: number[] = [];
         if (funcaoAnalista) ids.push(funcaoAnalista.id);
         if (funcaoTelefonista) ids.push(funcaoTelefonista.id);
@@ -722,140 +788,151 @@ export function DashboardHomeSection({
   }, []);
 
   // Cards do dashboard
-  const cards = useMemo(() => [
-    {
-      title: 'Afastamentos do Mês',
-      description: loadingAfastamentos 
-        ? 'Carregando...' 
-        : 'Visualize e gerencie os afastamentos do mês atual',
-      tab: 'afastamentos-mes' as TabKey,
-      color: '#3b82f6',
-      showCount: true,
-      countValue: totalPoliciaisAfastados,
-      loadingCount: loadingAfastamentos,
-      filters: undefined,
-    },
-    {
-      title: 'Policiais Disponíveis',
-      description: 'Policiais disponíveis para trabalho no mês atual',
-      tab: 'equipe' as TabKey,
-      color: '#10b981',
-      showCount: true,
-      countValue: totalPoliciaisDisponiveis,
-      loadingCount: loadingAfastamentos || loadingPoliciais,
-      filters: undefined,
-    },
-    {
-      title: 'Férias',
-      description: 'Férias cadastradas no mês atual',
-      tab: 'afastamentos-mes' as TabKey,
-      color: '#f59e0b',
-      showCount: true,
-      countValue: totalFerias,
-      loadingCount: loadingAfastamentos,
-      unit: 'férias',
-      filters: { motivo: 'Férias' },
-    },
-    {
-      title: 'Abono',
-      description: 'Abonos cadastrados no mês atual',
-      tab: 'afastamentos-mes' as TabKey,
-      color: '#ec4899',
-      showCount: true,
-      countValue: totalAbono,
-      loadingCount: loadingAfastamentos,
-      unit: 'abono',
-      filters: { motivo: 'Abono' },
-    },
-    {
-      title: 'Expediente',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#06b6d4',
-      showCount: false,
-      isEquipe: true,
-      isExpediente: true,
-      loadingCount: loadingExpediente || loadingAfastamentos,
-      filters: funcaoExpedienteId ? { funcaoId: funcaoExpedienteId } : undefined,
-    },
-    {
-      title: 'Equipe A',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#8b5cf6',
-      showCount: false,
-      isEquipe: true,
-      equipe: 'A',
-      loadingCount: loadingAfastamentos || loadingPoliciais,
-      filters: { equipe: 'A' },
-    },
-    {
-      title: 'Equipe B',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#a855f7',
-      showCount: false,
-      isEquipe: true,
-      equipe: 'B',
-      loadingCount: loadingAfastamentos || loadingPoliciais,
-      filters: { equipe: 'B' },
-    },
-    {
-      title: 'Equipe C',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#c084fc',
-      showCount: false,
-      isEquipe: true,
-      equipe: 'C',
-      loadingCount: loadingAfastamentos || loadingPoliciais,
-      filters: { equipe: 'C' },
-    },
-    {
-      title: 'Equipe D',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#d8b4fe',
-      showCount: false,
-      isEquipe: true,
-      equipe: 'D',
-      loadingCount: loadingAfastamentos || loadingPoliciais,
-      filters: { equipe: 'D' },
-    },
-    {
-      title: 'Equipe E',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#e9d5ff',
-      showCount: false,
-      isEquipe: true,
-      equipe: 'E',
-      loadingCount: loadingAfastamentos || loadingPoliciais,
-      filters: { equipe: 'E' },
-    },
-    {
-      title: 'Motoristas',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#f97316',
-      showCount: false,
-      isEquipe: true,
-      isMotoristas: true,
-      loadingCount: loadingMotoristas || loadingAfastamentos,
-      filters: funcaoMotoristaId ? { funcaoId: funcaoMotoristaId } : undefined,
-    },
-    {
-      title: 'COPOM Mulher',
-      description: '',
-      tab: 'equipe' as TabKey,
-      color: '#ec4899',
-      showCount: false,
-      isEquipe: true,
-      isCopomMulher: true,
-      loadingCount: loadingCopomMulher || loadingAfastamentos,
-      filters: funcoesCopomMulherIds.length > 0 ? { funcoesIds: funcoesCopomMulherIds } : undefined,
-    },
-  ], [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds]);
+  const cards = useMemo(() => {
+    const todosCards = [
+      {
+        title: 'Afastamentos do Mês',
+        description: loadingAfastamentos 
+          ? 'Carregando...' 
+          : 'Visualize e gerencie os afastamentos do mês atual',
+        tab: 'afastamentos-mes' as TabKey,
+        color: '#3b82f6',
+        showCount: true,
+        countValue: totalPoliciaisAfastados,
+        loadingCount: loadingAfastamentos,
+        filters: undefined,
+      },
+      {
+        title: 'Policiais Disponíveis',
+        description: 'Policiais disponíveis para trabalho no mês atual',
+        tab: 'equipe' as TabKey,
+        color: '#10b981',
+        showCount: true,
+        countValue: totalPoliciaisDisponiveis,
+        loadingCount: loadingAfastamentos || loadingPoliciais,
+        filters: undefined,
+      },
+      {
+        title: 'Férias',
+        description: 'Férias cadastradas no mês atual',
+        tab: 'afastamentos-mes' as TabKey,
+        color: '#f59e0b',
+        showCount: true,
+        countValue: totalFerias,
+        loadingCount: loadingAfastamentos,
+        unit: 'férias',
+        filters: { motivo: 'Férias' },
+      },
+      {
+        title: 'Abono',
+        description: 'Abonos cadastrados no mês atual',
+        tab: 'afastamentos-mes' as TabKey,
+        color: '#ec4899',
+        showCount: true,
+        countValue: totalAbono,
+        loadingCount: loadingAfastamentos,
+        unit: 'abono',
+        filters: { motivo: 'Abono' },
+      },
+      {
+        title: 'Expediente',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#06b6d4',
+        showCount: false,
+        isEquipe: true,
+        isExpediente: true,
+        loadingCount: loadingExpediente || loadingAfastamentos,
+        filters: funcaoExpedienteId ? { funcaoId: funcaoExpedienteId } : undefined,
+      },
+      {
+        title: 'Equipe A',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#8b5cf6',
+        showCount: false,
+        isEquipe: true,
+        equipe: 'A',
+        loadingCount: loadingAfastamentos || loadingPoliciais,
+        filters: { equipe: 'A' },
+      },
+      {
+        title: 'Equipe B',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#a855f7',
+        showCount: false,
+        isEquipe: true,
+        equipe: 'B',
+        loadingCount: loadingAfastamentos || loadingPoliciais,
+        filters: { equipe: 'B' },
+      },
+      {
+        title: 'Equipe C',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#c084fc',
+        showCount: false,
+        isEquipe: true,
+        equipe: 'C',
+        loadingCount: loadingAfastamentos || loadingPoliciais,
+        filters: { equipe: 'C' },
+      },
+      {
+        title: 'Equipe D',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#d8b4fe',
+        showCount: false,
+        isEquipe: true,
+        equipe: 'D',
+        loadingCount: loadingAfastamentos || loadingPoliciais,
+        filters: { equipe: 'D' },
+      },
+      {
+        title: 'Equipe E',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#e9d5ff',
+        showCount: false,
+        isEquipe: true,
+        equipe: 'E',
+        loadingCount: loadingAfastamentos || loadingPoliciais,
+        filters: { equipe: 'E' },
+      },
+      {
+        title: 'Motoristas',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#f97316',
+        showCount: false,
+        isEquipe: true,
+        isMotoristas: true,
+        loadingCount: loadingMotoristas || loadingAfastamentos,
+        filters: funcaoMotoristaId ? { funcaoId: funcaoMotoristaId } : undefined,
+      },
+      {
+        title: 'COPOM Mulher',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#ec4899',
+        showCount: false,
+        isEquipe: true,
+        isCopomMulher: true,
+        loadingCount: loadingCopomMulher || loadingAfastamentos,
+        filters: funcoesCopomMulherIds.length > 0 ? { funcoesIds: funcoesCopomMulherIds } : undefined,
+      },
+    ];
+    
+    // Se for Cpmulher, ocultar os cards "Expediente" e "Motoristas"
+    if (usuarioEhCpmulher) {
+      return todosCards.filter(card => 
+        card.title !== 'Expediente' && card.title !== 'Motoristas'
+      );
+    }
+    
+    return todosCards;
+  }, [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds, usuarioEhCpmulher]);
 
   const handleNumberClick = async (
     card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; funcoesIds?: number[] }; isEquipe?: boolean; isExpediente?: boolean; isMotoristas?: boolean; isCopomMulher?: boolean; equipe?: string },
@@ -903,12 +980,6 @@ export function DashboardHomeSection({
         todosPoliciais = Array.from(
           new Map(todosPoliciaisTemp.map(p => [p.id, p])).values()
         ).filter((p) => p.status !== 'DESATIVADO');
-        
-        console.log('COPOM Mulher - handleNumberClick:', {
-          funcoesIds: card.filters.funcoesIds,
-          totalEncontrado: todosPoliciais.length,
-          policiais: todosPoliciais.map(p => ({ id: p.id, nome: p.nome, funcaoId: p.funcaoId, funcaoNome: p.funcao?.nome }))
-        });
       } else {
         const data = await api.listPoliciaisPaginated(params);
         todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
@@ -917,6 +988,14 @@ export function DashboardHomeSection({
       // Se for um card de equipe, excluir policiais com função MOTORISTA DE DIA
       if (card.equipe && funcaoMotoristaId) {
         todosPoliciais = todosPoliciais.filter((p) => p.funcaoId !== funcaoMotoristaId);
+      }
+      
+      // Se for Cpmulher, filtrar apenas policiais com as funções permitidas (Analista e Telefonista 190 - Auxiliar)
+      // Isso se aplica tanto para cards de equipe quanto para o card "COPOM Mulher"
+      if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+        todosPoliciais = todosPoliciais.filter((p) => 
+          p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+        );
       }
 
       // Se for "afastados" ou "disponiveis", filtrar por afastamentos do mês selecionado
@@ -934,7 +1013,20 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(afastamentosParams);
-        const afastamentosNoMesModal = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        
+        // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
+        // Isso se aplica tanto para cards de equipe quanto para o card "COPOM Mulher"
+        let afastamentosFiltrados = afastamentos;
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          const idsPoliciaisPermitidos = new Set(
+            todosPoliciais
+              .filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId))
+              .map((p) => p.id)
+          );
+          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisPermitidos.has(af.policialId));
+        }
+        
+        const afastamentosNoMesModal = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
         const idsPoliciais = new Set(todosPoliciais.map((p) => p.id));
 
         // Filtrar afastamentos apenas dos policiais da equipe/expediente
@@ -985,7 +1077,35 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(params);
-        const afastamentosNoMesMotivo = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        
+        // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
+        let afastamentosFiltradosPorFuncao = afastamentos;
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          // Buscar todos os policiais com as funções permitidas
+          const todosPoliciaisCpmulher: Policial[] = [];
+          for (const funcaoId of funcoesCopomMulherIds) {
+            const dataPoliciais = await api.listPoliciaisPaginated({
+              page: 1,
+              pageSize: 1000,
+              includeAfastamentos: false,
+              includeRestricoes: false,
+              funcaoId: funcaoId,
+            });
+            todosPoliciaisCpmulher.push(...dataPoliciais.Policiales);
+          }
+          
+          // Remover duplicatas e criar Set de IDs
+          const idsPoliciaisCpmulher = new Set(
+            Array.from(new Map(todosPoliciaisCpmulher.map(p => [p.id, p])).values())
+              .filter((p) => p.status !== 'DESATIVADO')
+              .map((p) => p.id)
+          );
+          
+          // Filtrar afastamentos apenas dos policiais permitidos
+          afastamentosFiltradosPorFuncao = afastamentos.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
+        }
+        
+        const afastamentosNoMesMotivo = filtrarAfastamentosNoMes(afastamentosFiltradosPorFuncao, primeiroDia, ultimoDiaStr);
         const filtrados = afastamentosNoMesMotivo.filter((af) => 
           af.motivo?.nome?.toLowerCase() === card.filters!.motivo!.toLowerCase()
         );
@@ -1007,7 +1127,14 @@ export function DashboardHomeSection({
         }
 
         const data = await api.listPoliciaisPaginated(params);
-        const todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        let todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        
+        // Se for Cpmulher, filtrar apenas policiais com as funções permitidas
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          todosPoliciais = todosPoliciais.filter((p) => 
+            p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+          );
+        }
 
         // Buscar afastamentos do mês selecionado
         const { primeiroDia, ultimoDiaStr } = getDataRange();
@@ -1023,7 +1150,19 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(afastamentosParams);
-        const afastamentosNoMesDisponiveis = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        
+        // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
+        let afastamentosFiltrados = afastamentos;
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          const idsPoliciaisPermitidos = new Set(
+            todosPoliciais
+              .filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId))
+              .map((p) => p.id)
+          );
+          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisPermitidos.has(af.policialId));
+        }
+        
+        const afastamentosNoMesDisponiveis = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
         const idsAfastados = new Set(afastamentosNoMesDisponiveis.map((af) => af.policialId));
 
         // Filtrar apenas os policiais que NÃO estão afastados
@@ -1056,7 +1195,16 @@ export function DashboardHomeSection({
         
         // Filtrar apenas para excluir DESATIVADOS (incluir ATIVO, DESIGNADO, COMISSIONADO, PTTC)
         // Mostrar TODOS os policiais, independente de estarem afastados ou não
-        const todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        let todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        
+        // Se for Cpmulher, filtrar apenas policiais com as funções permitidas (Analista e Telefonista 190 - Auxiliar)
+        // Isso se aplica tanto para cards de equipe quanto para o card "COPOM Mulher"
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          todosPoliciais = todosPoliciais.filter((p) => 
+            p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
+          );
+        }
+        
         setPoliciaisModal(todosPoliciais);
       } else {
         // Cards sem filtro específico - não fazer nada por enquanto
@@ -1402,7 +1550,6 @@ export function DashboardHomeSection({
                           );
                         }
                       } else if ((card as any).isCopomMulher) {
-                        console.log('COPOM Mulher - Renderizando card:', { copomMulherData, loadingCopomMulher });
                         if (copomMulherData) {
                           return (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -1505,101 +1652,111 @@ export function DashboardHomeSection({
                             </Typography>
                           );
                         }
-                      } else if ((card as any).equipe && policiaisPorEquipe[(card as any).equipe]) {
-                        return (
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                            <Box 
-                              sx={{ 
-                                display: 'flex', 
-                                alignItems: 'baseline', 
-                                gap: 0.5,
-                                cursor: 'pointer',
-                                '&:hover': { opacity: 0.8 }
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleNumberClick(card, 'total');
-                              }}
-                            >
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                                Total:
-                              </Typography>
-                              <Typography 
-                                variant="h4" 
+                      } else if ((card as any).equipe) {
+                        // Verificar se os dados da equipe já estão disponíveis
+                        const dadosEquipe = policiaisPorEquipe[(card as any).equipe];
+                        if (dadosEquipe !== undefined) {
+                          return (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Box 
                                 sx={{ 
-                                  fontWeight: 700, 
-                                  color: card.color, 
-                                  fontSize: '2rem'
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'total');
                                 }}
                               >
-                                {policiaisPorEquipe[(card as any).equipe].total}
-                              </Typography>
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                                policiais
-                              </Typography>
-                            </Box>
-                            <Box 
-                              sx={{ 
-                                display: 'flex', 
-                                alignItems: 'baseline', 
-                                gap: 0.5,
-                                cursor: 'pointer',
-                                '&:hover': { opacity: 0.8 }
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleNumberClick(card, 'afastados');
-                              }}
-                            >
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                                Afastados:
-                              </Typography>
-                              <Typography 
-                                variant="h5" 
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Total:
+                                </Typography>
+                                <Typography 
+                                  variant="h4" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: card.color, 
+                                    fontSize: '2rem'
+                                  }}
+                                >
+                                  {dadosEquipe.total}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                              <Box 
                                 sx={{ 
-                                  fontWeight: 700, 
-                                  color: '#ef4444', 
-                                  fontSize: '1.75rem'
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'afastados');
                                 }}
                               >
-                                {policiaisPorEquipe[(card as any).equipe].afastados}
-                              </Typography>
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                                policiais
-                              </Typography>
-                            </Box>
-                            <Box 
-                              sx={{ 
-                                display: 'flex', 
-                                alignItems: 'baseline', 
-                                gap: 0.5,
-                                cursor: 'pointer',
-                                '&:hover': { opacity: 0.8 }
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleNumberClick(card, 'disponiveis');
-                              }}
-                            >
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                                Disponíveis:
-                              </Typography>
-                              <Typography 
-                                variant="h5" 
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Afastados:
+                                </Typography>
+                                <Typography 
+                                  variant="h5" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: '#ef4444', 
+                                    fontSize: '1.75rem'
+                                  }}
+                                >
+                                  {dadosEquipe.afastados}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
+                              <Box 
                                 sx={{ 
-                                  fontWeight: 700, 
-                                  color: '#10b981', 
-                                  fontSize: '1.75rem'
+                                  display: 'flex', 
+                                  alignItems: 'baseline', 
+                                  gap: 0.5,
+                                  cursor: 'pointer',
+                                  '&:hover': { opacity: 0.8 }
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card, 'disponiveis');
                                 }}
                               >
-                                {policiaisPorEquipe[(card as any).equipe].disponiveis}
-                              </Typography>
-                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
-                                policiais
-                              </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  Disponíveis:
+                                </Typography>
+                                <Typography 
+                                  variant="h5" 
+                                  sx={{ 
+                                    fontWeight: 700, 
+                                    color: '#10b981', 
+                                    fontSize: '1.75rem'
+                                  }}
+                                >
+                                  {dadosEquipe.disponiveis}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                  policiais
+                                </Typography>
+                              </Box>
                             </Box>
-                          </Box>
-                        );
+                          );
+                        } else {
+                          return (
+                            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                              Carregando...
+                            </Typography>
+                          );
+                        }
                       } else {
                         return (
                           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
