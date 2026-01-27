@@ -403,10 +403,11 @@ export function MostrarEquipeSection({
     direcao: 'asc' | 'desc';
   } | null>(null);
   const [paginaAtual, setPaginaAtual] = useState(1);
-  const [itensPorPagina, setItensPorPagina] = useState(20);
+  const [itensPorPagina, setItensPorPagina] = useState(10);
   const [totalPoliciais, setTotalPoliciais] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(1);
- 
+  const [paginacaoNoServidor, setPaginacaoNoServidor] = useState(true);
+
   const getPolicialStatusClass = (status: PolicialStatus) => {
     switch (status) {
       case 'ATIVO':
@@ -557,15 +558,14 @@ export function MostrarEquipeSection({
       }
       
       // Se buscamos todos para filtrar (Cpmulher), armazenar TODOS os policiais filtrados
-      // A paginação será aplicada depois no filteredPoliciales
+      // A paginação será aplicada no cliente (filteredPoliciales → policiaisPaginados)
       if (buscarTodosParaFiltro) {
-        // Armazenar TODOS os policiais filtrados (sem paginação)
+        setPaginacaoNoServidor(false);
         setPoliciais(policiaisFiltrados);
-        // O total e totalPages serão calculados depois baseado nos filtros do frontend
         setTotalPoliciais(policiaisFiltrados.length);
-        setTotalPaginas(1); // Será recalculado depois
+        setTotalPaginas(1);
       } else {
-        // Paginação normal do backend
+        setPaginacaoNoServidor(true);
         setPoliciais(policiaisFiltrados);
         const totalPages = Math.max(1, data.totalPages);
         setTotalPoliciais(data.total);
@@ -650,7 +650,7 @@ export function MostrarEquipeSection({
 
   useEffect(() => {
     void carregarPoliciais(paginaAtual, itensPorPagina);
-  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey]);
+  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey, filtroEquipe, filtroStatus, filtroFuncao, searchTerm]);
 
   useEffect(() => {
     void carregarFuncoes();
@@ -736,11 +736,15 @@ export function MostrarEquipeSection({
     }
 
     // Validar se MOTORISTA DE DIA não tem equipe E
-    let equipeFinal = editForm.equipe;
+    let equipeFinal: string | undefined | null = editForm.equipe;
     if (editForm.funcaoId) {
       const funcaoSelecionada = funcoes.find(f => f.id === editForm.funcaoId);
-      if (funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA')) {
-        if (equipeFinal === 'E') {
+      if (funcaoSelecionada) {
+        const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
+        // Funções que não têm equipe: limpar para que o backend salve null
+        if (funcaoUpper.includes('EXPEDIENTE ADM') || funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
+          equipeFinal = null;
+        } else if (funcaoUpper.includes('MOTORISTA DE DIA') && equipeFinal === 'E') {
           setEditError('A função MOTORISTA DE DIA não pode ter equipe E. Selecione uma equipe de A até D.');
           return;
         }
@@ -935,6 +939,13 @@ export function MostrarEquipeSection({
   );
 
   const filteredPoliciales = useMemo(() => {
+    // Quando a paginação é no servidor, os filtros já foram aplicados no backend
+    // Não devemos aplicar filtros novamente no cliente, apenas usar os dados que vieram
+    if (paginacaoNoServidor) {
+      return policiaisDaEquipe;
+    }
+
+    // Quando a paginação é no cliente (ex.: Cpmulher), aplicar filtros no cliente
     let resultado = policiaisDaEquipe;
 
     // Aplicar filtro de busca por nome, matrícula ou função
@@ -1000,7 +1011,7 @@ export function MostrarEquipeSection({
     }
 
     return resultado;
-  }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao]);
+  }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao, paginacaoNoServidor]);
 
   // Recalcular total e paginação baseado nos dados filtrados
   const totalPoliciaisFiltrado = useMemo(() => {
@@ -1011,21 +1022,32 @@ export function MostrarEquipeSection({
     return Math.max(1, Math.ceil(totalPoliciaisFiltrado / itensPorPagina));
   }, [totalPoliciaisFiltrado, itensPorPagina]);
   
-  const registroInicio = totalPoliciaisFiltrado === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
-  const registroFim = totalPoliciaisFiltrado === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalPoliciaisFiltrado);
+  // Quando a paginação é no servidor, usar totais do backend; senão usar os filtrados (ex.: Cpmulher)
+  const totalParaExibir = paginacaoNoServidor ? totalPoliciais : totalPoliciaisFiltrado;
+  const totalPaginasParaExibir = paginacaoNoServidor ? totalPaginas : totalPaginasFiltrado;
+  const registroInicio = totalParaExibir === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
+  const registroFim = totalParaExibir === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalParaExibir);
 
   const policiaisPaginados = useMemo(() => {
+    // Quando a paginação é no servidor, os dados já vêm paginados do backend
+    // Não devemos fazer slice, apenas usar os dados que vieram
+    if (paginacaoNoServidor) {
+      return filteredPoliciales;
+    }
+    
+    // Quando a paginação é no cliente (ex.: Cpmulher), aplicar slice para paginar
     const inicio = (paginaAtual - 1) * itensPorPagina;
     const fim = inicio + itensPorPagina;
     return filteredPoliciales.slice(inicio, fim);
-  }, [filteredPoliciales, paginaAtual, itensPorPagina]);
+  }, [filteredPoliciales, paginaAtual, itensPorPagina, paginacaoNoServidor]);
   
-  // Ajustar página atual se necessário
+  // Ajustar página atual se exceder o total de páginas (tanto servidor quanto cliente)
   useEffect(() => {
-    if (paginaAtual > totalPaginasFiltrado && totalPaginasFiltrado > 0) {
-      setPaginaAtual(totalPaginasFiltrado);
+    const totalPag = paginacaoNoServidor ? totalPaginas : totalPaginasFiltrado;
+    if (paginaAtual > totalPag && totalPag > 0) {
+      setPaginaAtual(totalPag);
     }
-  }, [paginaAtual, totalPaginasFiltrado]);
+  }, [paginaAtual, paginacaoNoServidor, totalPaginas, totalPaginasFiltrado]);
 
   // Calcular totais de dias por tipo de afastamento para a modal de visualização
   const resumoDiasPorTipo = useMemo(() => {
@@ -1167,7 +1189,7 @@ export function MostrarEquipeSection({
               Com filtros aplicados:
             </Typography>
             <Chip 
-              label={totalPoliciaisFiltrado} 
+              label={paginacaoNoServidor ? totalPoliciais : totalPoliciaisFiltrado} 
               size="small" 
               sx={{ fontWeight: 600, backgroundColor: '#10b981', color: 'white' }}
             />
@@ -1379,7 +1401,7 @@ export function MostrarEquipeSection({
                             fontWeight: 'bold',
                             lineHeight: 1,
                           }}
-                          title={`Restrição médica: ${formatNome(policial.restricaoMedica.nome)}`}
+                          title={`Restrição: ${formatNome(policial.restricaoMedica.nome)}`}
                         >
                           ⚠
                         </span>
@@ -1491,7 +1513,7 @@ export function MostrarEquipeSection({
         </table>
 
         {/* Controles de Paginação */}
-        {totalPaginasFiltrado > 1 && (
+        {totalPaginasParaExibir > 1 && (
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -1503,7 +1525,7 @@ export function MostrarEquipeSection({
             border: '1px solid #e9ecef'
           }}>
             <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
-              Mostrando {registroInicio} a {registroFim} de {totalPoliciais} registro(s)
+              Mostrando {registroInicio} a {registroFim} de {totalParaExibir} registro(s)
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -1525,13 +1547,13 @@ export function MostrarEquipeSection({
                 ‹ Anterior
               </button>
               <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
-                Página {paginaAtual} de {totalPaginasFiltrado}
+                Página {paginaAtual} de {totalPaginasParaExibir}
               </span>
               <button
                 type="button"
                 className="ghost"
-                onClick={() => setPaginaAtual((prev) => Math.min(totalPaginasFiltrado, prev + 1))}
-                disabled={paginaAtual === totalPaginasFiltrado}
+                onClick={() => setPaginaAtual((prev) => Math.min(totalPaginasParaExibir, prev + 1))}
+                disabled={paginaAtual === totalPaginasParaExibir}
                 style={{ padding: '6px 12px' }}
               >
                 Próxima ›
@@ -1539,8 +1561,8 @@ export function MostrarEquipeSection({
               <button
                 type="button"
                 className="ghost"
-                onClick={() => setPaginaAtual(totalPaginasFiltrado)}
-                disabled={paginaAtual === totalPaginasFiltrado}
+                onClick={() => setPaginaAtual(totalPaginasParaExibir)}
+                disabled={paginaAtual === totalPaginasParaExibir}
                 style={{ padding: '6px 12px' }}
               >
                 »»
@@ -2291,7 +2313,7 @@ export function MostrarEquipeSection({
               )}
 
               <label style={{ display: 'block', marginBottom: '16px' }}>
-                <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Restrição Médica</span>
+                <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Restrição</span>
                 {loadingRestricoes ? (
                   <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
                     Carregando restrições...
@@ -2363,7 +2385,7 @@ export function MostrarEquipeSection({
                     setRestricaoModal((prev) => ({
                       ...prev,
                       loading: false,
-                      error: err instanceof Error ? err.message : 'Erro ao salvar restrição médica',
+                      error: err instanceof Error ? err.message : 'Erro ao salvar restrição',
                     }));
                   }
                 }}
@@ -2397,7 +2419,7 @@ export function MostrarEquipeSection({
           >
             <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
               <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
-                Retirar Restrição Médica
+                Retirar Restrição
               </Typography>
               <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
                 {removeRestricaoModal.policial.nome}
@@ -2406,7 +2428,7 @@ export function MostrarEquipeSection({
 
             <Box sx={{ p: 3 }}>
               <Typography variant="body1" sx={{ mb: 3 }}>
-                Tem certeza que deseja retirar a restrição médica <strong>{formatNome(removeRestricaoModal.policial.restricaoMedica?.nome)}</strong> deste policial?
+                Tem certeza que deseja retirar a restrição <strong>{formatNome(removeRestricaoModal.policial.restricaoMedica?.nome)}</strong> deste policial?
               </Typography>
 
               {removeRestricaoModal.error && (
@@ -2476,7 +2498,7 @@ export function MostrarEquipeSection({
                     setRemoveRestricaoModal((prev) => ({
                       ...prev,
                       loading: false,
-                      error: err instanceof Error ? err.message : 'Erro ao remover restrição médica',
+                      error: err instanceof Error ? err.message : 'Erro ao remover restrição',
                     }));
                   }
                 }}

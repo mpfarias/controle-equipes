@@ -667,6 +667,22 @@ export class PoliciaisService {
         updateData.funcao = { disconnect: true };
       } else {
         updateData.funcao = { connect: { id: data.funcaoId } };
+        // Regra: todo policial que passa a ter função sem equipe (Expediente adm, CMT UPM, SUBCMT UPM)
+        // deve ter o registro de equipe zerado no banco, independentemente da equipe anterior.
+        const funcao = await this.prisma.funcao.findUnique({
+          where: { id: data.funcaoId },
+          select: { nome: true },
+        });
+        if (funcao) {
+          const nomeUpper = funcao.nome.toUpperCase();
+          if (
+            nomeUpper.includes('EXPEDIENTE ADM') ||
+            nomeUpper.includes('CMT UPM') ||
+            nomeUpper.includes('SUBCMT UPM')
+          ) {
+            updateData.equipe = null;
+          }
+        }
       }
     }
 
@@ -994,7 +1010,7 @@ export class PoliciaisService {
       });
 
       if (!restricao) {
-        throw new NotFoundException(`Restrição médica ${restricaoMedicaId} não encontrada.`);
+        throw new NotFoundException(`Restrição ${restricaoMedicaId} não encontrada.`);
       }
     }
 
@@ -1087,7 +1103,7 @@ export class PoliciaisService {
     }
 
     if (!before.restricaoMedicaId) {
-      throw new BadRequestException('Este policial não possui restrição médica para remover.');
+      throw new BadRequestException('Este policial não possui restrição para remover.');
     }
 
     // Salvar histórico na tabela antes de remover

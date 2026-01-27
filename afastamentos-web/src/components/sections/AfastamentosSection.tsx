@@ -590,6 +590,17 @@ export function AfastamentosSection({
 
     // Validar se férias não pode ser antes da data atual
     if (motivoNome === 'Férias') {
+      // Verificar se o policial tem previsão de férias cadastrada
+      const policialSelecionado = policiais.find((p) => p.id.toString() === form.policialId);
+      if (!policialSelecionado) {
+        setError('Selecione um policial.');
+        return;
+      }
+      if (policialSelecionado.mesPrevisaoFerias == null) {
+        setError('Não é possível cadastrar férias para um policial que não possui mês de previsão de férias definido. É necessário cadastrar o mês de previsão de férias antes de registrar o afastamento.');
+        return;
+      }
+      
       const dataInicio = new Date(form.dataInicio);
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
@@ -733,12 +744,23 @@ export function AfastamentosSection({
     });
   };
 
-  const policiaisOrdenados = useMemo(
-    () =>
-      [...policiais].sort((a, b) =>
-        a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }),
-      ),
-    [policiais],
+  // Policiais para o select de cadastro: com previsão de férias no topo (ordenados por nome),
+  // sem previsão depois (desativados no select apenas quando motivo for Férias)
+  const policiaisOrdenados = useMemo(() => {
+    const comPrevisao = policiais.filter((p) => p.mesPrevisaoFerias != null);
+    const semPrevisao = policiais.filter((p) => p.mesPrevisaoFerias == null);
+    const ordenarPorNome = (a: Policial, b: Policial) =>
+      a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
+    return [
+      ...comPrevisao.sort(ordenarPorNome),
+      ...semPrevisao.sort(ordenarPorNome),
+    ];
+  }, [policiais]);
+
+  // Desabilitar policiais sem previsão de férias somente quando o motivo selecionado for "Férias"
+  const motivoEhFerias = useMemo(
+    () => Boolean(motivos.find((m) => m.id === form.motivoId)?.nome === 'Férias'),
+    [form.motivoId, motivos],
   );
  
   const normalizedSearch = searchTerm.trim().toUpperCase();
@@ -969,7 +991,14 @@ export function AfastamentosSection({
             Policial
             <Autocomplete
               options={policiaisOrdenados}
-              getOptionLabel={(option) => `${option.nome} - ${option.matricula}`}
+              getOptionLabel={(option) =>
+                motivoEhFerias && option.mesPrevisaoFerias == null
+                  ? `${option.nome} - ${option.matricula} (sem previsão de férias)`
+                  : `${option.nome} - ${option.matricula}`
+              }
+              getOptionDisabled={(option) =>
+                motivoEhFerias ? option.mesPrevisaoFerias == null : false
+              }
               value={policiaisOrdenados.find(c => c.id.toString() === form.policialId) || null}
               onChange={(_event, newValue) => {
                 setForm((prev) => ({
@@ -1043,9 +1072,27 @@ export function AfastamentosSection({
                 const motivoSelecionado = motivos.find((motivo) => motivo.id === motivoId);
                 const motivoNome = motivoSelecionado?.nome?.toLowerCase() ?? '';
                 const motivoEhOutro = motivoNome === 'outro' || motivoNome === 'outros';
+                const motivoEhFerias = motivoNome === 'férias';
+                
                 if (!motivoEhOutro) {
                   setMotivoOutroTexto('');
                 }
+                
+                // Se mudou para "Férias" e há um policial selecionado, verificar se tem previsão
+                if (motivoEhFerias && form.policialId) {
+                  const policialSelecionado = policiais.find((p) => p.id.toString() === form.policialId);
+                  if (policialSelecionado && policialSelecionado.mesPrevisaoFerias == null) {
+                    // Limpar a seleção do policial e mostrar aviso
+                    setForm((prev) => ({
+                      ...prev,
+                      motivoId,
+                      policialId: '',
+                    }));
+                    setError('Para cadastrar férias, o policial deve ter mês de previsão de férias definido. Selecione um policial com previsão de férias cadastrada.');
+                    return;
+                  }
+                }
+                
                 setForm((prev) => ({
                   ...prev,
                   motivoId,

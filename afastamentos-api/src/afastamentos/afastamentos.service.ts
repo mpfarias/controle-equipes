@@ -36,6 +36,28 @@ export class AfastamentosService {
     return value.trim();
   }
 
+  /**
+   * Converte string YYYY-MM-DD ou ISO (ex.: 2026-04-21T00:00:00.000Z) em Date ao meio-dia UTC,
+   * evitando que meia-noite UTC mude o dia em fusos como o do Brasil (UTC−3).
+   */
+  private parseDateOnly(value: string | Date): Date {
+    let str: string;
+    if (value instanceof Date) {
+      str = value.toISOString().slice(0, 10);
+    } else {
+      str = String(value).trim();
+    }
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (!match) {
+      return new Date(value as string);
+    }
+    const [, y, m, d] = match;
+    const year = parseInt(y!, 10);
+    const month = parseInt(m!, 10) - 1;
+    const day = parseInt(d!, 10);
+    return new Date(Date.UTC(year, month, day, 12, 0, 0, 0));
+  }
+
   private mapAfastamentoStatus(afastamento: AfastamentoWithPolicial): AfastamentoWithPolicialResponse {
     const statusNome = afastamento.policial.status?.nome ?? 'ATIVO';
     const { status, ...policialRest } = afastamento.policial;
@@ -323,20 +345,24 @@ export class AfastamentosService {
     }
 
     const feriasAtual = policial.ferias?.[0];
-    // Validar mês previsto de férias
-    if (feriasAtual?.dataInicio && feriasAtual.ano) {
+    
+    // REGRA: O policial deve ter mês de previsão de férias cadastrado
+    if (!feriasAtual || !feriasAtual.dataInicio) {
+      throw new BadRequestException(
+        'Não é possível cadastrar férias para um policial que não possui mês de previsão de férias definido. É necessário cadastrar o mês de previsão de férias antes de registrar o afastamento.',
+      );
+    }
+    
+    // REGRA 3: Não pode cadastrar férias para depois do mês previsto
+    if (feriasAtual.dataInicio && feriasAtual.ano) {
       const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
       const anoPrevisto = feriasAtual.ano;
-      // Criar data do último dia do mês previsto
-      const ultimoDiaMesPrevisto = new Date(
-        anoPrevisto,
-        mesPrevisto, // Mês seguinte (0-indexed)
-        0, // Dia 0 = último dia do mês anterior
-        23, 59, 59, 999
-      );
+      const ultimoDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto, 0, 23, 59, 59, 999);
+      const dataInicioNormalizada = new Date(dataInicio);
+      dataInicioNormalizada.setHours(0, 0, 0, 0);
       
-      // Validar que a data de início não seja posterior ao mês previsto
-      if (dataInicio > ultimoDiaMesPrevisto) {
+      // Bloquear se a data de início for após o último dia do mês previsto
+      if (dataInicioNormalizada > ultimoDiaMesPrevisto) {
         const meses = [
           'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
           'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
@@ -344,7 +370,7 @@ export class AfastamentosService {
         const nomeMesPrevisto = meses[mesPrevisto - 1];
         
         throw new BadRequestException(
-          `Não é possível cadastrar férias após ${nomeMesPrevisto}/${anoPrevisto}. As férias devem ser totalmente usufruídas até o mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`
+          `Não é possível cadastrar férias após ${nomeMesPrevisto}/${anoPrevisto}. As férias devem ser totalmente usufruídas até o último dia do mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`
         );
       }
     }
@@ -510,6 +536,7 @@ export class AfastamentosService {
     }
 
     const totalPeriodos = feriasExistentes.length;
+    const totalPeriodosAposCadastro = totalPeriodos + 1; // Incluir o período sendo cadastrado
 
     // Função auxiliar para calcular dias entre duas datas (sem incluir os dias finais)
     const calcularDiasEntre = (data1: Date, data2: Date): number => {
@@ -521,14 +548,16 @@ export class AfastamentosService {
       return Math.floor(diffTime / (1000 * 60 * 60 * 24));
     };
 
+    // REGRA 1: Máximo de 3 períodos por ano (válido para todos os status)
+    if (totalPeriodosAposCadastro > 3) {
+      throw new BadRequestException(
+        'As férias podem ser parceladas em até 3 períodos por ano. Não é possível cadastrar mais períodos.',
+      );
+    }
+
     // REGRAS PARA POLICIAIS ATIVOS, PTTC OU DESIGNADOS
     if (isAtivoPTTCouDesignado) {
-      // Máximo de 3 períodos por ano
-      if (totalPeriodos >= 3) {
-        throw new BadRequestException(
-          'O policial já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
-        );
-      }
+      // Validação de máximo de períodos já feita acima
 
       // Para ATIVO/PTTC/DESIGNADO: sem intervalo mínimo entre períodos
       // Não precisa validar intervalo entre períodos
@@ -536,12 +565,7 @@ export class AfastamentosService {
 
     // REGRAS PARA POLICIAIS COMISSIONADOS
     if (isComissionado) {
-      // Máximo de 3 períodos por ano
-      if (totalPeriodos >= 3) {
-        throw new BadRequestException(
-          'O policial já possui 3 períodos de férias cadastrados no ano. Não é possível cadastrar mais períodos.',
-        );
-      }
+      // Validação de máximo de períodos já feita acima
 
       // Verificar intervalo mínimo de 30 dias entre períodos
       for (const feriasExistente of feriasExistentes) {
@@ -582,8 +606,7 @@ export class AfastamentosService {
       // Só validar se ainda há períodos disponíveis após este cadastro
       const totalDiasAposCadastro = totalDias + diasSolicitados;
       const diasRestantes = 30 - totalDiasAposCadastro;
-      const periodosAposCadastro = totalPeriodos + 1;
-      const periodosRestantes = 3 - periodosAposCadastro; // Períodos que ainda podem ser cadastrados
+      const periodosRestantes = 3 - totalPeriodosAposCadastro; // Períodos que ainda podem ser cadastrados
       
       if (periodosRestantes > 0 && diasRestantes > 0) {
         // Ainda há períodos disponíveis e dias restantes
@@ -592,7 +615,7 @@ export class AfastamentosService {
         
         if (diasRestantes < minimoParaProximosPeriodos) {
           throw new BadRequestException(
-            `Para policiais comissionados, não é possível dividir as férias em períodos válidos. Com ${totalDiasAposCadastro} dias já utilizados (${periodosAposCadastro} período(s)), restam ${diasRestantes} dias para ${periodosRestantes} período(s) restante(s), mas cada período precisa ter no mínimo 10 dias. É necessário ajustar o período atual para permitir a divisão correta das férias.`,
+            `Para policiais comissionados, não é possível dividir as férias em períodos válidos. Com ${totalDiasAposCadastro} dias já utilizados (${totalPeriodosAposCadastro} período(s)), restam ${diasRestantes} dias para ${periodosRestantes} período(s) restante(s), mas cada período precisa ter no mínimo 10 dias. É necessário ajustar o período atual para permitir a divisão correta das férias.`,
           );
         }
       }
@@ -602,60 +625,55 @@ export class AfastamentosService {
     if (feriasAtual?.dataInicio && feriasAtual.ano) {
       const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
       const anoPrevisto = feriasAtual.ano;
-      // Buscar todas as férias do policial ordenadas por data de início (mais recente primeiro)
-      const todasFerias = await this.prisma.afastamento.findMany({
-        where: {
-          policialId,
-          motivoId: motivoFerias.id,
-          status: AfastamentoStatus.ATIVO,
-          ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
-        },
-        orderBy: { dataInicio: 'desc' },
-      });
-
-      // Se já existem férias cadastradas, verificar se a mais recente está no mês previsto
-      if (todasFerias.length > 0) {
-        const feriasMaisRecente = todasFerias[0];
-        const mesFeriasMaisRecente = feriasMaisRecente.dataInicio.getMonth() + 1;
-        const anoFeriasMaisRecente = feriasMaisRecente.dataInicio.getFullYear();
-
-        // Se a férias mais recente não está no mês previsto, o novo período deve estar
-        if (mesFeriasMaisRecente !== mesPrevisto || 
-            anoFeriasMaisRecente !== anoPrevisto) {
-          const mesDataInicio = dataInicio.getMonth() + 1;
-          const anoDataInicio = dataInicio.getFullYear();
-
-          // Se o novo período também não está no mês previsto, validar
-          if (mesDataInicio !== mesPrevisto || 
-              anoDataInicio !== anoPrevisto) {
-            const meses = [
-              'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-              'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-            ];
-            const nomeMesPrevisto = meses[mesPrevisto - 1];
-            
+      
+      // REGRA 2: O período que completa os 30 dias (ou ultrapassa) OBRIGATORIAMENTE deve iniciar no mês previsto
+      // Períodos intermediários podem ser em qualquer mês
+      
+      // Calcular total de dias após cadastrar este período
+      const totalDiasAposCadastro = totalDias + diasSolicitados;
+      const diasRestantes = 30 - totalDiasAposCadastro;
+      const periodosRestantes = 3 - totalPeriodosAposCadastro;
+      
+      // Criar data do primeiro e último dia do mês previsto para comparação
+      const primeiroDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto - 1, 1, 0, 0, 0, 0);
+      const ultimoDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto, 0, 23, 59, 59, 999);
+      
+      const dataInicioNormalizada = new Date(dataInicio);
+      dataInicioNormalizada.setHours(0, 0, 0, 0);
+      
+      // Verificar se o novo período está dentro do mês previsto (início entre primeiro e último dia)
+      const novoPeriodoEstaNoMesPrevisto = 
+        dataInicioNormalizada >= primeiroDiaMesPrevisto && 
+        dataInicioNormalizada <= ultimoDiaMesPrevisto;
+      
+      const meses = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+      ];
+      const nomeMesPrevisto = meses[mesPrevisto - 1];
+      
+      // Se este período completa ou ultrapassa os 30 dias, DEVE estar no mês previsto
+      if (totalDiasAposCadastro >= 30) {
+        if (!novoPeriodoEstaNoMesPrevisto) {
+          throw new BadRequestException(
+            `O último período de férias deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Este período completa ou ultrapassa os 30 dias de férias, portanto deve estar no mês previsto.`
+          );
+        }
+      } else if (diasRestantes > 0) {
+        // Se ainda faltam dias, este período pode ser em qualquer mês (períodos intermediários)
+        // A validação de que o último período deve estar no mês previsto será feita quando
+        // o usuário tentar cadastrar o período que completará os 30 dias (totalDiasAposCadastro >= 30)
+        // ou quando for o último período possível (totalPeriodosAposCadastro === 3)
+        
+        // Se este é o último período possível (3º período), então deve estar no mês previsto
+        if (totalPeriodosAposCadastro === 3) {
+          if (!novoPeriodoEstaNoMesPrevisto) {
             throw new BadRequestException(
-              `O último período de férias deve ser usufruído no mês previsto (${nomeMesPrevisto}/${anoPrevisto}). É necessário cadastrar um período de férias neste mês antes de cadastrar períodos em outros meses.`
+              `O último período de férias deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Este é o último período possível (3º período), portanto deve estar no mês previsto.`
             );
           }
         }
-      } else {
-        // Se não há férias cadastradas ainda, o primeiro período deve estar no mês previsto
-        const mesDataInicio = dataInicio.getMonth() + 1;
-        const anoDataInicio = dataInicio.getFullYear();
-
-        if (mesDataInicio !== mesPrevisto || 
-            anoDataInicio !== anoPrevisto) {
-          const meses = [
-            'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-            'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-          ];
-          const nomeMesPrevisto = meses[mesPrevisto - 1];
-          
-          throw new BadRequestException(
-            `O primeiro período de férias deve ser cadastrado no mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`
-          );
-        }
+        // Caso contrário, este período pode ser em qualquer mês (períodos intermediários)
       }
     }
   }
@@ -745,8 +763,8 @@ export class AfastamentosService {
     // Verificar se o policial existe
     await this.ensurePolicialExists(data.policialId);
 
-    const dataInicio = new Date(data.dataInicio);
-    const dataFim = data.dataFim ? new Date(data.dataFim) : null;
+    const dataInicio = this.parseDateOnly(data.dataInicio);
+    const dataFim = data.dataFim ? this.parseDateOnly(data.dataFim) : null;
 
     // Validar limite de 45 dias para policiais PTTC
     await this.validarLimitePTTC(
@@ -855,8 +873,8 @@ export class AfastamentosService {
     const hasDataInicio = Boolean(dataInicio);
     const hasDataFim = Boolean(dataFim);
     if (hasDataInicio || hasDataFim) {
-      const inicio = hasDataInicio ? new Date(dataInicio as string) : undefined;
-      const fim = hasDataFim ? new Date(dataFim as string) : undefined;
+      const inicio = hasDataInicio ? this.parseDateOnly(dataInicio as string) : undefined;
+      const fim = hasDataFim ? this.parseDateOnly(dataFim as string) : undefined;
       
       // Normalizar datas para início e fim do dia
       if (inicio) {
@@ -996,10 +1014,10 @@ export class AfastamentosService {
     // Determinar os valores finais após a atualização
     const motivoIdFinal = data.motivoId !== undefined ? data.motivoId : before.motivoId;
     const dataInicioFinal = data.dataInicio !== undefined 
-      ? new Date(data.dataInicio) 
+      ? this.parseDateOnly(data.dataInicio) 
       : before.dataInicio;
     const dataFimFinal = data.dataFim !== undefined
-      ? (data.dataFim ? new Date(data.dataFim) : null)
+      ? (data.dataFim ? this.parseDateOnly(data.dataFim) : null)
       : before.dataFim;
     const policialIdFinal = data.policialId !== undefined 
       ? data.policialId 
@@ -1060,11 +1078,11 @@ export class AfastamentosService {
     }
 
     if (data.dataInicio !== undefined) {
-      updateData.dataInicio = new Date(data.dataInicio);
+      updateData.dataInicio = this.parseDateOnly(data.dataInicio);
     }
 
     if (data.dataFim !== undefined) {
-      updateData.dataFim = data.dataFim ? new Date(data.dataFim) : null;
+      updateData.dataFim = data.dataFim ? this.parseDateOnly(data.dataFim) : null;
     }
 
     if (data.policialId !== undefined) {

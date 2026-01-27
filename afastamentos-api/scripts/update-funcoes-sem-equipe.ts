@@ -5,15 +5,15 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Atualizando equipe para null de policiais com funções específicas...\n');
   
-  // Lista de funções que não devem ter equipe
+  // Funções que não têm equipe: Expediente adm, CMT UPM, SUBCMT UPM.
+  // Todo policial com uma dessas funções deve ter equipe = null no banco.
   const funcoesSemEquipe = [
     'EXPEDIENTE ADM',
     'CMT UPM',
     'SUBCMT UPM',
-    'MOTORISTA DE DIA',
   ];
   
-  console.log('Funções que não devem ter equipe:', funcoesSemEquipe.join(', '));
+  console.log('Funções que não têm equipe (equipe será zerada):', funcoesSemEquipe.join(', '));
   console.log('');
   
   // Buscar todas as funções que correspondem
