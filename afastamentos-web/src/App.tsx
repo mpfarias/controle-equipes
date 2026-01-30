@@ -264,6 +264,7 @@ export default function App() {
         )}
         <footer className="app-footer">
           Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
+          Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
         </footer>
       </div>
     );
@@ -334,6 +335,7 @@ export default function App() {
         {activeTab === 'policiais' && (
           <PoliciaisSection
             currentUser={currentUser}
+            openConfirm={openConfirm}
             onChanged={notifyPoliciaisChanged}
             permissoes={permissoesPorTela}
           />
@@ -380,7 +382,8 @@ export default function App() {
         onConfirm={handleConfirmDialog}
       />
       <footer className="app-footer">
-        Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
+        Desenvolvido por:<p>2º SGT M. Farias - COPOM - {new Date().getFullYear()}</p>
+        <p> 2º SGT Gadelha - COPOM - {new Date().getFullYear()}</p>
       </footer>
     </div>
   );

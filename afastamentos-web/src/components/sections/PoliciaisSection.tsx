@@ -16,15 +16,18 @@ import { formatNome } from '../../utils/dateUtils';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
+import type { ConfirmConfig } from '../common/ConfirmDialog';
 
 interface PoliciaisSectionProps {
   currentUser: Usuario;
+  openConfirm: (config: ConfirmConfig) => void;
   onChanged?: () => void;
   permissoes?: PermissoesPorTela | null;
 }
 
 export function PoliciaisSection({
   currentUser,
+  openConfirm,
   onChanged,
   permissoes,
 }: PoliciaisSectionProps) {
@@ -256,53 +259,14 @@ export function PoliciaisSection({
     fileInputRef.current?.click();
   };
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setSuccess(null);
-
+  // Função que realiza o cadastro do policial
+  const submeterCadastro = useCallback(async () => {
     const nome = form.nome.trim();
     const matricula = form.matricula.trim();
 
-    if (!nome || !matricula) {
-      setError('Informe nome e matrícula.');
-      return;
-    }
-
-    // Validar matrícula antes de submeter - bloquear cadastro se já existir
-    const matriculaTrimmed = matricula.trim().toUpperCase();
-    const matriculaExists = policiais.some(
-      (policial) => policial.matricula.toUpperCase() === matriculaTrimmed,
-    );
-    if (matriculaExists) {
-      setMatriculaError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
-      setError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
-      return;
-    }
-
-    // Validar função antes de submeter (especialmente para CMT UPM e SUBCMT UPM)
-    if (form.funcaoId) {
-      const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
-      if (funcaoSelecionada) {
-        const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-        if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
-          const jaExiste = policiais.some((policial) => {
-            if (!policial.funcao) return false;
-            const policialFuncaoUpper = policial.funcao.nome.toUpperCase();
-            return policialFuncaoUpper === funcaoUpper;
-          });
-
-          if (jaExiste) {
-            setFuncaoError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
-            setError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
-            return;
-          }
-        }
-      }
-    }
-
     try {
       setSubmitting(true);
+      setError(null);
       
       // Determinar a equipe: se não tiver função ou se a função permitir equipe, usar a selecionada ou a do usuário
       let equipeFinal: Equipe | null | undefined = undefined;
@@ -399,6 +363,96 @@ export function PoliciaisSection({
     } finally {
       setSubmitting(false);
     }
+  }, [form, funcoes, currentUser, carregarPoliciais, onChanged]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setSuccess(null);
+
+    const nome = form.nome.trim();
+    const matricula = form.matricula.trim();
+
+    if (!nome || !matricula) {
+      setError('Informe nome e matrícula.');
+      return;
+    }
+
+    // Validar matrícula antes de submeter - bloquear cadastro se já existir
+    const matriculaTrimmed = matricula.trim().toUpperCase();
+    const matriculaExists = policiais.some(
+      (policial) => policial.matricula.toUpperCase() === matriculaTrimmed,
+    );
+    if (matriculaExists) {
+      setMatriculaError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
+      setError('Esta matrícula já está cadastrada no sistema. Não é possível cadastrar um policial com a mesma matrícula.');
+      return;
+    }
+
+    // Validar função antes de submeter (especialmente para CMT UPM e SUBCMT UPM)
+    if (form.funcaoId) {
+      const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
+      if (funcaoSelecionada) {
+        const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
+        if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
+          const jaExiste = policiais.some((policial) => {
+            if (!policial.funcao) return false;
+            const policialFuncaoUpper = policial.funcao.nome.toUpperCase();
+            return policialFuncaoUpper === funcaoUpper;
+          });
+
+          if (jaExiste) {
+            setFuncaoError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
+            setError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
+            return;
+          }
+        }
+      }
+    }
+
+    // Montar mensagem de confirmação
+    const funcaoSelecionada = form.funcaoId ? funcoes.find(f => f.id === form.funcaoId) : null;
+    const funcaoNome = funcaoSelecionada ? formatNome(funcaoSelecionada.nome) : '—';
+    const statusLabel = POLICIAL_STATUS_OPTIONS.find(s => s.value === form.status)?.label || form.status;
+
+    // Determinar equipe final para exibição
+    let equipeFinal: Equipe | null | undefined = undefined;
+    if (form.funcaoId) {
+      const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
+      if (funcaoSelecionada) {
+        const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
+        const naoMostraEquipe = 
+          funcaoUpper.includes('EXPEDIENTE ADM') || 
+          funcaoUpper.includes('CMT UPM') || 
+          funcaoUpper.includes('SUBCMT UPM');
+        
+        if (!naoMostraEquipe) {
+          equipeFinal = form.equipe || (currentUser.equipe as Equipe) || null;
+        } else {
+          equipeFinal = null;
+        }
+      }
+    } else {
+      equipeFinal = form.equipe || currentUser.equipe || null;
+    }
+    const equipeFinalLabel = equipeFinal ? formatEquipeLabel(equipeFinal) : '—';
+
+    const message =
+      `Confirme os dados do policial:\n\n` +
+      `Nome: ${nome}\n` +
+      `Matrícula: ${matricula}\n` +
+      `Status: ${statusLabel}\n` +
+      `Função: ${funcaoNome}\n` +
+      `Equipe: ${equipeFinalLabel}`;
+
+    openConfirm({
+      title: 'Confirmar cadastro de policial',
+      message,
+      confirmLabel: 'Cadastrar policial',
+      onConfirm: async () => {
+        await submeterCadastro();
+      },
+    });
   };
 
   const handleCloseReativarModal = () => {
