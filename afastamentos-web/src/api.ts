@@ -581,11 +581,12 @@ export const api = {
     equipe?: string;
     status?: string;
     funcaoId?: number;
-    orderBy?: 'nome' | 'matricula' | 'equipe';
+    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     orderDir?: 'asc' | 'desc';
   }): Promise<{
     Policiales: Policial[];
     total: number;
+    totalDisponiveis?: number;
     page: number;
     pageSize: number;
     totalPages: number;
@@ -611,6 +612,7 @@ export const api = {
     const cached = getCached<{
       Policiales: Policial[];
       total: number;
+      totalDisponiveis?: number;
       page: number;
       pageSize: number;
       totalPages: number;
@@ -622,6 +624,7 @@ export const api = {
     const data = await request<{
       Policiales: Policial[];
       total: number;
+      totalDisponiveis?: number;
       page: number;
       pageSize: number;
       totalPages: number;
@@ -659,6 +662,17 @@ export const api = {
   async removePolicial(id: number): Promise<void> {
     await request(`/policiais/${id}`, {
       method: 'DELETE',
+    });
+    clearCache();
+  },
+
+  async desativarPolicial(
+    id: number,
+    body: { dataAPartirDe?: string; observacoes?: string },
+  ): Promise<void> {
+    await request(`/policiais/${id}/desativar`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
     });
     clearCache();
   },

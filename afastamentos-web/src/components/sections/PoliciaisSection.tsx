@@ -11,7 +11,7 @@ import type {
   ProcessFileResponse,
   Usuario,
 } from '../../types';
-import { POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
+import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel } from '../../constants';
 import { formatNome } from '../../utils/dateUtils';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
@@ -755,7 +755,7 @@ export function PoliciaisSection({
               }
               required
             >
-              {POLICIAL_STATUS_OPTIONS.map((option) => (
+              {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -973,7 +973,7 @@ export function PoliciaisSection({
                             }}
                             style={{ width: '100%', padding: '4px' }}
                           >
-                            {POLICIAL_STATUS_OPTIONS.map((option) => (
+                            {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
                               <option key={option.value} value={option.value}>
                                 {option.label}
                               </option>

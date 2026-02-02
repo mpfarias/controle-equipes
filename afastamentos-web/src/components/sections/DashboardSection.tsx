@@ -8,7 +8,7 @@ import type {
   Equipe,
   EquipeOption,
 } from '../../types';
-import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
+import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel } from '../../constants';
 import { formatPeriodo, formatDate, formatNome } from '../../utils/dateUtils';
 import { Button, Box, Checkbox, Collapse, Typography, Paper, Grid, Divider } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -714,7 +714,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                   alignItems: 'center',
                 }}
               >
-                {POLICIAL_STATUS_OPTIONS.map((status) => (
+                {POLICIAL_STATUS_OPTIONS_FORM.map((status) => (
                   <Box key={status.value} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Checkbox
                       checked={statusSelecionados.includes(status.value)}
@@ -742,7 +742,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => setStatusSelecionados(POLICIAL_STATUS_OPTIONS.map((s) => s.value))}
+                  onClick={() => setStatusSelecionados(POLICIAL_STATUS_OPTIONS_FORM.map((s) => s.value))}
                   sx={{
                     textTransform: 'none',
                     fontSize: '0.75rem',

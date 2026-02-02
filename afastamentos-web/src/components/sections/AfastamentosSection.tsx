@@ -744,25 +744,28 @@ export function AfastamentosSection({
     });
   };
 
-  // Policiais para o select de cadastro: com previsão de férias no topo (ordenados por nome),
-  // sem previsão depois (desativados no select apenas quando motivo for Férias)
-  const policiaisOrdenados = useMemo(() => {
-    const comPrevisao = policiais.filter((p) => p.mesPrevisaoFerias != null);
-    const semPrevisao = policiais.filter((p) => p.mesPrevisaoFerias == null);
-    const ordenarPorNome = (a: Policial, b: Policial) =>
-      a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
-    return [
-      ...comPrevisao.sort(ordenarPorNome),
-      ...semPrevisao.sort(ordenarPorNome),
-    ];
-  }, [policiais]);
-
   // Desabilitar policiais sem previsão de férias somente quando o motivo selecionado for "Férias"
   const motivoEhFerias = useMemo(
     () => Boolean(motivos.find((m) => m.id === form.motivoId)?.nome === 'Férias'),
     [form.motivoId, motivos],
   );
- 
+
+  // Policiais para o select de cadastro: com previsão de férias no topo somente quando motivo for "Férias";
+  // caso contrário, ordem normal por nome (como vem do banco)
+  const policiaisOrdenados = useMemo(() => {
+    const ordenarPorNome = (a: Policial, b: Policial) =>
+      a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
+    if (motivoEhFerias) {
+      const comPrevisao = policiais.filter((p) => p.mesPrevisaoFerias != null);
+      const semPrevisao = policiais.filter((p) => p.mesPrevisaoFerias == null);
+      return [
+        ...comPrevisao.sort(ordenarPorNome),
+        ...semPrevisao.sort(ordenarPorNome),
+      ];
+    }
+    return [...policiais].sort(ordenarPorNome);
+  }, [policiais, motivoEhFerias]);
+
   const normalizedSearch = searchTerm.trim().toUpperCase();
 
   // Função para verificar se um período de afastamento se sobrepõe com um mês específico

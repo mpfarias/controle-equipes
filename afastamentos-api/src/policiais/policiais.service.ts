@@ -5,8 +5,9 @@ import { AuditService } from '../audit/audit.service';
 import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
 import { CreatePolicialDto } from './dto/create-policial.dto';
 import { UpdatePolicialDto } from './dto/update-policial.dto';
-import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
+import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto.js';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
+import { DesativarPolicialDto } from './dto/desativar-policial.dto';
 import { CreateStatusDto } from './dto/create-status.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import * as bcrypt from 'bcryptjs';
@@ -416,13 +417,14 @@ export class PoliciaisService {
     equipe?: string;
     status?: string;
     funcaoId?: number;
-    orderBy?: 'nome' | 'matricula' | 'equipe';
+    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     orderDir?: 'asc' | 'desc';
   }): Promise<
     | PolicialResponse[]
     | {
         Policiales: PolicialResponse[];
         total: number;
+        totalDisponiveis: number;
         page: number;
         pageSize: number;
         totalPages: number;
@@ -476,8 +478,13 @@ export class PoliciaisService {
         { funcao: { nome: { contains: search, mode: 'insensitive' } } },
       ];
     }
-    const orderByClause: Prisma.PolicialOrderByWithRelationInput = orderBy 
-      ? ({ [orderBy as keyof Prisma.PolicialOrderByWithRelationInput]: orderDir ?? 'asc' } as Prisma.PolicialOrderByWithRelationInput)
+    const dir = orderDir ?? 'asc';
+    const orderByClause: Prisma.PolicialOrderByWithRelationInput = orderBy
+      ? orderBy === 'status'
+        ? { status: { nome: dir } }
+        : orderBy === 'funcao'
+          ? { funcao: { nome: dir } }
+          : ({ [orderBy]: dir } as Prisma.PolicialOrderByWithRelationInput)
       : { nome: 'asc' };
 
     // Se nÃ£o fornecer paginaÃ§Ã£o, retornar todos (incluindo desativados)
@@ -490,26 +497,73 @@ export class PoliciaisService {
       return policiais.map((policial) => this.mapFeriasPrevisao(policial));
     }
 
-    // Implementar paginaÃ§Ã£o
+    // Implementar paginação: buscar todos, ordenar (desativados sempre por último) e fatiar a página
     const currentPage = page || 1;
     const currentPageSize = pageSize || 10;
     const skip = (currentPage - 1) * currentPageSize;
     const take = currentPageSize;
 
-    const [Policiales, total] = await this.prisma.$transaction([
-      this.prisma.policial.findMany({
-        where,
-        orderBy: orderByClause,
-        include,
-        skip,
-        take,
-      }),
-      this.prisma.policial.count({ where }),
-    ]);
+    const allPoliciais = await this.prisma.policial.findMany({
+      where,
+      orderBy: orderByClause,
+      include,
+    });
+
+    const mapped = allPoliciais.map((policial) => this.mapFeriasPrevisao(policial));
+
+    // Ordenar em memória: desativados sempre por último, depois pelo campo solicitado
+    const orderField = orderBy || 'nome';
+    mapped.sort((a, b) => {
+      const aDesativado = a.status === 'DESATIVADO';
+      const bDesativado = b.status === 'DESATIVADO';
+      if (aDesativado && !bDesativado) return 1;
+      if (!aDesativado && bDesativado) return -1;
+      let valorA: string;
+      let valorB: string;
+      switch (orderField) {
+        case 'nome':
+          valorA = a.nome.toUpperCase();
+          valorB = b.nome.toUpperCase();
+          break;
+        case 'matricula':
+          valorA = a.matricula.toUpperCase();
+          valorB = b.matricula.toUpperCase();
+          break;
+        case 'equipe':
+          valorA = a.equipe ?? '';
+          valorB = b.equipe ?? '';
+          break;
+        case 'status':
+          valorA = (a.status ?? '').toUpperCase();
+          valorB = (b.status ?? '').toUpperCase();
+          break;
+        case 'funcao':
+          valorA = ((a as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
+          valorB = ((b as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
+          break;
+        default:
+          valorA = a.nome.toUpperCase();
+          valorB = b.nome.toUpperCase();
+      }
+      const cmp = valorA.localeCompare(valorB);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+
+    const total = mapped.length;
+    const Policiales = mapped.slice(skip, skip + take);
+
+    // Contar policiais disponíveis (status diferente de DESATIVADO) com os mesmos filtros
+    const desativadoStatusId = await this.resolveStatusId('DESATIVADO');
+    const whereDisponiveis: Prisma.PolicialWhereInput = {
+      ...where,
+      statusId: { not: desativadoStatusId },
+    };
+    const totalDisponiveis = await this.prisma.policial.count({ where: whereDisponiveis });
 
     return {
-      Policiales: Policiales.map((policial) => this.mapFeriasPrevisao(policial)),
+      Policiales,
       total,
+      totalDisponiveis,
       page: currentPage,
       pageSize: currentPageSize,
       totalPages: Math.ceil(total / currentPageSize),
@@ -760,6 +814,48 @@ export class PoliciaisService {
     });
   }
 
+  async desativar(id: number, dto: DesativarPolicialDto, responsavelId?: number): Promise<void> {
+    const before = await this.prisma.policial.findUnique({
+      where: { id },
+      include: { afastamentos: true, funcao: true, status: true },
+    });
+
+    if (!before) {
+      throw new NotFoundException(`Policial ${id} não encontrado.`);
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+    const statusId = await this.resolveStatusId('DESATIVADO');
+
+    const dataDesativacaoAPartirDe = dto.dataAPartirDe
+      ? new Date(dto.dataAPartirDe)
+      : null;
+
+    const updated = await this.prisma.policial.update({
+      where: { id },
+      data: {
+        status: { connect: { id: statusId } },
+        updatedById: actor?.id ?? null,
+        updatedByName: actor?.nome ?? null,
+        dataDesativacaoAPartirDe,
+        observacoesDesativacao: dto.observacoes?.trim() || null,
+        desativadoPorId: actor?.id ?? null,
+        desativadoPorNome: actor?.nome ?? null,
+        desativadoEm: new Date(),
+      },
+      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
+    });
+
+    await this.audit.record({
+      entity: 'Policial',
+      entityId: id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+  }
+
   async activate(id: number, responsavelId?: number): Promise<PolicialResponse> {
     const before = await this.prisma.policial.findUnique({
       where: { id },
@@ -779,6 +875,11 @@ export class PoliciaisService {
         status: { connect: { id: statusId } },
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
+        dataDesativacaoAPartirDe: null,
+        observacoesDesativacao: null,
+        desativadoPorId: null,
+        desativadoPorNome: null,
+        desativadoEm: null,
       },
       include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
     });

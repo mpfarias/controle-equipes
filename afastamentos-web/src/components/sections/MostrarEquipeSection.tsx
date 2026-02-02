@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario, EquipeOption } from '../../types';
-import { POLICIAL_STATUS_OPTIONS, STATUS_LABEL, formatEquipeLabel } from '../../constants';
+import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, STATUS_LABEL, formatEquipeLabel } from '../../constants';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
 import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print } from '@mui/icons-material';
+import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf } from '@mui/icons-material';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { formatPeriodo, calcularDiasEntreDatas, formatNome } from '../../utils/dateUtils';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
@@ -28,6 +30,7 @@ export function MostrarEquipeSection({
 }: MostrarEquipeSectionProps) {
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [totalPoliciaisGeral, setTotalPoliciaisGeral] = useState<number>(0);
+  const [totalPoliciaisDisponiveis, setTotalPoliciaisDisponiveis] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -65,6 +68,21 @@ export function MostrarEquipeSection({
     open: false,
     policial: null,
     senha: '',
+    error: null,
+    loading: false,
+  });
+  const [desativarModal, setDesativarModal] = useState<{
+    open: boolean;
+    policial: Policial | null;
+    dataAPartirDe: string;
+    observacoes: string;
+    error: string | null;
+    loading: boolean;
+  }>({
+    open: false,
+    policial: null,
+    dataAPartirDe: '',
+    observacoes: '',
     error: null,
     loading: false,
   });
@@ -399,11 +417,11 @@ export function MostrarEquipeSection({
     }
   }, []);
   const [ordenacao, setOrdenacao] = useState<{
-    campo: 'nome' | 'matricula' | 'equipe';
+    campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     direcao: 'asc' | 'desc';
   } | null>(null);
   const [paginaAtual, setPaginaAtual] = useState(1);
-  const [itensPorPagina, setItensPorPagina] = useState(10);
+  const [itensPorPagina, setItensPorPagina] = useState(50);
   const [totalPoliciais, setTotalPoliciais] = useState(0);
   const [totalPaginas, setTotalPaginas] = useState(1);
   const [paginacaoNoServidor, setPaginacaoNoServidor] = useState(true);
@@ -455,6 +473,7 @@ export function MostrarEquipeSection({
       // Se for Cpmulher e ainda não temos os IDs das funções, aguardar
       if (usuarioEhCpmulher && funcoesCpmulherIds.length === 0) {
         setTotalPoliciaisGeral(0);
+        setTotalPoliciaisDisponiveis(0);
         return;
       }
       
@@ -483,12 +502,17 @@ export function MostrarEquipeSection({
           p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
         );
         setTotalPoliciaisGeral(policiaisFiltrados.length);
+        setTotalPoliciaisDisponiveis(
+          policiaisFiltrados.filter((p) => p.status !== 'DESATIVADO').length
+        );
       } else {
         setTotalPoliciaisGeral(data.total);
+        setTotalPoliciaisDisponiveis(data.totalDisponiveis ?? data.total);
       }
     } catch (err) {
       console.error('Erro ao carregar total geral de policiais:', err);
       setTotalPoliciaisGeral(0);
+      setTotalPoliciaisDisponiveis(0);
     }
   }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds]);
 
@@ -791,21 +815,52 @@ export function MostrarEquipeSection({
       title: 'Desativar policial',
       message: `Deseja desativar ${policial.nome} (matrícula ${policial.matricula})?`,
       confirmLabel: 'Desativar',
-      onConfirm: async () => {
-        try {
-          await api.removePolicial(policial.id);
-          setSuccess('Policial desativado.');
-          await carregarPoliciais(paginaAtual, itensPorPagina);
-          onChanged?.();
-        } catch (err) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : 'Não foi possível desativar o policial.',
-          );
-        }
+      onConfirm: () => {
+        setDesativarModal({
+          open: true,
+          policial,
+          dataAPartirDe: '',
+          observacoes: '',
+          error: null,
+          loading: false,
+        });
       },
     });
+  };
+
+  const handleCloseDesativarModal = () => {
+    setDesativarModal({
+      open: false,
+      policial: null,
+      dataAPartirDe: '',
+      observacoes: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  const handleConfirmDesativar = async () => {
+    if (!desativarModal.policial) return;
+    try {
+      setDesativarModal((prev) => ({ ...prev, loading: true, error: null }));
+      await api.desativarPolicial(desativarModal.policial.id, {
+        dataAPartirDe: desativarModal.dataAPartirDe.trim() || undefined,
+        observacoes: desativarModal.observacoes.trim() || undefined,
+      });
+      setSuccess('Policial desativado.');
+      handleCloseDesativarModal();
+      await carregarPoliciais(paginaAtual, itensPorPagina);
+      onChanged?.();
+    } catch (err) {
+      setDesativarModal((prev) => ({
+        ...prev,
+        loading: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Não foi possível desativar o policial.',
+      }));
+    }
   };
 
   const handleActivate = (policial: Policial) => {
@@ -939,10 +994,46 @@ export function MostrarEquipeSection({
   );
 
   const filteredPoliciales = useMemo(() => {
-    // Quando a paginação é no servidor, os filtros já foram aplicados no backend
-    // Não devemos aplicar filtros novamente no cliente, apenas usar os dados que vieram
+    // Quando a paginação é no servidor, os dados já vêm ordenados do backend (desativados por último).
+    // Aplicar a mesma ordenação no cliente para garantir que a página exibida mostre desativados no final.
     if (paginacaoNoServidor) {
-      return policiaisDaEquipe;
+      return [...policiaisDaEquipe].sort((a, b) => {
+        const aDesativado = a.status === 'DESATIVADO';
+        const bDesativado = b.status === 'DESATIVADO';
+        if (aDesativado && !bDesativado) return 1;
+        if (!aDesativado && bDesativado) return -1;
+        const campo = ordenacao?.campo ?? 'nome';
+        const dir = ordenacao?.direcao ?? 'asc';
+        let valorA: string;
+        let valorB: string;
+        switch (campo) {
+          case 'nome':
+            valorA = a.nome.toUpperCase();
+            valorB = b.nome.toUpperCase();
+            break;
+          case 'matricula':
+            valorA = a.matricula.toUpperCase();
+            valorB = b.matricula.toUpperCase();
+            break;
+          case 'equipe':
+            valorA = a.equipe || '';
+            valorB = b.equipe || '';
+            break;
+          case 'status':
+            valorA = (a.status ?? '').toUpperCase();
+            valorB = (b.status ?? '').toUpperCase();
+            break;
+          case 'funcao':
+            valorA = (a.funcao?.nome ?? '').toUpperCase();
+            valorB = (b.funcao?.nome ?? '').toUpperCase();
+            break;
+          default:
+            valorA = a.nome.toUpperCase();
+            valorB = b.nome.toUpperCase();
+        }
+        const cmp = valorA.localeCompare(valorB);
+        return dir === 'asc' ? cmp : -cmp;
+      });
     }
 
     // Quando a paginação é no cliente (ex.: Cpmulher), aplicar filtros no cliente
@@ -982,9 +1073,18 @@ export function MostrarEquipeSection({
       resultado = resultado.filter((policial) => policial.funcaoId === filtroFuncao);
     }
 
-    // Aplicar ordenação
+    // Aplicar ordenação (desativados sempre por último)
     if (ordenacao) {
       resultado = [...resultado].sort((a, b) => {
+        // Desativados sempre no final da lista
+        const aDesativado = a.status === 'DESATIVADO';
+        const bDesativado = b.status === 'DESATIVADO';
+        if (aDesativado && !bDesativado) return 1;
+        if (!aDesativado && bDesativado) return -1;
+        if (aDesativado && bDesativado) {
+          // Entre dois desativados, ordenar pelo campo selecionado
+        }
+
         let valorA: string | number;
         let valorB: string | number;
 
@@ -1007,6 +1107,18 @@ export function MostrarEquipeSection({
 
         const comparacao = valorA < valorB ? -1 : valorA > valorB ? 1 : 0;
         return ordenacao.direcao === 'asc' ? comparacao : -comparacao;
+      });
+    } else {
+      // Sem ordenação por coluna: ativos primeiro, desativados por último (por nome)
+      resultado = [...resultado].sort((a, b) => {
+        const aDesativado = a.status === 'DESATIVADO';
+        const bDesativado = b.status === 'DESATIVADO';
+        if (aDesativado && !bDesativado) return 1;
+        if (!aDesativado && bDesativado) return -1;
+        if (aDesativado && bDesativado) {
+          return a.nome.toUpperCase().localeCompare(b.nome.toUpperCase());
+        }
+        return a.nome.toUpperCase().localeCompare(b.nome.toUpperCase());
       });
     }
 
@@ -1065,16 +1177,140 @@ export function MostrarEquipeSection({
     setPaginaAtual(1);
   }, [normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao]);
 
-  const handleOrdenacao = (campo: 'nome' | 'matricula' | 'equipe') => {
+  const handleOrdenacao = (campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') => {
     setOrdenacao((prev) => {
       if (prev?.campo === campo) {
-        // Se já está ordenando por esse campo, inverter a direção
-        return { campo, direcao: prev.direcao === 'asc' ? 'desc' : 'asc' };
+        // Mesmo campo: 1º clique = asc, 2º = desc, 3º = remove ordenação (volta ao padrão)
+        if (prev.direcao === 'asc') return { campo, direcao: 'desc' };
+        return null; // terceiro clique: desfaz a ordenação
       }
-      // Se não, começar ordenando ascendente
+      // Coluna diferente ou sem ordenação: começar ascendente
       return { campo, direcao: 'asc' };
     });
   };
+
+  const handleGerarPdf = useCallback(async () => {
+    const nivelNome = currentUser.nivel?.nome;
+    const usuarioPodeVerTodos =
+      nivelNome === 'ADMINISTRADOR' ||
+      nivelNome === 'SAD' ||
+      nivelNome === 'COMANDO' ||
+      currentUser.isAdmin === true;
+
+    const buscarTodosParaFiltro = usuarioEhCpmulher && funcoesCpmulherIds.length > 0;
+
+    const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+      page: 1,
+      pageSize: 50000,
+      includeAfastamentos: false,
+      includeRestricoes: true,
+    };
+    const busca = searchTerm.trim();
+    if (busca) params.search = busca;
+    if (!usuarioEhCpmulher) {
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      } else if (filtroEquipe) {
+        params.equipe = filtroEquipe;
+      }
+    } else if (filtroEquipe) {
+      params.equipe = filtroEquipe;
+    }
+    if (filtroStatus) params.status = filtroStatus;
+    if (filtroFuncao && !buscarTodosParaFiltro) params.funcaoId = filtroFuncao;
+    if (ordenacao && !buscarTodosParaFiltro) {
+      params.orderBy = ordenacao.campo;
+      params.orderDir = ordenacao.direcao;
+    }
+
+    const data = await api.listPoliciaisPaginated(params);
+    let listaPdf: Policial[] = data.Policiales;
+    if (buscarTodosParaFiltro) {
+      listaPdf = listaPdf.filter(
+        (p) => p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
+      );
+    }
+    // Apenas policiais disponíveis (status diferente de DESATIVADO)
+    listaPdf = listaPdf.filter((p) => p.status !== 'DESATIVADO');
+    const totalRegistros = listaPdf.length;
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const margin = 14;
+    let y = margin;
+
+    doc.setFontSize(16);
+    doc.text('Efetivo do COPOM', margin, y);
+    y += 10;
+
+    doc.setFontSize(10);
+    const temFiltro = !!busca || !!filtroEquipe || !!filtroStatus || !!filtroFuncao;
+    doc.text(
+      temFiltro
+        ? 'Lista de policiais disponíveis com os filtros aplicados'
+        : 'Lista de policiais disponíveis.',
+      margin,
+      y
+    );
+    y += 8;
+
+    const head = [['Policial', 'Matrícula', 'Status', 'Função', 'Equipe']];
+    const body = listaPdf.map((p) => [
+      p.nome,
+      p.matricula,
+      POLICIAL_STATUS_OPTIONS.find((o) => o.value === p.status)?.label ?? p.status,
+      p.funcao?.nome ? formatNome(p.funcao.nome) : '—',
+      formatEquipeLabel(p.equipe) === '—' ? '—' : (p.equipe ?? '—'),
+    ]);
+
+    autoTable(doc, {
+      head,
+      body,
+      startY: y,
+      margin: { left: margin, right: margin },
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [59, 130, 246] },
+    });
+
+    const finalY = (doc as unknown as { lastAutoTable?: { finalY?: number } }).lastAutoTable?.finalY ?? y;
+    let yPos = finalY + 10;
+
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total de registros: ${totalRegistros}`, margin, yPos);
+    yPos += 12;
+
+    const agora = new Date();
+    const dia = String(agora.getDate()).padStart(2, '0');
+    const mes = String(agora.getMonth() + 1).padStart(2, '0');
+    const ano = agora.getFullYear();
+    const horas = String(agora.getHours()).padStart(2, '0');
+    const minutos = String(agora.getMinutes()).padStart(2, '0');
+    const segundos = String(agora.getSeconds()).padStart(2, '0');
+    const dataHora = `${dia}/${mes}/${ano} às ${horas}:${minutos}:${segundos}`;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(`Gerado por: ${currentUser.nome}`, margin, yPos);
+    yPos += 5;
+    doc.text(`Matrícula: ${currentUser.matricula}`, margin, yPos);
+    yPos += 5;
+    doc.text(`Data e horário: ${dataHora}`, margin, yPos);
+
+    doc.save(`efetivo-copom-${agora.getTime()}.pdf`);
+  }, [
+    currentUser.nivel?.nome,
+    currentUser.isAdmin,
+    currentUser.equipe,
+    currentUser.nome,
+    currentUser.matricula,
+    usuarioEhCpmulher,
+    funcoesCpmulherIds,
+    searchTerm,
+    filtroEquipe,
+    filtroStatus,
+    filtroFuncao,
+    ordenacao,
+  ]);
 
   return (
     <section>
@@ -1142,6 +1378,16 @@ export function MostrarEquipeSection({
         >
           Atualizar lista
         </button>
+        <button
+          className="ghost"
+          type="button"
+          onClick={handleGerarPdf}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          title="Gerar PDF com a lista exibida na tela"
+        >
+          <PictureAsPdf sx={{ fontSize: 20, color: '#dc2626' }} />
+          Gerar PDF
+        </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
           <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Itens por página:</span>
           <select
@@ -1169,19 +1415,23 @@ export function MostrarEquipeSection({
         borderRadius: '8px', 
         border: '1px solid #bae6fd',
         display: 'flex',
-        alignItems: 'center',
-        gap: '16px',
-        flexWrap: 'wrap'
+        flexDirection: 'column',
+        gap: '8px'
       }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
             Total do efetivo:
           </Typography>
+        </Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           <Chip 
-            label={totalPoliciaisGeral} 
+            label={totalPoliciaisDisponiveis} 
             size="small" 
             sx={{ fontWeight: 600, backgroundColor: '#3b82f6', color: 'white' }}
           />
+          <Typography variant="body2" sx={{ color: 'text.primary' }}>
+            policiais disponíveis.
+          </Typography>
         </Box>
         {(searchTerm || filtroEquipe || filtroStatus || filtroFuncao) && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1285,13 +1535,21 @@ export function MostrarEquipeSection({
                       textAlign: 'left',
                       width: '100%',
                       fontWeight: ordenacao?.campo === 'nome' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
                     }}
+                    title={ordenacao?.campo === 'nome' ? `Ordenar por nome (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por nome'}
                   >
                     Policial
-                    {ordenacao?.campo === 'nome' && (
-                      <span style={{ marginLeft: '4px' }}>
-                        {ordenacao.direcao === 'asc' ? '↑' : '↓'}
-                      </span>
+                    {ordenacao?.campo === 'nome' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18 }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18 }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
                     )}
                   </button>
                 </th>
@@ -1308,18 +1566,86 @@ export function MostrarEquipeSection({
                       textAlign: 'left',
                       width: '100%',
                       fontWeight: ordenacao?.campo === 'matricula' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
                     }}
+                    title={ordenacao?.campo === 'matricula' ? `Ordenar por matrícula (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por matrícula'}
                   >
                     Matrícula
-                    {ordenacao?.campo === 'matricula' && (
-                      <span style={{ marginLeft: '4px' }}>
-                        {ordenacao.direcao === 'asc' ? '↑' : '↓'}
-                      </span>
+                    {ordenacao?.campo === 'matricula' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18 }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18 }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
                     )}
                   </button>
                 </th>
-                <th>Status</th>
-                <th>Função</th>
+                <th>
+                  <button
+                    type="button"
+                    onClick={() => handleOrdenacao('status')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      font: 'inherit',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      fontWeight: ordenacao?.campo === 'status' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                    title={ordenacao?.campo === 'status' ? `Ordenar por status (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por status'}
+                  >
+                    Status
+                    {ordenacao?.campo === 'status' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18 }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18 }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                    )}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
+                    onClick={() => handleOrdenacao('funcao')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      font: 'inherit',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      fontWeight: ordenacao?.campo === 'funcao' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                    }}
+                    title={ordenacao?.campo === 'funcao' ? `Ordenar por função (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por função'}
+                  >
+                    Função
+                    {ordenacao?.campo === 'funcao' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18 }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18 }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                    )}
+                  </button>
+                </th>
                 <th>
                   <button
                     type="button"
@@ -1333,13 +1659,21 @@ export function MostrarEquipeSection({
                       textAlign: 'left',
                       width: '100%',
                       fontWeight: ordenacao?.campo === 'equipe' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
                     }}
+                    title={ordenacao?.campo === 'equipe' ? `Ordenar por equipe (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por equipe'}
                   >
                     Equipe
-                    {ordenacao?.campo === 'equipe' && (
-                      <span style={{ marginLeft: '4px' }}>
-                        {ordenacao.direcao === 'asc' ? '↑' : '↓'}
-                      </span>
+                    {ordenacao?.campo === 'equipe' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18 }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18 }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
                     )}
                   </button>
                 </th>
@@ -1348,7 +1682,14 @@ export function MostrarEquipeSection({
             </thead>
             <tbody>
               {policiaisPaginados.map((policial) => (
-              <tr key={policial.id}>
+              <tr
+                key={policial.id}
+                style={
+                  policial.status === 'DESATIVADO'
+                    ? { backgroundColor: '#fecaca' }
+                    : undefined
+                }
+              >
                 <td>
                   <a
                     href="#"
@@ -1751,7 +2092,7 @@ export function MostrarEquipeSection({
                     }
                     required
                   >
-                    {POLICIAL_STATUS_OPTIONS.map((option) => (
+                    {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -2040,6 +2381,37 @@ export function MostrarEquipeSection({
                           </Typography>
                         </Box>
                       </>
+
+                      {(viewingPolicial.dataDesativacaoAPartirDe || viewingPolicial.observacoesDesativacao || viewingPolicial.desativadoPorNome || viewingPolicial.desativadoEm) && (
+                        <>
+                          <Divider />
+                          <Box sx={{ p: 1.5, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1, display: 'block' }}>
+                              Desativação
+                            </Typography>
+                            {viewingPolicial.dataDesativacaoAPartirDe && (
+                              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                                <strong>A partir de:</strong> {new Date(viewingPolicial.dataDesativacaoAPartirDe).toLocaleDateString('pt-BR')}
+                              </Typography>
+                            )}
+                            {viewingPolicial.observacoesDesativacao && (
+                              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                                <strong>Observações:</strong> {viewingPolicial.observacoesDesativacao}
+                              </Typography>
+                            )}
+                            {viewingPolicial.desativadoPorNome && (
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
+                                Desativado por: {viewingPolicial.desativadoPorNome}
+                              </Typography>
+                            )}
+                            {viewingPolicial.desativadoEm && (
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
+                                Em: {new Date(viewingPolicial.desativadoEm).toLocaleString('pt-BR')}
+                              </Typography>
+                            )}
+                          </Box>
+                        </>
+                      )}
 
                       {(viewingPolicial.restricaoMedica || (viewingPolicial.restricoesMedicasHistorico && viewingPolicial.restricoesMedicasHistorico.length > 0)) && (
                         <>
@@ -2507,6 +2879,91 @@ export function MostrarEquipeSection({
               </button>
             </Box>
           </Box>
+        </div>
+      )}
+
+      {/* Modal de Desativação (data e observações) */}
+      {desativarModal.open && desativarModal.policial && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={handleCloseDesativarModal}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Desativar policial</h3>
+            <p style={{ marginBottom: '16px' }}>
+              Informe os dados da desativação de <strong>{desativarModal.policial.nome}</strong> (matrícula {desativarModal.policial.matricula}).
+            </p>
+
+            {desativarModal.error && (
+              <div className="feedback error" style={{ marginBottom: '16px' }}>
+                {desativarModal.error}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setDesativarModal((prev) => ({ ...prev, error: null }))}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void handleConfirmDesativar();
+              }}
+            >
+              <label>
+                A partir de:
+                <input
+                  type="date"
+                  value={desativarModal.dataAPartirDe}
+                  onChange={(e) =>
+                    setDesativarModal((prev) => ({
+                      ...prev,
+                      dataAPartirDe: e.target.value,
+                      error: null,
+                    }))
+                  }
+                  disabled={desativarModal.loading}
+                />
+              </label>
+
+              <label>
+                Observações:
+                <textarea
+                  value={desativarModal.observacoes}
+                  onChange={(e) =>
+                    setDesativarModal((prev) => ({
+                      ...prev,
+                      observacoes: e.target.value,
+                      error: null,
+                    }))
+                  }
+                  placeholder="Observações sobre a desativação (opcional)"
+                  disabled={desativarModal.loading}
+                  rows={3}
+                  style={{ resize: 'vertical', minHeight: '60px' }}
+                />
+              </label>
+
+              <div className="modal-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={handleCloseDesativarModal}
+                  disabled={desativarModal.loading}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="primary"
+                  disabled={desativarModal.loading}
+                >
+                  {desativarModal.loading ? 'Desativando...' : 'Desativar policial'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 

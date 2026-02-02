@@ -239,7 +239,7 @@ export default function App() {
     return (
       <div className="app-container">
         <header className="auth-header">
-          <h1>Sistema de Gestão de Unidade - COPOM</h1>
+          <h1>Sistema Sentinela de Gestão de Pessoal - COPOM</h1>
           <p>
             {authView === 'login'}
             {authView === 'forgot-password' && 'Recupere sua senha informando sua matrícula.'}
@@ -263,8 +263,9 @@ export default function App() {
           />
         )}
         <footer className="app-footer">
-          Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
-          Desenvolvido por: 2º SGT M. Farias - COPOM - {new Date().getFullYear()}
+          <p>Desenvolvido por:</p>
+          <p>2º SGT M. Farias - COPOM - {new Date().getFullYear()}</p>
+          2º SGT Gadelha - COPOM - {new Date().getFullYear()}
         </footer>
       </div>
     );
@@ -275,7 +276,7 @@ export default function App() {
       <header>
         <div>
           <h1>
-          Sistema de Gestão de Pessoal - COPOM
+          Sistema Sentinela de Gestão de Pessoal - COPOM
           </h1>
           <p>Gerencie usuários, policiais e afastamentos da equipe.</p>
         </div>

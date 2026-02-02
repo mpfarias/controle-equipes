@@ -17,8 +17,9 @@ import { PoliciaisService } from './policiais.service';
 import { ArquivoProcessorService } from './arquivo-processor.service';
 import { CreatePolicialDto } from './dto/create-policial.dto';
 import { UpdatePolicialDto } from './dto/update-policial.dto';
-import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto';
+import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto.js';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
+import { DesativarPolicialDto } from './dto/desativar-policial.dto';
 import { RemoveRestricaoMedicaDto } from './dto/remove-restricao-medica.dto';
 import { CreateStatusDto } from './dto/create-status.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
@@ -58,9 +59,9 @@ export class PoliciaisController {
     if (funcaoId && Number.isNaN(funcaoIdParsed)) {
       throw new BadRequestException('O funcaoId deve ser numérico.');
     }
-    const orderByAllowed = orderBy === 'nome' || orderBy === 'matricula' || orderBy === 'equipe';
+    const orderByAllowed = orderBy === 'nome' || orderBy === 'matricula' || orderBy === 'equipe' || orderBy === 'status' || orderBy === 'funcao';
     if (orderBy && !orderByAllowed) {
-      throw new BadRequestException('O orderBy deve ser nome, matricula ou equipe.');
+      throw new BadRequestException('O orderBy deve ser nome, matricula, equipe, status ou funcao.');
     }
     const orderDirAllowed = orderDir === 'asc' || orderDir === 'desc';
     if (orderDir && !orderDirAllowed) {
@@ -75,7 +76,7 @@ export class PoliciaisController {
       equipe: equipe || undefined,
       status: status || undefined,
       funcaoId: funcaoIdParsed,
-      orderBy: orderByAllowed ? (orderBy as 'nome' | 'matricula' | 'equipe') : undefined,
+      orderBy: orderByAllowed ? (orderBy as 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') : undefined,
       orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
     });
   }
@@ -131,6 +132,16 @@ export class PoliciaisController {
   @Roles('ADMINISTRADOR', 'SAD')
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
     return this.policiaisService.remove(id, user.id);
+  }
+
+  @Patch(':id/desativar')
+  @Roles('ADMINISTRADOR', 'SAD')
+  desativar(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DesativarPolicialDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.desativar(id, dto, user.id);
   }
 
   @Patch(':id/activate')

@@ -37,7 +37,12 @@ export const POLICIAL_STATUS_OPTIONS: { value: PolicialStatus; label: string }[]
   { value: 'DESIGNADO', label: 'Designado' },
   { value: 'COMISSIONADO', label: 'Comissionado' },
   { value: 'PTTC', label: 'PTTC' },
+  { value: 'DESATIVADO', label: 'Desativado' },
 ];
+
+/** Opções de status para formulários (cadastro/edição). Não inclui Desativado – policial só é desativado/ativado pelo botão na lista. */
+export const POLICIAL_STATUS_OPTIONS_FORM: { value: PolicialStatus; label: string }[] =
+  POLICIAL_STATUS_OPTIONS.filter((o) => o.value !== 'DESATIVADO');
 
 export const formatEquipeLabel = (equipe?: string | null) => {
   if (!equipe) {

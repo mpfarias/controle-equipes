@@ -94,6 +94,11 @@ export interface Policial {
   feriasReprogramadas?: boolean;
   createdAt: string;
   updatedAt: string;
+  dataDesativacaoAPartirDe?: string | null;
+  observacoesDesativacao?: string | null;
+  desativadoPorId?: number | null;
+  desativadoPorNome?: string | null;
+  desativadoEm?: string | null;
 }
 
 export interface CreatePolicialInput {
