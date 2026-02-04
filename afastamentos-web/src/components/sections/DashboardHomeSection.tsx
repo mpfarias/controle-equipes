@@ -18,7 +18,9 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  Tabs,
+  Tab
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { api } from '../../api';
@@ -76,10 +78,15 @@ export function DashboardHomeSection({
   const [funcoesCopomMulherIds, setFuncoesCopomMulherIds] = useState<number[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
-  const [modalType, setModalType] = useState<'policiais' | 'afastamentos'>('policiais');
+  const [modalType, setModalType] = useState<'policiais' | 'afastamentos' | 'afastamentosPorMotivo'>('policiais');
   const [policiaisModal, setPoliciaisModal] = useState<Policial[]>([]);
   const [afastamentosModal, setAfastamentosModal] = useState<Afastamento[]>([]);
+  const [afastamentosPorMotivoModal, setAfastamentosPorMotivoModal] = useState<{ motivo: string; count: number; porcentagem: number }[]>([]);
   const [loadingModal, setLoadingModal] = useState(false);
+  // Aba ativa na modal "Afastamentos do Mês" (Por motivo | Do Efetivo Total)
+  const [afastamentosMesModalTab, setAfastamentosMesModalTab] = useState<0 | 1>(0);
+  // Lista completa de afastamentos do mês (para aba "Por afastamento" e cálculo do efetivo)
+  const [afastamentosMesCompletos, setAfastamentosMesCompletos] = useState<Afastamento[]>([]);
 
   // Estados para ano e mês selecionados
   const now = new Date();
@@ -801,6 +808,9 @@ export function DashboardHomeSection({
         countValue: totalPoliciaisAfastados,
         loadingCount: loadingAfastamentos,
         filters: undefined,
+        porcentagemAfastamentos: totalPoliciaisCadastrados != null && totalPoliciaisCadastrados > 0 && totalPoliciaisAfastados != null
+          ? Math.round((totalPoliciaisAfastados / totalPoliciaisCadastrados) * 1000) / 10
+          : null,
       },
       {
         title: 'Policiais Disponíveis',
@@ -932,7 +942,7 @@ export function DashboardHomeSection({
     }
     
     return todosCards;
-  }, [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds, usuarioEhCpmulher]);
+  }, [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisCadastrados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds, usuarioEhCpmulher]);
 
   const handleNumberClick = async (
     card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; funcoesIds?: number[] }; isEquipe?: boolean; isExpediente?: boolean; isMotoristas?: boolean; isCopomMulher?: boolean; equipe?: string },
@@ -1168,6 +1178,62 @@ export function DashboardHomeSection({
         // Filtrar apenas os policiais que NÃO estão afastados
         const policiaisDisponiveis = todosPoliciais.filter((p) => !idsAfastados.has(p.id));
         setPoliciaisModal(policiaisDisponiveis);
+      } else if (card.title === 'Afastamentos do Mês') {
+        // Card "Afastamentos do Mês" - abas: Por motivo, Por afastamento, Do Efetivo Total
+        setModalType('afastamentosPorMotivo');
+        setAfastamentosMesModalTab(0);
+        const { primeiroDia, ultimoDiaStr } = getDataRange();
+
+        const params: Parameters<typeof api.listAfastamentos>[0] = {
+          dataInicio: primeiroDia,
+          dataFim: ultimoDiaStr,
+          includePolicialFuncao: false,
+        };
+
+        if (!usuarioPodeVerTodos && currentUser.equipe) {
+          params.equipe = currentUser.equipe;
+        }
+
+        const afastamentos = await api.listAfastamentos(params);
+
+        let afastamentosFiltradosPorFuncao = afastamentos;
+        if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+          const todosPoliciaisCpmulher: Policial[] = [];
+          for (const funcaoId of funcoesCopomMulherIds) {
+            const dataPoliciais = await api.listPoliciaisPaginated({
+              page: 1,
+              pageSize: 1000,
+              includeAfastamentos: false,
+              includeRestricoes: false,
+              funcaoId: funcaoId,
+            });
+            todosPoliciaisCpmulher.push(...dataPoliciais.Policiales);
+          }
+          const idsPoliciaisCpmulher = new Set(
+            Array.from(new Map(todosPoliciaisCpmulher.map(p => [p.id, p])).values())
+              .filter((p) => p.status !== 'DESATIVADO')
+              .map((p) => p.id)
+          );
+          afastamentosFiltradosPorFuncao = afastamentos.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
+        }
+
+        const afastamentosNoMes = filtrarAfastamentosNoMes(afastamentosFiltradosPorFuncao, primeiroDia, ultimoDiaStr);
+        setAfastamentosMesCompletos(afastamentosNoMes);
+
+        const porMotivo = new Map<string, number>();
+        for (const af of afastamentosNoMes) {
+          const nomeMotivo = af.motivo?.nome ?? 'Outro';
+          porMotivo.set(nomeMotivo, (porMotivo.get(nomeMotivo) ?? 0) + 1);
+        }
+        const total = afastamentosNoMes.length;
+        const resumo = Array.from(porMotivo.entries())
+          .map(([motivo, count]) => ({
+            motivo,
+            count,
+            porcentagem: total > 0 ? Math.round((count / total) * 1000) / 10 : 0,
+          }))
+          .sort((a, b) => b.count - a.count);
+        setAfastamentosPorMotivoModal(resumo);
       } else if (card.filters?.equipe || card.filters?.funcaoId) {
         // Card de equipe ou expediente - buscar policiais
         setModalType('policiais');
@@ -1336,6 +1402,14 @@ export function DashboardHomeSection({
                     ) : null}
                   </Box>
                 )}
+                {card.title === 'Afastamentos do Mês' && (card as { porcentagemAfastamentos?: number | null }).porcentagemAfastamentos != null && !card.loadingCount && (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 1 }}>
+                    Porcentagem de afastamentos:{' '}
+                    <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                      {(card as { porcentagemAfastamentos: number }).porcentagemAfastamentos}%
+                    </Box>
+                  </Typography>
+                )}
                 {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? (
                   <Box sx={{ mb: 1, minHeight: '60px' }}>
                     {(card as any).loadingCount ? (
@@ -1345,8 +1419,15 @@ export function DashboardHomeSection({
                     ) : (() => {
                       if ((card as any).isExpediente) {
                         if (expedienteData) {
+                          const pctExp = expedienteData.total > 0 ? Math.round((expedienteData.afastados / expedienteData.total) * 1000) / 10 : 0;
                           return (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctExp}%
+                                </Box>
+                              </Typography>
                               <Box 
                                 sx={{ 
                                   display: 'flex', 
@@ -1448,8 +1529,15 @@ export function DashboardHomeSection({
                         }
                       } else if ((card as any).isMotoristas) {
                         if (motoristasData) {
+                          const pctMot = motoristasData.total > 0 ? Math.round((motoristasData.afastados / motoristasData.total) * 1000) / 10 : 0;
                           return (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctMot}%
+                                </Box>
+                              </Typography>
                               <Box 
                                 sx={{ 
                                   display: 'flex', 
@@ -1551,8 +1639,15 @@ export function DashboardHomeSection({
                         }
                       } else if ((card as any).isCopomMulher) {
                         if (copomMulherData) {
+                          const pctCopom = copomMulherData.total > 0 ? Math.round((copomMulherData.afastados / copomMulherData.total) * 1000) / 10 : 0;
                           return (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctCopom}%
+                                </Box>
+                              </Typography>
                               <Box 
                                 sx={{ 
                                   display: 'flex', 
@@ -1656,8 +1751,15 @@ export function DashboardHomeSection({
                         // Verificar se os dados da equipe já estão disponíveis
                         const dadosEquipe = policiaisPorEquipe[(card as any).equipe];
                         if (dadosEquipe !== undefined) {
+                          const pctEquipe = dadosEquipe.total > 0 ? Math.round((dadosEquipe.afastados / dadosEquipe.total) * 1000) / 10 : 0;
                           return (
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctEquipe}%
+                                </Box>
+                              </Typography>
                               <Box 
                                 sx={{ 
                                   display: 'flex', 
@@ -1798,6 +1900,135 @@ export function DashboardHomeSection({
           {loadingModal ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
               <CircularProgress />
+            </Box>
+          ) : modalType === 'afastamentosPorMotivo' ? (
+            <Box sx={{ py: 1 }}>
+              {modalTitle === 'Afastamentos do Mês' ? (
+                <>
+                  <Tabs value={afastamentosMesModalTab} onChange={(_, v) => setAfastamentosMesModalTab(v as 0 | 1)} sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+                    <Tab label="Por motivo" />
+                    <Tab label="Do Efetivo Total" />
+                  </Tabs>
+                  {afastamentosMesModalTab === 0 && (
+                    <>
+                      {afastamentosPorMotivoModal.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                          Nenhum afastamento no mês selecionado.
+                        </Typography>
+                      ) : (
+                        <List disablePadding>
+                          {afastamentosPorMotivoModal.map((item, index) => (
+                            <ListItem key={`${item.motivo}-${index}`} divider sx={{ py: 1.5 }}>
+                              <ListItemText
+                                primary={
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                                    <Typography variant="body1" fontWeight={500}>
+                                      {formatNome(item.motivo)}
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                                      <Typography variant="body2" color="text.secondary">
+                                        {item.count} {item.count === 1 ? 'afastamento' : 'afastamentos'}
+                                      </Typography>
+                                      <Typography variant="body2" fontWeight={700} sx={{ color: '#3b82f6' }}>
+                                        {item.porcentagem}%
+                                      </Typography>
+                                    </Box>
+                                  </Box>
+                                }
+                              />
+                            </ListItem>
+                          ))}
+                        </List>
+                      )}
+                    </>
+                  )}
+                  {afastamentosMesModalTab === 1 && (
+                    <>
+                      {totalPoliciaisCadastrados == null || totalPoliciaisCadastrados === 0 ? (
+                        <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                          Efetivo total não disponível.
+                        </Typography>
+                      ) : (() => {
+                        const policiaisUnicosAfastados = new Set(afastamentosMesCompletos.map((af) => af.policialId)).size;
+                        const porcentagemEfetivoTotal = Math.round((policiaisUnicosAfastados / totalPoliciaisCadastrados) * 1000) / 10;
+                        const resumoEfetivo = afastamentosPorMotivoModal.map((item) => ({
+                          ...item,
+                          porcentagemEfetivo: Math.round((item.count / totalPoliciaisCadastrados) * 1000) / 10,
+                        }));
+                        return (
+                          <Box sx={{ py: 1 }}>
+                            <Typography variant="body1" sx={{ mb: 2, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+                              <strong>Efetivo total:</strong> {totalPoliciaisCadastrados} policiais ·{' '}
+                              <strong>Policiais afastados no mês:</strong> {policiaisUnicosAfastados} ({porcentagemEfetivoTotal}% do efetivo total)
+                            </Typography>
+                            {resumoEfetivo.length === 0 ? (
+                              <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                                Nenhum afastamento no mês selecionado.
+                              </Typography>
+                            ) : (
+                              <List disablePadding>
+                                {resumoEfetivo.map((item, index) => (
+                                  <ListItem key={`efetivo-${item.motivo}-${index}`} divider sx={{ py: 1.5 }}>
+                                    <ListItemText
+                                      primary={
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                                          <Typography variant="body1" fontWeight={500}>
+                                            {formatNome(item.motivo)}
+                                          </Typography>
+                                          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                                            <Typography variant="body2" color="text.secondary">
+                                              {item.count} {item.count === 1 ? 'afastamento' : 'afastamentos'}
+                                            </Typography>
+                                            <Typography variant="body2" fontWeight={700} sx={{ color: '#3b82f6' }}>
+                                              {item.porcentagemEfetivo}% do efetivo
+                                            </Typography>
+                                          </Box>
+                                        </Box>
+                                      }
+                                    />
+                                  </ListItem>
+                                ))}
+                              </List>
+                            )}
+                          </Box>
+                        );
+                      })()}
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {afastamentosPorMotivoModal.length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                      Nenhum afastamento no mês selecionado.
+                    </Typography>
+                  ) : (
+                    <List disablePadding>
+                      {afastamentosPorMotivoModal.map((item, index) => (
+                        <ListItem key={`${item.motivo}-${index}`} divider sx={{ py: 1.5 }}>
+                          <ListItemText
+                            primary={
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                                <Typography variant="body1" fontWeight={500}>
+                                  {formatNome(item.motivo)}
+                                </Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {item.count} {item.count === 1 ? 'afastamento' : 'afastamentos'}
+                                  </Typography>
+                                  <Typography variant="body2" fontWeight={700} sx={{ color: '#3b82f6' }}>
+                                    {item.porcentagem}%
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  )}
+                </>
+              )}
             </Box>
           ) : modalType === 'policiais' ? (
             <List>

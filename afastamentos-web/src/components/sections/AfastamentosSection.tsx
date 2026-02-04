@@ -94,6 +94,32 @@ export function AfastamentosSection({
   const [salvandoMesPrevisao, setSalvandoMesPrevisao] = useState(false);
   const [documentoSei, setDocumentoSei] = useState<string>('');
 
+  const [editAfastamentoModal, setEditAfastamentoModal] = useState<{
+    open: boolean;
+    afastamento: Afastamento | null;
+    motivoId: number;
+    seiNumero: string;
+    descricao: string;
+    dataInicio: string;
+    dataFim: string;
+    calcularPeriodo: boolean;
+    quantidadeDias: string;
+    error: string | null;
+    loading: boolean;
+  }>({
+    open: false,
+    afastamento: null,
+    motivoId: 0,
+    seiNumero: '',
+    descricao: '',
+    dataInicio: '',
+    dataFim: '',
+    calcularPeriodo: false,
+    quantidadeDias: '',
+    error: null,
+    loading: false,
+  });
+
   // Calcular dias automaticamente quando as datas são selecionadas
   const diasCalculados = useMemo(() => {
     if (!calcularPeriodo && form.dataInicio && form.dataFim) {
@@ -720,6 +746,91 @@ export function AfastamentosSection({
     setConflitosModal({ open: false, conflitos: [], dataVerificada: '' });
   };
 
+  const handleOpenEditAfastamento = (afastamento: Afastamento) => {
+    const dataInicioStr = afastamento.dataInicio.includes('T')
+      ? afastamento.dataInicio.slice(0, 10)
+      : afastamento.dataInicio;
+    const dataFimStr = afastamento.dataFim
+      ? (afastamento.dataFim.includes('T') ? afastamento.dataFim.slice(0, 10) : afastamento.dataFim)
+      : '';
+    setEditAfastamentoModal({
+      open: true,
+      afastamento,
+      motivoId: afastamento.motivoId,
+      seiNumero: afastamento.seiNumero,
+      descricao: afastamento.descricao ?? '',
+      dataInicio: dataInicioStr,
+      dataFim: dataFimStr,
+      calcularPeriodo: false,
+      quantidadeDias: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  const handleCloseEditAfastamentoModal = () => {
+    setEditAfastamentoModal({
+      open: false,
+      afastamento: null,
+      motivoId: 0,
+      seiNumero: '',
+      descricao: '',
+      dataInicio: '',
+      dataFim: '',
+      calcularPeriodo: false,
+      quantidadeDias: '',
+      error: null,
+      loading: false,
+    });
+  };
+
+  // Data de término calculada na modal de edição (quando "Calcular período" está marcado)
+  const dataTerminoCalculadaEdit = useMemo(() => {
+    const { dataInicio, quantidadeDias, calcularPeriodo } = editAfastamentoModal;
+    if (!calcularPeriodo || !dataInicio || !quantidadeDias) return null;
+    const dias = parseInt(quantidadeDias, 10);
+    if (isNaN(dias) || dias < 1) return null;
+    const [year, month, day] = dataInicio.split('-').map(Number);
+    const dataInicioDate = new Date(year, month - 1, day);
+    dataInicioDate.setDate(dataInicioDate.getDate() + dias - 1);
+    return `${String(dataInicioDate.getFullYear())}-${String(dataInicioDate.getMonth() + 1).padStart(2, '0')}-${String(dataInicioDate.getDate()).padStart(2, '0')}`;
+  }, [editAfastamentoModal.dataInicio, editAfastamentoModal.quantidadeDias, editAfastamentoModal.calcularPeriodo]);
+
+  const handleSubmitEditAfastamento = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { afastamento, motivoId, seiNumero, descricao, dataInicio, dataFim, calcularPeriodo, quantidadeDias } = editAfastamentoModal;
+    if (!afastamento) return;
+    if (!motivoId || !seiNumero.trim()) {
+      setEditAfastamentoModal((prev) => ({
+        ...prev,
+        error: 'Informe o motivo e o SEI nº.',
+      }));
+      return;
+    }
+    const dataFimToSend = calcularPeriodo && dataTerminoCalculadaEdit
+      ? dataTerminoCalculadaEdit
+      : (dataFim.trim() || undefined);
+    try {
+      setEditAfastamentoModal((prev) => ({ ...prev, loading: true, error: null }));
+      await api.updateAfastamento(afastamento.id, {
+        motivoId,
+        seiNumero: seiNumero.trim(),
+        descricao: descricao.trim() || undefined,
+        dataInicio,
+        dataFim: dataFimToSend,
+      });
+      setSuccess('Afastamento atualizado com sucesso.');
+      handleCloseEditAfastamentoModal();
+      await carregarDados();
+      onChanged?.();
+    } catch (err) {
+      setEditAfastamentoModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Não foi possível atualizar o afastamento.',
+      }));
+    }
+  };
 
   const handleDelete = (afastamento: Afastamento) => {
     openConfirm({
@@ -1450,10 +1561,7 @@ export function AfastamentosSection({
                           <IconButton
                             size="small"
                             color="primary"
-                            onClick={() => {
-                              // TODO: Implementar edição de afastamento
-                              setError('Funcionalidade de edição em desenvolvimento.');
-                            }}
+                            onClick={() => handleOpenEditAfastamento(afastamento)}
                             sx={{
                               border: '1px solid',
                               borderColor: 'primary.main',
@@ -2171,6 +2279,232 @@ export function AfastamentosSection({
             Fechar
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Modal Editar afastamento */}
+      <Dialog
+        open={editAfastamentoModal.open}
+        onClose={handleCloseEditAfastamentoModal}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            py: 2.5,
+            px: 3,
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Editar afastamento
+            </Typography>
+            <IconButton
+              onClick={handleCloseEditAfastamentoModal}
+              size="small"
+              sx={{
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {editAfastamentoModal.afastamento && (
+            <form onSubmit={handleSubmitEditAfastamento}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                    Policial
+                  </Typography>
+                  <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                    {editAfastamentoModal.afastamento.policial.nome} - {editAfastamentoModal.afastamento.policial.matricula}
+                  </Typography>
+                </Box>
+
+                {editAfastamentoModal.error && (
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      backgroundColor: '#fef2f2',
+                      borderRadius: 1,
+                      border: '1px solid #fecaca',
+                      color: '#b91c1c',
+                      fontSize: '0.875rem',
+                    }}
+                  >
+                    {editAfastamentoModal.error}
+                  </Box>
+                )}
+
+                <TextField
+                  select
+                  label="Motivo *"
+                  value={editAfastamentoModal.motivoId || ''}
+                  onChange={(e) =>
+                    setEditAfastamentoModal((prev) => ({
+                      ...prev,
+                      motivoId: Number(e.target.value),
+                      error: null,
+                    }))
+                  }
+                  fullWidth
+                  required
+                  SelectProps={{ native: true }}
+                  InputLabelProps={{ shrink: true }}
+                  disabled={editAfastamentoModal.loading}
+                  sx={{ '& .MuiSelect-select': { padding: '14px 14px' } }}
+                >
+                  <option value="" disabled>Selecione o motivo</option>
+                  {motivosOrdenados.map((motivo) => (
+                    <option key={motivo.id} value={motivo.id}>
+                      {formatNome(motivo.nome)}
+                    </option>
+                  ))}
+                </TextField>
+
+                <TextField
+                  label="SEI nº *"
+                  value={editAfastamentoModal.seiNumero}
+                  onChange={(e) =>
+                    setEditAfastamentoModal((prev) => ({
+                      ...prev,
+                      seiNumero: e.target.value.replace(/\D/g, ''),
+                      error: null,
+                    }))
+                  }
+                  fullWidth
+                  required
+                  inputProps={{ maxLength: 20, inputMode: 'numeric', pattern: '[0-9]*' }}
+                  disabled={editAfastamentoModal.loading}
+                />
+
+                <TextField
+                  label="Descrição"
+                  value={editAfastamentoModal.descricao}
+                  onChange={(e) =>
+                    setEditAfastamentoModal((prev) => ({
+                      ...prev,
+                      descricao: e.target.value,
+                      error: null,
+                    }))
+                  }
+                  fullWidth
+                  multiline
+                  rows={2}
+                  disabled={editAfastamentoModal.loading}
+                />
+
+                <TextField
+                  label="Data de início *"
+                  type="date"
+                  value={editAfastamentoModal.dataInicio}
+                  onChange={(e) =>
+                    setEditAfastamentoModal((prev) => ({
+                      ...prev,
+                      dataInicio: e.target.value,
+                      error: null,
+                    }))
+                  }
+                  fullWidth
+                  required
+                  InputLabelProps={{ shrink: true }}
+                  disabled={editAfastamentoModal.loading}
+                />
+
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                  <Checkbox
+                    checked={editAfastamentoModal.calcularPeriodo}
+                    onChange={(e) =>
+                      setEditAfastamentoModal((prev) => ({
+                        ...prev,
+                        calcularPeriodo: e.target.checked,
+                        quantidadeDias: e.target.checked ? prev.quantidadeDias : '',
+                        error: null,
+                      }))
+                    }
+                    size="small"
+                    disabled={editAfastamentoModal.loading}
+                  />
+                  <Typography variant="body2" sx={{ fontSize: '0.95rem' }}>
+                    Calcular período
+                  </Typography>
+                </Box>
+
+                {editAfastamentoModal.calcularPeriodo ? (
+                  <>
+                    <TextField
+                      label="Quantidade de dias"
+                      type="number"
+                      inputProps={{ min: 1, inputMode: 'numeric', pattern: '[0-9]*' }}
+                      value={editAfastamentoModal.quantidadeDias}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, '');
+                        setEditAfastamentoModal((prev) => ({
+                          ...prev,
+                          quantidadeDias: value,
+                          error: null,
+                        }));
+                      }}
+                      fullWidth
+                      placeholder="Digite o número de dias"
+                      disabled={editAfastamentoModal.loading}
+                    />
+                    {dataTerminoCalculadaEdit && (
+                      <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', fontStyle: 'italic' }}>
+                        Data de término: {new Date(dataTerminoCalculadaEdit + 'T12:00:00').toLocaleDateString('pt-BR')}
+                      </Typography>
+                    )}
+                  </>
+                ) : (
+                  <TextField
+                    label="Data de término"
+                    type="date"
+                    value={editAfastamentoModal.dataFim}
+                    onChange={(e) =>
+                      setEditAfastamentoModal((prev) => ({
+                        ...prev,
+                        dataFim: e.target.value,
+                        error: null,
+                      }))
+                    }
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                    inputProps={{ min: editAfastamentoModal.dataInicio || undefined }}
+                    disabled={editAfastamentoModal.loading}
+                  />
+                )}
+              </Box>
+              <DialogActions sx={{ px: 0, pt: 2, pb: 0 }}>
+                <Button
+                  onClick={handleCloseEditAfastamentoModal}
+                  disabled={editAfastamentoModal.loading}
+                  color="inherit"
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={editAfastamentoModal.loading}
+                >
+                  {editAfastamentoModal.loading ? 'Salvando...' : 'Salvar'}
+                </Button>
+              </DialogActions>
+            </form>
+          )}
+        </DialogContent>
       </Dialog>
 
       {/* Modal para inserir/alterar mês previsto de férias */}

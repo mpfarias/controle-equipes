@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { Usuario, Policial, Equipe, Afastamento } from '../../types';
 import { 
   Box, 
@@ -50,6 +50,10 @@ const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
 // Sequência das equipes: D → E → B → A → C → D
 const SEQUENCIA_EQUIPES: Equipe[] = ['D', 'E', 'B', 'A', 'C'];
 
+// Escala motoristas 24x72: apenas equipes A, B, C e D. Data de início: 01/01/2026 (equipe A). Sequência: A → B → C → D (03/02/2026 = B).
+const DATA_INICIO_ESCALA_MOTORISTAS = new Date(2026, 0, 1); // 01/01/2026
+const SEQUENCIA_EQUIPES_MOTORISTAS: Equipe[] = ['A', 'B', 'C', 'D'];
+
 export function CalendarioSection({ currentUser: _currentUser }: CalendarioSectionProps) {
   const now = new Date();
   const anoAtual = now.getFullYear() >= 2026 ? now.getFullYear() : 2026;
@@ -61,6 +65,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   const [modalTitle, setModalTitle] = useState('');
   const [policiaisModal, setPoliciaisModal] = useState<Policial[]>([]);
   const [loadingModal, setLoadingModal] = useState(false);
+  const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
 
   // Gerar lista de anos (a partir de 2026 até 5 anos no futuro)
   const anosDisponiveis = useMemo(() => {
@@ -160,6 +165,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     };
   };
 
+  // Afastamento de 1 dia = somente esse dia, de 0h às 23:59. Não se considera o dia seguinte.
   // Função helper para filtrar afastamentos que estão ativos em uma data específica
   const filtrarAfastamentosNaData = (afastamentos: Afastamento[], data: Date) => {
     const dataStr = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
@@ -188,6 +194,78 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     });
   };
 
+  // Escala 24x72: qual equipe de motoristas (A, B, C ou D) está de serviço em um determinado dia
+  const getEquipeMotoristasDia = (ano: number, mes: number, dia: number): Equipe | null => {
+    const dataAtual = new Date(ano, mes, dia);
+    const dataMinima = new Date(2026, 0, 1);
+    if (dataAtual.getTime() < dataMinima.getTime()) return null;
+    const diffTime = dataAtual.getTime() - DATA_INICIO_ESCALA_MOTORISTAS.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return null;
+    return SEQUENCIA_EQUIPES_MOTORISTAS[diffDays % 4];
+  };
+
+  useEffect(() => {
+    const carregarFuncaoMotorista = async () => {
+      try {
+        const funcoes = await api.listFuncoes();
+        const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
+        const funcaoMotorista = funcoesAtivas.find((f) =>
+          f.nome.toUpperCase().includes('MOTORISTA DE DIA')
+        );
+        if (funcaoMotorista) setFuncaoMotoristaId(funcaoMotorista.id);
+      } catch (error) {
+        console.error('Erro ao carregar função Motorista:', error);
+      }
+    };
+    void carregarFuncaoMotorista();
+  }, []);
+
+  // Abrir modal com motoristas (função "Motorista de Dia") escalados no dia, pela equipe do dia (24x72)
+  const handleMotoristasClick = async (dia: number) => {
+    setModalOpen(true);
+    setLoadingModal(true);
+    const dataAtual = new Date(anoSelecionado, mesSelecionado, dia);
+    const dataStr = `${String(dia).padStart(2, '0')}/${String(mesSelecionado + 1).padStart(2, '0')}/${anoSelecionado}`;
+    setModalTitle(`Motoristas - ${dataStr}`);
+
+    try {
+      const equipeDia = getEquipeMotoristasDia(anoSelecionado, mesSelecionado, dia);
+      if (!equipeDia || !funcaoMotoristaId) {
+        setPoliciaisModal([]);
+        return;
+      }
+
+      const data = await api.listPoliciaisPaginated({
+        page: 1,
+        pageSize: 1000,
+        equipe: equipeDia,
+        funcaoId: funcaoMotoristaId,
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      });
+      const todosMotoristas = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+
+      const dataInicioBusca = `${anoSelecionado}-${String(mesSelecionado + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+      const afastamentos = await api.listAfastamentos({
+        dataInicio: dataInicioBusca,
+        dataFim: dataInicioBusca,
+        includePolicialFuncao: false,
+      });
+      const afastamentosAtivos = filtrarAfastamentosNaData(afastamentos, dataAtual);
+      const idsAfastados = new Set(afastamentosAtivos.map((af) => af.policialId));
+      const motoristasDisponiveis = todosMotoristas.filter((p) => !idsAfastados.has(p.id));
+
+      setModalTitle(`Motoristas - Equipe ${formatEquipeLabel(equipeDia)} - ${dataStr}`);
+      setPoliciaisModal(motoristasDisponiveis);
+    } catch (error) {
+      console.error('Erro ao carregar motoristas:', error);
+      setPoliciaisModal([]);
+    } finally {
+      setLoadingModal(false);
+    }
+  };
+
   // Função para abrir modal com policiais da equipe
   const handleEquipeClick = async (equipe: Equipe, periodo: 'dia' | 'noite', dia: number) => {
     setModalOpen(true);
@@ -206,41 +284,31 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
 
       const data = await api.listPoliciaisPaginated(params);
       const todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
-      
-      // Buscar afastamentos do período
-      // Para o período do dia: 07h-19h do dia atual
-      // Para o período da noite: 19h do dia atual até 07h do dia seguinte
+      // Motoristas (função "Motorista de Dia") ficam apenas na escala 24x72; excluir das escalas 12x24/12x72 (Dia/Noite)
+      const policiaisEscalaDiaNoite = funcaoMotoristaId
+        ? todosPoliciais.filter((p) => p.funcaoId !== funcaoMotoristaId)
+        : todosPoliciais;
+
+      // Afastamento de 1 dia = somente esse dia, de 0h às 23:59. Não se considera o dia seguinte.
       const dataAtual = new Date(anoSelecionado, mesSelecionado, dia);
-      let dataInicioBusca: string;
-      let dataFimBusca: string;
-      
-      if (periodo === 'dia') {
-        // Período do dia: 07h-19h do mesmo dia
-        dataInicioBusca = `${anoSelecionado}-${String(mesSelecionado + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-        dataFimBusca = dataInicioBusca;
-      } else {
-        // Período da noite: 19h do dia atual até 07h do dia seguinte
-        dataInicioBusca = `${anoSelecionado}-${String(mesSelecionado + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-        const proximoDia = new Date(anoSelecionado, mesSelecionado, dia + 1);
-        dataFimBusca = `${proximoDia.getFullYear()}-${String(proximoDia.getMonth() + 1).padStart(2, '0')}-${String(proximoDia.getDate()).padStart(2, '0')}`;
-      }
-      
-      // Buscar afastamentos que se sobrepõem ao período
+      const dataInicioBusca = `${anoSelecionado}-${String(mesSelecionado + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+      const dataFimBusca = dataInicioBusca;
+
       const afastamentosParams: Parameters<typeof api.listAfastamentos>[0] = {
         dataInicio: dataInicioBusca,
         dataFim: dataFimBusca,
         includePolicialFuncao: false,
       };
-      
+
       const afastamentos = await api.listAfastamentos(afastamentosParams);
-      
-      // Filtrar afastamentos que estão realmente ativos na data/período
+
+      // Quem está afastado neste dia (0h-23:59) não aparece na lista, tanto no turno dia quanto no turno noite
       const afastamentosAtivos = filtrarAfastamentosNaData(afastamentos, dataAtual);
       const idsAfastados = new Set(afastamentosAtivos.map((af) => af.policialId));
-      
-      // Filtrar apenas os policiais disponíveis (não afastados)
-      const policiaisDisponiveis = todosPoliciais.filter((p) => !idsAfastados.has(p.id));
-      
+
+      // Filtrar apenas os policiais disponíveis (não afastados), já sem motoristas
+      const policiaisDisponiveis = policiaisEscalaDiaNoite.filter((p) => !idsAfastados.has(p.id));
+
       setPoliciaisModal(policiaisDisponiveis);
     } catch (error) {
       console.error('Erro ao carregar policiais da equipe:', error);
@@ -356,20 +424,57 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                   >
                     {dia !== null && (
                       <>
-                        {/* Número do dia */}
-                        <Typography
-                          variant="body2"
+                        {/* Número do dia e link Motoristas */}
+                        <Box
                           sx={{
-                            fontWeight: isHoje(dia) ? 700 : 500,
-                            color: isHoje(dia) ? '#3b82f6' : '#1f2937',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 0.5,
                             p: 1,
                             pb: 0.5,
                             flexShrink: 0,
                           }}
                         >
-                          {dia}
-                        </Typography>
-                        
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontWeight: isHoje(dia) ? 700 : 500,
+                              color: isHoje(dia) ? '#3b82f6' : '#1f2937',
+                              lineHeight: 1.2,
+                              margin: 0,
+                            }}
+                          >
+                            {dia}
+                          </Typography>
+                          {funcaoMotoristaId != null &&
+                            anoSelecionado >= 2026 &&
+                            getEquipeMotoristasDia(anoSelecionado, mesSelecionado, dia) !== null && (
+                              <Typography
+                                variant="caption"
+                                component="button"
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMotoristasClick(dia);
+                                }}
+                                sx={{
+                                  fontSize: '0.65rem',
+                                  color: '#059669',
+                                  cursor: 'pointer',
+                                  textDecoration: 'underline',
+                                  background: 'none',
+                                  border: 'none',
+                                  padding: 0,
+                                  fontFamily: 'inherit',
+                                  '&:hover': { color: '#047857' },
+                                }}
+                              >
+                                Motoristas
+                              </Typography>
+                            )}
+                        </Box>
+
                         {/* Divisão diagonal e equipes */}
                         {equipes && (
                           <Box
