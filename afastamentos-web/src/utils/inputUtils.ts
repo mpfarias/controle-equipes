@@ -1,4 +1,42 @@
 /**
+ * Aplica máscara de CPF: 000.000.000-00 (apenas dígitos, max 11).
+ */
+export function maskCpf(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`;
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`;
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+}
+
+/**
+ * Retorna apenas os 11 dígitos do CPF (para envio à API).
+ */
+export function cpfToDigits(cpf: string): string {
+  return cpf.replace(/\D/g, '').slice(0, 11);
+}
+
+/**
+ * Valida CPF pelos dígitos verificadores.
+ */
+export function validarCpf(cpf: string): boolean {
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length !== 11) return false;
+  if (/^(\d)\1{10}$/.test(digits)) return false;
+  let soma = 0;
+  for (let i = 0; i < 9; i++) soma += parseInt(digits[i], 10) * (10 - i);
+  let resto = (soma * 10) % 11;
+  if (resto === 10) resto = 0;
+  if (resto !== parseInt(digits[9], 10)) return false;
+  soma = 0;
+  for (let i = 0; i < 10; i++) soma += parseInt(digits[i], 10) * (11 - i);
+  resto = (soma * 10) % 11;
+  if (resto === 10) resto = 0;
+  if (resto !== parseInt(digits[10], 10)) return false;
+  return true;
+}
+
+/**
  * Normaliza o texto para ter apenas a primeira letra maiúscula e o restante minúsculo
  * Exemplo: "FÉRIAS" -> "Férias", "MOTORISTA DE DIA" -> "Motorista de dia"
  */

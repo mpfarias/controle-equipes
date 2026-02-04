@@ -78,6 +78,10 @@ export interface Policial {
   id: number;
   nome: string;
   matricula: string;
+  cpf?: string | null;
+  dataNascimento?: string | null;
+  email?: string | null;
+  matriculaComissionadoGdf?: string | null;
   equipe: Equipe | null;
   status: PolicialStatus;
   funcaoId?: number | null;
@@ -105,6 +109,10 @@ export interface CreatePolicialInput {
   nome: string;
   matricula: string;
   status: PolicialStatus;
+  cpf?: string | null;
+  dataNascimento?: string | null;
+  email?: string | null;
+  matriculaComissionadoGdf?: string | null;
   equipe?: Equipe | null;
   funcaoId?: number;
 }
@@ -196,6 +204,8 @@ export interface PolicialExtraido {
   nome: string;
   funcaoNome: string;
   funcaoId?: number;
+  /** Preenchido quando o arquivo tem coluna situação/Status (ex.: PDF com ASSESSOR -> COMISSIONADO). */
+  status?: PolicialStatus;
 }
 
 export interface ProcessFileResponse {

@@ -91,6 +91,29 @@ export class PoliciaisService {
     return nome.trim().toUpperCase();
   }
 
+  /** Retorna apenas os 11 dígitos do CPF ou null se inválido. */
+  private sanitizeCpf(cpf: string | null | undefined): string | null {
+    if (cpf == null || typeof cpf !== 'string') return null;
+    const digits = cpf.replace(/\D/g, '');
+    return digits.length === 11 ? digits : null;
+  }
+
+  /** Valida CPF pelos dígitos verificadores (algoritmo oficial). */
+  private validarCpf(cpf: string): boolean {
+    if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
+    let soma = 0;
+    for (let i = 0; i < 9; i++) soma += parseInt(cpf[i], 10) * (10 - i);
+    let resto = (soma * 10) % 11;
+    if (resto === 10) resto = 0;
+    if (resto !== parseInt(cpf[9], 10)) return false;
+    soma = 0;
+    for (let i = 0; i < 10; i++) soma += parseInt(cpf[i], 10) * (11 - i);
+    resto = (soma * 10) % 11;
+    if (resto === 10) resto = 0;
+    if (resto !== parseInt(cpf[10], 10)) return false;
+    return true;
+  }
+
   private async ensureEquipeAtiva(nome: string): Promise<string> {
     const normalizado = this.sanitizeEquipeNome(nome);
     const equipe = await this.prisma.equipeOption.findFirst({
@@ -382,10 +405,24 @@ export class PoliciaisService {
     const statusId = await this.resolveStatusId(data.status ?? 'ATIVO');
     const equipeValue = data.equipe !== undefined ? data.equipe : (actor?.equipe ?? null);
     const equipe = equipeValue ? await this.ensureEquipeAtiva(equipeValue) : null;
+
+    const cpfDigits = this.sanitizeCpf(data.cpf);
+    if (cpfDigits && !this.validarCpf(cpfDigits)) {
+      throw new BadRequestException('CPF inválido (dígitos verificadores incorretos).');
+    }
+    const dataNascimentoDate = data.dataNascimento
+      ? new Date(data.dataNascimento)
+      : null;
+    const emailValue = data.email != null && data.email !== '' ? data.email.trim() : null;
+
     const created = await this.prisma.policial.create({
       data: {
         nome: this.sanitizeNome(data.nome),
         matricula: matriculaNormalizada,
+        cpf: cpfDigits ?? null,
+        dataNascimento: dataNascimentoDate,
+        email: emailValue,
+        matriculaComissionadoGdf: data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null,
         status: { connect: { id: statusId } },
         equipe,
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
@@ -710,6 +747,25 @@ export class PoliciaisService {
 
     if (data.equipe !== undefined) {
       updateData.equipe = data.equipe ? await this.ensureEquipeAtiva(data.equipe) : null;
+    }
+
+    if (data.cpf !== undefined) {
+      const cpfDigits = this.sanitizeCpf(data.cpf);
+      if (cpfDigits && !this.validarCpf(cpfDigits)) {
+        throw new BadRequestException('CPF inválido (dígitos verificadores incorretos).');
+      }
+      updateData.cpf = cpfDigits ?? null;
+    }
+    if (data.dataNascimento !== undefined) {
+      updateData.dataNascimento = data.dataNascimento
+        ? new Date(data.dataNascimento)
+        : null;
+    }
+    if (data.email !== undefined) {
+      updateData.email = data.email != null && data.email !== '' ? data.email.trim() : null;
+    }
+    if (data.matriculaComissionadoGdf !== undefined) {
+      updateData.matriculaComissionadoGdf = data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null;
     }
 
     if (data.fotoUrl !== undefined) {

@@ -13,7 +13,7 @@ export class ArquivoProcessorService {
   constructor(private readonly prisma: PrismaService) {}
 
   private static readonly MAX_POLICIAIS = 2000;
-  private static readonly MAX_TEXTO = 150;
+  private static readonly MAX_TEXTO = 250;
 
   /**
    * Normaliza o nome da função: se terminar com "-", concatena "AUXILIAR"
@@ -82,27 +82,84 @@ export class ArquivoProcessorService {
   private async processarPDF(buffer: Buffer): Promise<ProcessarArquivoResponseDto> {
     try {
       const parser = new PDFParseClass({ data: buffer });
+      // Garantir todas as páginas: usar getText() sem limite e, se o resultado tiver .pages, concatenar todas.
       const data = await parser.getText();
-      const texto = data.text;
+      const texto =
+        data.pages && Array.isArray(data.pages) && data.pages.length > 0
+          ? data.pages.map((p: { num: number; text: string }) => p.text).join('\n')
+          : (data.text ?? '');
+      if (typeof parser.destroy === 'function') await (parser as { destroy: () => Promise<void> }).destroy();
       
-      // Extrair dados do PDF (matrícula, nome, função)
-      const policiais = this.extrairDadosDoPDF(texto);
+      let policiais = this.extrairDadosDoPDF(texto);
+      // Se pelo texto obtivemos poucos registros, tentar getTable() (tabelas detectadas pelo PDF)
+      if (policiais.length < 50) {
+        try {
+          const parser2 = new PDFParseClass({ data: buffer });
+          const tableResult = await parser2.getTable();
+          if (typeof parser2.destroy === 'function') await (parser2 as { destroy: () => Promise<void> }).destroy();
+          const fromTable = this.extrairDadosDeTabelaPDF(tableResult);
+          if (fromTable.length > policiais.length) policiais = fromTable;
+        } catch {
+          // Ignora falha do getTable e mantém o resultado do getText
+        }
+      }
       this.validarPoliciaisExtraidos(policiais);
-      
-      // Mapear e criar funções
       return await this.mapearFuncoes(policiais);
     } catch (error) {
       throw new BadRequestException(`Erro ao processar PDF: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     }
   }
 
+  /**
+   * Monta array de linhas a partir de todas as células da planilha (ignora !ref que às vezes vem truncado).
+   */
+  private sheetToArray(sheet: Record<string, unknown>): string[][] {
+    const cellRegex = /^[A-Z]+[0-9]+$/;
+    const keys = Object.keys(sheet).filter((k) => cellRegex.test(k));
+    if (keys.length === 0) return [];
+    let maxR = 0;
+    let maxC = 0;
+    for (const k of keys) {
+      const addr = XLSX.utils.decode_cell(k);
+      maxR = Math.max(maxR, addr.r);
+      maxC = Math.max(maxC, addr.c);
+    }
+    const dados: string[][] = [];
+    for (let r = 0; r <= maxR; r++) {
+      const row: string[] = [];
+      for (let c = 0; c <= maxC; c++) {
+        const key = XLSX.utils.encode_cell({ r, c });
+        const val = sheet[key];
+        const cell = val && typeof (val as { v?: unknown }).v !== 'undefined' ? (val as { v: unknown }).v : val;
+        row.push(cell != null ? String(cell) : '');
+      }
+      dados.push(row);
+    }
+    return dados;
+  }
+
   private async processarExcel(buffer: Buffer): Promise<ProcessarArquivoResponseDto> {
     try {
       const workbook = XLSX.read(buffer, { type: 'buffer' });
-      const primeiraSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const dados = XLSX.utils.sheet_to_json(primeiraSheet, { header: 1, defval: '' }) as string[][];
-      
-      // Extrair dados do Excel
+      const sheetNames = workbook.SheetNames || [];
+      if (sheetNames.length === 0) throw new BadRequestException('Nenhuma planilha no arquivo');
+      let dados: string[][] = [];
+      for (const name of sheetNames) {
+        const sheet = workbook.Sheets[name] as Record<string, unknown> | undefined;
+        if (!sheet) continue;
+        const rows = this.sheetToArray(sheet);
+        if (rows.length === 0) continue;
+        if (dados.length === 0) {
+          dados = rows;
+        } else {
+          const isHeader = (row: string[]) =>
+            row.some((c) => String(c || '').toUpperCase().includes('NOME') || String(c || '').toUpperCase().includes('MAT'));
+          for (let i = 0; i < rows.length; i++) {
+            if (i === 0 && isHeader(rows[0])) continue;
+            dados.push(rows[i]);
+          }
+        }
+      }
       const policiais = this.extrairDadosDoExcel(dados);
       this.validarPoliciaisExtraidos(policiais);
       
@@ -113,20 +170,64 @@ export class ArquivoProcessorService {
     }
   }
 
-  private extrairDadosDoPDF(texto: string): Array<{ matricula: string; nome: string; funcaoNome: string }> {
-    const policiais: Array<{ matricula: string; nome: string; funcaoNome: string }> = [];
+  /** Valores da coluna situação/Status no PDF (podem vir como "situação" ou "Status"). ASSESSOR = COMISSIONADO. */
+  private static readonly SITUACAO_VALORES = ['ATIVO', 'PTTC', 'ASSESSOR', 'DESIGNADO'] as const;
+
+  /** Ignora linhas de quebra de página (ex.: "-- 1 of 8 --"). */
+  private isLinhaQuebraPagina(linha: string): boolean {
+    return /--\s*\d+\s+of\s+\d+\s*--/i.test(linha.trim());
+  }
+
+  /** Indica se a linha inicia um novo registro (POSTO/GRAD no início). */
+  private isInicioRegistro(linha: string): boolean {
+    const t = linha.trim();
+    if (!t.length) return false;
+    return (
+      /^(TC|MAJ|CAP|ST|CB|SD|CIVIL)\s/i.test(t) ||
+      /^[123]º\s/i.test(t) ||
+      /^1\s+TEN\s/i.test(t) ||
+      /^2\s+TEN\s/i.test(t)
+    );
+  }
+
+  private static readonly STATUS_MAP: Record<string, 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO'> = {
+    ATIVO: 'ATIVO',
+    PTTC: 'PTTC',
+    ASSESSOR: 'COMISSIONADO',
+    DESIGNADO: 'DESIGNADO',
+  };
+
+  private extrairDadosDoPDF(
+    texto: string,
+  ): Array<{ matricula: string; nome: string; funcaoNome: string; status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' }> {
+    const policiais: Array<{
+      matricula: string;
+      nome: string;
+      funcaoNome: string;
+      status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO';
+    }> = [];
     const matriculaSet = new Set<string>();
     
-    // Dividir o texto em linhas
-    const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    const linhas = texto
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !this.isLinhaQuebraPagina(l));
     
-    // Procurar pela tabela (procura por "MATRÍCULA" ou "MATRICULA" como cabeçalho)
+    // Tabela: "MATRÍCULA"/"MATRICULA" ou colunas NOME + MAT (POSTO/GRAD, NOME, MAT, Mat GDF, situação/Status, etc.)
     let inicioTabela = -1;
     let linhaCabecalho = '';
+    let formatoAlternativo = false;
     for (let i = 0; i < linhas.length; i++) {
-      if (linhas[i].toUpperCase().includes('MATRÍCULA') || linhas[i].toUpperCase().includes('MATRICULA')) {
+      const upper = linhas[i].toUpperCase();
+      if (upper.includes('MATRÍCULA') || upper.includes('MATRICULA')) {
         inicioTabela = i + 1;
         linhaCabecalho = linhas[i];
+        break;
+      }
+      if (upper.includes('NOME') && (/\bMAT\b/.test(upper) || upper.includes(' MAT '))) {
+        inicioTabela = i + 1;
+        linhaCabecalho = linhas[i];
+        formatoAlternativo = true;
         break;
       }
     }
@@ -135,96 +236,169 @@ export class ArquivoProcessorService {
       throw new BadRequestException('Não foi possível encontrar a tabela de dados no PDF');
     }
     
-    // Detectar posições das colunas no cabeçalho
     const cabecalhoUpper = linhaCabecalho.toUpperCase();
     const temCircunstancia = cabecalhoUpper.includes('CIRCUNSTÂNCIA') || cabecalhoUpper.includes('CIRCUNSTANCIA');
     
-    // Extrair dados das linhas
-    for (let i = inicioTabela; i < linhas.length; i++) {
-      const linha = linhas[i];
-      
-      // Pular linhas vazias ou cabeçalhos
-      if (linha.length < 5 || linha.toUpperCase().includes('MATRÍCULA') || linha.toUpperCase().includes('POLICIAL')) {
-        continue;
+    // Formato alternativo: cada linha do PDF tem exatamente uma palavra de situação (ATIVO, PTTC, ASSESSOR, DESIGNADO).
+    // Dividir o bloco por essas palavras gera um segmento por policial, independente de quebras de linha ou POSTO/GRAD.
+    if (formatoAlternativo) {
+      const bloco = linhas
+        .slice(inicioTabela)
+        .filter((l) => !this.isLinhaQuebraPagina(l) && l.length > 0)
+        .join(' ');
+      const regexSituacao = /\s+(ATIVO|PTTC|ASSESSOR|DESIGNADO)(?=\s|$)/gi;
+      const partes: string[] = [];
+      let lastIndex = 0;
+      let m: RegExpExecArray | null;
+      const re = new RegExp(regexSituacao.source, 'gi');
+      while ((m = re.exec(bloco)) !== null) {
+        partes.push(bloco.slice(lastIndex, m.index).trim());
+        partes.push(m[1].toUpperCase());
+        lastIndex = re.lastIndex;
       }
-      
-      // Se temos a coluna CIRCUNSTÂNCIA, verificar se é "VOLUNTÁRIO"
-      if (temCircunstancia) {
-        const linhaUpper = linha.toUpperCase();
-        // Se contém "VOLUNTÁRIO" ou "VOLUNTARIO", pular esta linha
-        if (linhaUpper.includes('VOLUNTÁRIO') || linhaUpper.includes('VOLUNTARIO')) {
-          continue;
+      if (lastIndex < bloco.length) partes.push(bloco.slice(lastIndex).trim());
+      for (let i = 0; i < partes.length; i += 2) {
+        const segmento = partes[i];
+        const situacaoRaw = partes[i + 1];
+        if (!segmento || segmento.length < 5) continue;
+        let limpo = segmento;
+        if (i === 0) {
+          const primeiroPosto = limpo.match(/\s(TC|MAJ|CAP|ST|CB|SD|CIVIL)\s|[123][ºo°.]?\s*SGT\s|[12]\s+TEN\s/i);
+          if (primeiroPosto && primeiroPosto.index != null) limpo = limpo.slice(primeiroPosto.index).trim();
+        } else {
+          limpo = limpo.replace(/^\s*(\d{1,2}\/\d{1,2}\/\d{2,4})?\s*(\d{10,11})?\s*/, '').trim();
         }
-      }
-      
-      // Tentar extrair matrícula (geralmente começa com números)
-      const matriculaMatch = linha.match(/^(\d{6,9}[X]?)/);
-      if (!matriculaMatch) {
-        continue;
-      }
-      
-      const matricula = matriculaMatch[1].toUpperCase();
-      
-      // Remover duplicatas por matrícula (segurança adicional)
-      if (matriculaSet.has(matricula)) {
-        continue;
-      }
-      matriculaSet.add(matricula);
-      
-      // Remover a matrícula e dividir o resto
-      const resto = linha.substring(matriculaMatch[0].length).trim();
-      
-      // Dividir por múltiplos espaços para pegar nome e função
-      const partes = resto.split(/\s{2,}/).filter(p => p.trim().length > 0);
-      
-      if (partes.length < 2) {
-        continue;
-      }
-      
-      // O nome geralmente vem antes da função
-      // A função geralmente é a última parte ou contém palavras específicas
-      const nome = partes[0].trim();
-      let funcaoNome = partes.slice(1).join(' ').trim();
-      
-      // Normalizar função (concatenar "AUXILIAR" se terminar com "-")
-      funcaoNome = this.normalizarFuncaoNome(funcaoNome);
-      
-      if (nome && funcaoNome && matricula) {
+        const tokens = limpo.split(/\s+/).filter((p) => p.length > 0);
+        const idxUltimaMat = tokens.map((p, idx) => (/^\d{4,10}[Xx]?$/.test(p) ? idx : -1)).filter((idx) => idx >= 0).pop();
+        if (idxUltimaMat == null || idxUltimaMat < 1) continue;
+        const matricula = tokens[idxUltimaMat].toUpperCase();
+        if (matriculaSet.has(matricula) || !this.isMatriculaValida(matricula)) continue;
+        matriculaSet.add(matricula);
+        const nome = tokens.slice(0, idxUltimaMat).join(' ').trim();
+        if (!nome) continue;
+        const status: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' =
+          (situacaoRaw && ArquivoProcessorService.STATUS_MAP[situacaoRaw]) || 'ATIVO';
         policiais.push({
-          matricula: matricula.toUpperCase(),
+          matricula,
           nome: nome.toUpperCase(),
-          funcaoNome: funcaoNome.toUpperCase(),
+          funcaoNome: 'NÃO INFORMADO',
+          status,
         });
       }
+    } else {
+      for (let i = inicioTabela; i < linhas.length; i++) {
+        const linha = linhas[i];
+        if (linha.length < 3) continue;
+        if (linha.toUpperCase().includes('MATRÍCULA') || linha.toUpperCase().includes('POLICIAL')) continue;
+        if (temCircunstancia && (linha.toUpperCase().includes('VOLUNTÁRIO') || linha.toUpperCase().includes('VOLUNTARIO'))) continue;
+        const matriculaMatch = linha.match(/^(\d{6,9}[X]?)/);
+        if (!matriculaMatch) continue;
+        const matricula = matriculaMatch[1].toUpperCase();
+        if (matriculaSet.has(matricula)) continue;
+        matriculaSet.add(matricula);
+        const resto = linha.substring(matriculaMatch[0].length).trim();
+        const partesResto = resto.split(/\s{2,}/).filter((p) => p.trim().length > 0);
+        if (partesResto.length < 2) continue;
+        const nome = partesResto[0].trim();
+        let funcaoNome = partesResto.slice(1).join(' ').trim();
+        funcaoNome = this.normalizarFuncaoNome(funcaoNome);
+        if (nome && funcaoNome && matricula) {
+          policiais.push({
+            matricula,
+            nome: nome.toUpperCase(),
+            funcaoNome: funcaoNome.toUpperCase(),
+          });
+        }
+      }
     }
-    
     return policiais;
   }
 
-  private extrairDadosDoExcel(dados: string[][]): Array<{ matricula: string; nome: string; funcaoNome: string }> {
-    const policiais: Array<{ matricula: string; nome: string; funcaoNome: string }> = [];
+  /**
+   * Extrai policiais a partir do resultado de getTable() do pdf-parse (formato POSTO/GRAD, NOME, MAT, situação).
+   */
+  private extrairDadosDeTabelaPDF(
+    tableResult: { pages?: Array<{ num: number; tables: Array<Array<Array<string>>> }>; mergedTables?: Array<Array<Array<string>>> },
+  ): Array<{ matricula: string; nome: string; funcaoNome: string; status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' }> {
+    const policiais: Array<{ matricula: string; nome: string; funcaoNome: string; status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' }> = [];
     const matriculaSet = new Set<string>();
-    
+    const allTables: Array<Array<Array<string>>> = [];
+    if (tableResult.mergedTables && tableResult.mergedTables.length > 0) {
+      allTables.push(...tableResult.mergedTables);
+    }
+    if (tableResult.pages) {
+      for (const page of tableResult.pages) {
+        if (page.tables && page.tables.length > 0) allTables.push(...page.tables);
+      }
+    }
+    for (const table of allTables) {
+      if (!table || table.length < 2) continue;
+      const headerRow = table[0].map((c) => String(c || '').toUpperCase());
+      const colNome = headerRow.findIndex((c) => c.includes('NOME'));
+      const colMat = headerRow.findIndex((c) => c.includes('MAT'));
+      const colSituacao = headerRow.findIndex((c) => c.includes('SITUA') || c.includes('STATUS'));
+      const colPosto = headerRow.findIndex((c) => c.includes('POSTO') || c.includes('GRAD'));
+      if (colMat === -1 || colNome === -1) continue;
+      const idxMat = colMat;
+      const idxNome = colNome;
+      const idxSituacao = colSituacao >= 0 ? colSituacao : -1;
+      for (let r = 1; r < table.length; r++) {
+        const row = table[r];
+        const matricula = String(row[idxMat] ?? '').trim().replace(/\s/g, '').toUpperCase();
+        if (!matricula || !/^\d{4,10}[Xx]?$/.test(matricula) || matriculaSet.has(matricula)) continue;
+        matriculaSet.add(matricula);
+        const posto = colPosto >= 0 ? String(row[colPosto] ?? '').trim() : '';
+        const nome = (posto ? posto + ' ' : '') + String(row[idxNome] ?? '').trim();
+        if (!nome) continue;
+        let situacaoRaw = idxSituacao >= 0 ? String(row[idxSituacao] ?? '').trim().toUpperCase() : '';
+        const status: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' =
+          (situacaoRaw && ArquivoProcessorService.STATUS_MAP[situacaoRaw]) || 'ATIVO';
+        policiais.push({
+          matricula,
+          nome: nome.toUpperCase(),
+          funcaoNome: 'NÃO INFORMADO',
+          status,
+        });
+      }
+    }
+    return policiais;
+  }
+
+  private extrairDadosDoExcel(
+    dados: string[][],
+  ): Array<{ matricula: string; nome: string; funcaoNome: string; status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' }> {
+    const policiais: Array<{
+      matricula: string;
+      nome: string;
+      funcaoNome: string;
+      status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO';
+    }> = [];
+    const matriculaSet = new Set<string>();
+
     if (dados.length < 2) {
       throw new BadRequestException('Planilha vazia ou sem dados');
     }
-    
-    // Encontrar linha de cabeçalho
+
     let linhaCabecalho = -1;
     let colMatricula = -1;
     let colNome = -1;
     let colFuncao = -1;
     let colCircunstancia = -1;
-    
+    let colPosto = -1;
+    let colSituacao = -1;
+    let formatoAlternativo = false;
+
     for (let i = 0; i < Math.min(10, dados.length); i++) {
-      const linha = dados[i].map(c => String(c || '').toUpperCase());
-      
-      // Procurar por "MATRÍCULA" ou "MATRICULA"
-      const idxMatricula = linha.findIndex(c => c.includes('MATRÍCULA') || c.includes('MATRICULA'));
-      const idxNome = linha.findIndex(c => c.includes('POLICIAL') || c.includes('NOME'));
-      const idxFuncao = linha.findIndex(c => c.includes('FUNÇÃO') || c.includes('FUNCAO'));
-      const idxCircunstancia = linha.findIndex(c => c.includes('CIRCUNSTÂNCIA') || c.includes('CIRCUNSTANCIA'));
-      
+      const linha = dados[i].map((c) => String(c || '').toUpperCase());
+
+      const idxMatricula = linha.findIndex((c) => c.includes('MATRÍCULA') || c.includes('MATRICULA'));
+      const idxNome = linha.findIndex((c) => c.includes('POLICIAL') || c.includes('NOME'));
+      const idxFuncao = linha.findIndex((c) => c.includes('FUNÇÃO') || c.includes('FUNCAO'));
+      const idxCircunstancia = linha.findIndex((c) => c.includes('CIRCUNSTÂNCIA') || c.includes('CIRCUNSTANCIA'));
+      const idxMat = linha.findIndex((c) => c.trim() === 'MAT' || c.includes('MAT'));
+      const idxPosto = linha.findIndex((c) => c.includes('POSTO') || c.includes('GRAD'));
+      const idxSituacao = linha.findIndex((c) => c.includes('SITUA') || c.includes('STATUS'));
+
       if (idxMatricula !== -1) {
         linhaCabecalho = i;
         colMatricula = idxMatricula;
@@ -233,50 +407,70 @@ export class ArquivoProcessorService {
         colCircunstancia = idxCircunstancia !== -1 ? idxCircunstancia : -1;
         break;
       }
+      if (idxNome !== -1 && (idxMat !== -1 || idxMatricula !== -1)) {
+        linhaCabecalho = i;
+        formatoAlternativo = true;
+        colNome = idxNome;
+        colMatricula = idxMat !== -1 ? idxMat : idxMatricula;
+        colPosto = idxPosto !== -1 ? idxPosto : -1;
+        colSituacao = idxSituacao !== -1 ? idxSituacao : -1;
+        colFuncao = -1;
+        colCircunstancia = -1;
+        break;
+      }
     }
-    
-    if (linhaCabecalho === -1 || colMatricula === -1) {
-      throw new BadRequestException('Não foi possível encontrar as colunas necessárias (Matrícula, Nome, Função) na planilha');
+
+    if (linhaCabecalho === -1 || colMatricula === -1 || colNome === -1) {
+      throw new BadRequestException(
+        'Não foi possível encontrar as colunas necessárias. Use formato com colunas Matrícula/MAT, Nome e (quando não for o formato COPOM) Função, ou formato COPOM: POSTO/GRAD, NOME, MAT, situação/Status.',
+      );
     }
-    
-    // Extrair dados
+
     for (let i = linhaCabecalho + 1; i < dados.length; i++) {
       const linha = dados[i];
-      
-      // Se temos a coluna CIRCUNSTÂNCIA, verificar se é "VOLUNTÁRIO"
+
       if (colCircunstancia !== -1) {
         const circunstancia = String(linha[colCircunstancia] || '').trim().toUpperCase();
-        if (circunstancia === 'VOLUNTÁRIO' || circunstancia === 'VOLUNTARIO') {
-          continue;
+        if (circunstancia === 'VOLUNTÁRIO' || circunstancia === 'VOLUNTARIO') continue;
+      }
+
+      let matricula = String(linha[colMatricula] ?? '')
+        .trim()
+        .replace(/\s/g, '')
+        .toUpperCase();
+      if (!matricula || !/^[0-9X]+$/.test(matricula) || matricula.length > 10) continue;
+      if (matriculaSet.has(matricula)) continue;
+      matriculaSet.add(matricula);
+
+      if (formatoAlternativo) {
+        const posto = colPosto >= 0 ? String(linha[colPosto] ?? '').trim() : '';
+        const nome = (posto ? posto + ' ' : '') + String(linha[colNome] ?? '').trim();
+        if (!nome) continue;
+        const situacaoRaw =
+          colSituacao >= 0 ? String(linha[colSituacao] ?? '').trim().toUpperCase() : '';
+        const status: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' =
+          (situacaoRaw && ArquivoProcessorService.STATUS_MAP[situacaoRaw]) || 'ATIVO';
+        policiais.push({
+          matricula,
+          nome: nome.toUpperCase(),
+          funcaoNome: 'NÃO INFORMADO',
+          status,
+        });
+      } else {
+        const nome = String(linha[colNome] || '').trim().toUpperCase();
+        let funcaoNome = colFuncao >= 0 ? String(linha[colFuncao] || '').trim() : '';
+        funcaoNome = this.normalizarFuncaoNome(funcaoNome).toUpperCase();
+        if (nome && funcaoNome) {
+          policiais.push({ matricula, nome, funcaoNome });
         }
       }
-      
-      const matricula = String(linha[colMatricula] || '').trim().toUpperCase();
-      const nome = String(linha[colNome] || '').trim().toUpperCase();
-      let funcaoNome = String(linha[colFuncao] || '').trim();
-      
-      // Normalizar função (concatenar "AUXILIAR" se terminar com "-")
-      funcaoNome = this.normalizarFuncaoNome(funcaoNome);
-      
-      // Converter para uppercase após normalização
-      funcaoNome = funcaoNome.toUpperCase();
-      
-      // Remover duplicatas por matrícula (segurança adicional)
-      if (!matricula || matriculaSet.has(matricula)) {
-        continue;
-      }
-      matriculaSet.add(matricula);
-      
-      if (nome && funcaoNome && matricula) {
-        policiais.push({ matricula, nome, funcaoNome });
-      }
     }
-    
+
     return policiais;
   }
 
   private async mapearFuncoes(
-    policiais: Array<{ matricula: string; nome: string; funcaoNome: string }>,
+    policiais: Array<{ matricula: string; nome: string; funcaoNome: string; status?: 'ATIVO' | 'COMISSIONADO' | 'PTTC' | 'DESIGNADO' }>,
   ): Promise<ProcessarArquivoResponseDto> {
     const funcoesCriadas: string[] = [];
     const policiaisComFuncaoId: PolicialExtraido[] = [];
@@ -346,6 +540,7 @@ export class ArquivoProcessorService {
         nome: policial.nome,
         funcaoNome: policial.funcaoNome,
         funcaoId,
+        ...(policial.status != null && { status: policial.status }),
       });
     }
     

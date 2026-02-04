@@ -13,10 +13,21 @@ import type {
 } from '../../types';
 import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel } from '../../constants';
 import { formatNome } from '../../utils/dateUtils';
-import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
+import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
+import {
+  Box,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Checkbox,
+  Button,
+  Grid,
+} from '@mui/material';
 
 interface PoliciaisSectionProps {
   currentUser: Usuario;
@@ -31,7 +42,17 @@ export function PoliciaisSection({
   onChanged,
   permissoes,
 }: PoliciaisSectionProps) {
-  const initialForm = { nome: '', matricula: '', status: 'ATIVO' as PolicialStatus, funcaoId: undefined as number | undefined, equipe: undefined as Equipe | undefined };
+  const initialForm = {
+    nome: '',
+    matricula: '',
+    cpf: '',
+    dataNascimento: '',
+    email: '',
+    matriculaComissionadoGdf: '',
+    status: 'ATIVO' as PolicialStatus,
+    funcaoId: undefined as number | undefined,
+    equipe: undefined as Equipe | undefined,
+  };
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
@@ -42,6 +63,8 @@ export function PoliciaisSection({
   const [form, setForm] = useState(initialForm);
   const [matriculaError, setMatriculaError] = useState<string | null>(null);
   const [funcaoError, setFuncaoError] = useState<string | null>(null);
+  const [cpfError, setCpfError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(null);
   const matriculaTimeoutRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reativarModal, setReativarModal] = useState<{
@@ -209,8 +232,8 @@ export function PoliciaisSection({
     if (file) {
       const fileName = file.name.toLowerCase();
       // Validar se é um arquivo XLSX ou PDF
-      if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.pdf')) {
-        setError('Por favor, selecione um arquivo Excel (.xlsx) ou PDF (.pdf).');
+      if (!fileName.endsWith('.xlsx') && !fileName.endsWith('.xls') && !fileName.endsWith('.pdf')) {
+        setError('Por favor, selecione um arquivo Excel (.xlsx, .xls) ou PDF (.pdf).');
         // Limpar o input
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
@@ -225,10 +248,10 @@ export function PoliciaisSection({
         // Enviar arquivo para o backend
         const response: ProcessFileResponse = await api.uploadFile(file);
         
-        // Preparar dados para validação (adicionar status padrão)
+        // Preparar dados para validação (status vindo do PDF/Excel ou padrão ATIVO)
         const policiaisComStatus = response.policiais.map((policial) => ({
           ...policial,
-          status: 'ATIVO' as PolicialStatus,
+          status: (policial.status ?? 'ATIVO') as PolicialStatus,
           equipe: undefined as Equipe | undefined,
         }));
         
@@ -301,10 +324,19 @@ export function PoliciaisSection({
         equipeFinal = form.equipe || currentUser.equipe || null;
       }
       
-      await api.createPolicial({ 
-        nome, 
-        matricula, 
+      const cpfDigits = cpfToDigits(form.cpf);
+      const cpfEnvio = cpfDigits.length === 11 ? cpfDigits : undefined;
+      const dataNascimentoEnvio = form.dataNascimento.trim() || undefined;
+      const emailEnvio = form.email.trim() || undefined;
+
+      await api.createPolicial({
+        nome,
+        matricula,
         status: form.status,
+        cpf: cpfEnvio ?? null,
+        dataNascimento: dataNascimentoEnvio ?? null,
+        email: emailEnvio ?? null,
+        matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
         funcaoId: form.funcaoId,
         equipe: equipeFinal === null ? null : (equipeFinal || undefined),
       });
@@ -312,6 +344,8 @@ export function PoliciaisSection({
 
       setForm(initialForm);
       setMatriculaError(null);
+      setCpfError(null);
+      setEmailError(null);
       if (matriculaTimeoutRef.current) {
         clearTimeout(matriculaTimeoutRef.current);
         matriculaTimeoutRef.current = null;
@@ -369,12 +403,33 @@ export function PoliciaisSection({
     event.preventDefault();
     setError(null);
     setSuccess(null);
+    setCpfError(null);
+    setEmailError(null);
 
     const nome = form.nome.trim();
     const matricula = form.matricula.trim();
 
     if (!nome || !matricula) {
       setError('Informe nome e matrícula.');
+      return;
+    }
+
+    const cpfDigits = cpfToDigits(form.cpf);
+    if (cpfDigits.length > 0 && cpfDigits.length !== 11) {
+      setCpfError('CPF deve conter 11 dígitos.');
+      setError('CPF deve conter 11 dígitos.');
+      return;
+    }
+    if (cpfDigits.length === 11 && !validarCpf(form.cpf)) {
+      setCpfError('CPF inválido (dígitos verificadores incorretos).');
+      setError('CPF inválido (dígitos verificadores incorretos).');
+      return;
+    }
+
+    const emailTrim = form.email.trim();
+    if (emailTrim && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
+      setEmailError('E-mail inválido.');
+      setError('E-mail inválido.');
       return;
     }
 
@@ -437,10 +492,18 @@ export function PoliciaisSection({
     }
     const equipeFinalLabel = equipeFinal ? formatEquipeLabel(equipeFinal) : '—';
 
+    const cpfExibir = form.cpf ? form.cpf : '—';
+    const dataNascExibir = form.dataNascimento ? new Date(form.dataNascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+    const emailExibir = form.email.trim() || '—';
+
     const message =
       `Confirme os dados do policial:\n\n` +
       `Nome: ${nome}\n` +
       `Matrícula: ${matricula}\n` +
+      (cpfExibir !== '—' ? `CPF: ${cpfExibir}\n` : '') +
+      (dataNascExibir !== '—' ? `Data de nascimento: ${dataNascExibir}\n` : '') +
+      (emailExibir !== '—' ? `E-mail: ${emailExibir}\n` : '') +
+      (form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? `Matrícula Comissionado (GDF): ${form.matriculaComissionadoGdf.trim()}\n` : '') +
       `Status: ${statusLabel}\n` +
       `Função: ${funcaoNome}\n` +
       `Equipe: ${equipeFinalLabel}`;
@@ -598,7 +661,7 @@ export function PoliciaisSection({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".xlsx,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/pdf"
+          accept=".xlsx,.xls,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf"
           onChange={handleFileSelect}
           style={{ display: 'none' }}
         />
@@ -634,196 +697,274 @@ export function PoliciaisSection({
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
-        <div className="grid two-columns">
-          <label>
-            Nome
-            <input
-              autoFocus
+      <Box
+        component="form"
+        onSubmit={handleSubmit}
+        noValidate
+        sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}
+      >
+        <Grid container spacing={3}>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              fullWidth
+              required
+              label="Nome"
               value={form.nome}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  nome: event.target.value.toUpperCase(),
-                }))
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, nome: e.target.value.toUpperCase() }))
               }
               placeholder="2º SGT JOÃO PEREIRA DA SILVA"
-              required
+              autoFocus
             />
-          </label>
-          <label>
-            Matrícula
-            <input
-              value={form.matricula}
-              onChange={(event) => {
-                const value = event.target.value
-                  .replace(/[^0-9xX]/g, '')
-                  .toUpperCase();
-                setForm((prev) => ({
-                  ...prev,
-                  matricula: value,
-                }));
-
-                // Limpar timeout anterior
-                if (matriculaTimeoutRef.current) {
-                  clearTimeout(matriculaTimeoutRef.current);
+            <Box
+              component="label"
+              sx={{
+                display: 'inline-flex',
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'flex-start',
+                marginTop: 1,
+                cursor: 'pointer',
+                gap: 0.5,
+              }}
+            >
+              <Checkbox
+                checked={form.status === 'COMISSIONADO'}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    status: e.target.checked ? 'COMISSIONADO' : 'ATIVO',
+                    ...(e.target.checked ? {} : { matriculaComissionadoGdf: '' }),
+                  }))
                 }
-
-                // Limpar erro imediatamente se o campo estiver vazio
+              />
+              <span>Comissionado</span>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              fullWidth
+              required
+              label="Matrícula"
+              value={form.matricula}
+              onChange={(e) => {
+                const value = e.target.value.replace(/[^0-9xX]/g, '').toUpperCase();
+                setForm((prev) => ({ ...prev, matricula: value }));
+                if (matriculaTimeoutRef.current) clearTimeout(matriculaTimeoutRef.current);
                 if (!value.trim()) {
                   setMatriculaError(null);
                   return;
                 }
-
-                // Validar após 300ms de inatividade (debounce)
-                matriculaTimeoutRef.current = setTimeout(() => {
-                  validateMatricula(value);
-                }, 300);
+                matriculaTimeoutRef.current = setTimeout(() => validateMatricula(value), 300);
               }}
               placeholder="Matrícula"
-              required
-              className={matriculaError ? 'input-error' : ''}
-              aria-invalid={matriculaError ? 'true' : 'false'}
+              error={!!matriculaError}
+              helperText={matriculaError}
             />
-            {matriculaError && (
-              <span className="field-error">{matriculaError}</span>
-            )}
-          </label>
-        </div>
-        <div className="grid two-columns">
-          <label>
-            Função
-            <select
-              value={form.funcaoId || ''}
-              onChange={(event) => {
-                const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
-                const funcaoSelecionada = funcoes.find(f => f.id === novoFuncaoId);
-                
-                // Validar função após seleção
-                if (novoFuncaoId) {
-                  validateFuncao(novoFuncaoId);
-                } else {
-                  setFuncaoError(null);
+            {form.status === 'COMISSIONADO' && (
+              <TextField
+                fullWidth
+                label="Matrícula Comissionado (GDF)"
+                value={form.matriculaComissionadoGdf}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    matriculaComissionadoGdf: e.target.value.replace(/[^0-9xX]/g, '').toUpperCase(),
+                  }))
                 }
-                
-                // Se a função selecionada não permite equipe, limpar o campo de equipe
-                // Se for MOTORISTA DE DIA e a equipe for E, limpar também
-                if (funcaoSelecionada) {
-                  const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-                  const naoMostraEquipe = 
-                    funcaoUpper.includes('EXPEDIENTE ADM') || 
-                    funcaoUpper.includes('CMT UPM') || 
-                    funcaoUpper.includes('SUBCMT UPM');
-                  
-                  const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
-                  
-                  setForm((prev) => ({
-                    ...prev,
-                    funcaoId: novoFuncaoId,
-                    equipe: naoMostraEquipe ? undefined : (isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe),
-                  }));
+                placeholder="Matrícula Comissionado (GDF)"
+                sx={{ mt: 2 }}
+              />
+            )}
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              fullWidth
+              label="CPF"
+              value={form.cpf}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, cpf: maskCpf(e.target.value) }));
+                if (cpfError) setCpfError(null);
+              }}
+              onBlur={() => {
+                const digits = cpfToDigits(form.cpf);
+                if (digits.length === 11 && !validarCpf(form.cpf)) {
+                  setCpfError('CPF inválido (dígitos verificadores incorretos).');
+                } else if (digits.length > 0 && digits.length !== 11) {
+                  setCpfError('CPF deve conter 11 dígitos.');
                 } else {
-                  setForm((prev) => ({
-                    ...prev,
-                    funcaoId: novoFuncaoId,
-                  }));
+                  setCpfError(null);
                 }
               }}
-              className={funcaoError ? 'input-error' : ''}
-              aria-invalid={funcaoError ? 'true' : 'false'}
-            >
-              <option value="">Selecione uma função</option>
-              {funcoesOrdenadas.map((funcao) => (
-                <option key={funcao.id} value={funcao.id}>
-                  {formatNome(funcao.nome)}
-                </option>
-              ))}
-            </select>
-            {funcaoError && (
-              <span className="field-error">{funcaoError}</span>
-            )}
-          </label>
-          <label>
-            Status
-            <select
-              value={form.status}
-              onChange={(event) =>
-                setForm((prev) => ({
-                  ...prev,
-                  status: event.target.value as PolicialStatus,
-                }))
+              placeholder="000.000.000-00"
+              inputProps={{ maxLength: 14 }}
+              error={!!cpfError}
+              helperText={cpfError}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              fullWidth
+              label="Data de nascimento"
+              type="date"
+              value={form.dataNascimento}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, dataNascimento: e.target.value }))
               }
-              required
-            >
-              {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        
-        {/* Campo Equipe - Mostrar apenas se a função selecionada permitir */}
-        {(() => {
-          const funcaoSelecionada = form.funcaoId ? funcoes.find(f => f.id === form.funcaoId) : null;
-          const mostrarEquipe = funcaoSelecionada ? (() => {
-            const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-            return !(
-              funcaoUpper.includes('EXPEDIENTE ADM') || 
-              funcaoUpper.includes('CMT UPM') || 
-              funcaoUpper.includes('SUBCMT UPM')
-            );
-          })() : false;
-          
-          const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') || false;
-          
-          // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E
-          const equipesDisponiveis = (() => {
-            let equipesFiltradas =
-              currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
-                ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
-                : equipesDisponiveisCadastro;
+              InputLabelProps={{ shrink: true }}
+            />
+          </Grid>
 
-            if (isMotoristaDia) {
-              equipesFiltradas = equipesFiltradas.filter((option) => option.nome !== 'E');
-            }
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <TextField
+              fullWidth
+              label="E-mail"
+              type="email"
+              value={form.email}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, email: e.target.value }));
+                if (emailError) setEmailError(null);
+              }}
+              onBlur={() => {
+                const v = form.email.trim();
+                if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+                  setEmailError('E-mail inválido.');
+                } else {
+                  setEmailError(null);
+                }
+              }}
+              placeholder="email@exemplo.com"
+              error={!!emailError}
+              helperText={emailError}
+            />
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }} />
 
-            return equipesFiltradas;
-          })();
-          
-          return mostrarEquipe ? (
-            <div className="grid two-columns">
-              <label>
-                Equipe
-                <select
-                  value={form.equipe || ''}
-                  onChange={(event) =>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormControl fullWidth error={!!funcaoError}>
+              <InputLabel id="form-funcao-label">Função</InputLabel>
+              <Select
+                labelId="form-funcao-label"
+                label="Função"
+                value={form.funcaoId ?? ''}
+                onChange={(e) => {
+                  const novoFuncaoId = e.target.value ? Number(e.target.value) : undefined;
+                  const funcaoSelecionada = funcoes.find((f) => f.id === novoFuncaoId);
+                  if (novoFuncaoId) validateFuncao(novoFuncaoId);
+                  else setFuncaoError(null);
+                  if (funcaoSelecionada) {
+                    const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
+                    const naoMostraEquipe =
+                      funcaoUpper.includes('EXPEDIENTE ADM') ||
+                      funcaoUpper.includes('CMT UPM') ||
+                      funcaoUpper.includes('SUBCMT UPM');
+                    const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
                     setForm((prev) => ({
                       ...prev,
-                      equipe: event.target.value ? (event.target.value as Equipe) : undefined,
-                    }))
+                      funcaoId: novoFuncaoId,
+                      equipe: naoMostraEquipe ? undefined : isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe,
+                    }));
+                  } else {
+                    setForm((prev) => ({ ...prev, funcaoId: novoFuncaoId }));
                   }
-                  required
-                >
-                  <option value="">Selecione uma equipe</option>
-                  {equipesDisponiveis.map((option) => (
-                    <option key={option.id} value={option.nome}>
-                      {formatNome(option.nome)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div></div>
-            </div>
-          ) : null;
-        })()}
-        <div className="form-actions">
-          <button className="primary" type="submit" disabled={submitting}>
+                }}
+              >
+                <MenuItem value="">Selecione uma função</MenuItem>
+                {funcoesOrdenadas.map((funcao) => (
+                  <MenuItem key={funcao.id} value={funcao.id}>
+                    {formatNome(funcao.nome)}
+                  </MenuItem>
+                ))}
+              </Select>
+              {funcaoError && (
+                <Box component="span" sx={{ fontSize: '0.75rem', color: 'error.main', mt: 0.5, display: 'block' }}>
+                  {funcaoError}
+                </Box>
+              )}
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6 }}>
+            <FormControl fullWidth required>
+              <InputLabel id="form-status-label">Status</InputLabel>
+              <Select
+                labelId="form-status-label"
+                label="Status"
+                value={form.status}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    status: e.target.value as PolicialStatus,
+                  }))
+                }
+              >
+                {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+
+          {(() => {
+            const funcaoSelecionada = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : null;
+            const mostrarEquipe = funcaoSelecionada
+              ? !(
+                  funcaoSelecionada.nome.toUpperCase().includes('EXPEDIENTE ADM') ||
+                  funcaoSelecionada.nome.toUpperCase().includes('CMT UPM') ||
+                  funcaoSelecionada.nome.toUpperCase().includes('SUBCMT UPM')
+                )
+              : false;
+            const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') ?? false;
+            const equipesDisponiveis = (() => {
+              let list =
+                currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
+                  ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
+                  : equipesDisponiveisCadastro;
+              if (isMotoristaDia) list = list.filter((option) => option.nome !== 'E');
+              return list;
+            })();
+
+            if (!mostrarEquipe) return null;
+            return (
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth required>
+                  <InputLabel id="form-equipe-label">Equipe</InputLabel>
+                  <Select
+                    labelId="form-equipe-label"
+                    label="Equipe"
+                    value={form.equipe ?? ''}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        equipe: e.target.value ? (e.target.value as Equipe) : undefined,
+                      }))
+                    }
+                  >
+                    <MenuItem value="">Selecione uma equipe</MenuItem>
+                    {equipesDisponiveis.map((option) => (
+                      <MenuItem key={option.id} value={option.nome}>
+                        {formatNome(option.nome)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+            );
+          })()}
+        </Grid>
+
+        <Box sx={{ mt: 2 }}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={submitting}
+          >
             {submitting ? 'Salvando...' : 'Cadastrar policial'}
-          </button>
-        </div>
-      </form>
+          </Button>
+        </Box>
+      </Box>
 
               {/* Modal de Validação de Policiais Extraídos */}
       {validacaoModal.open && (

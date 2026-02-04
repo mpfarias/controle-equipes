@@ -154,6 +154,64 @@ form .grid {
   gap: 12px;
 }
 
+form .grid.two-columns > label,
+form .grid.two-columns > div,
+form .grid.three-columns > label {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+}
+
+form .grid.two-columns label input:not([type="checkbox"]),
+form .grid.two-columns label select,
+form .grid.three-columns label input:not([type="checkbox"]),
+form .grid.three-columns label select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.form-cadastro-policial .grid.two-columns {
+  align-items: start;
+}
+
+.form-cadastro-policial .grid.two-columns > div:empty,
+.form-cadastro-policial .grid.two-columns .form-cell-empty {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.form-cadastro-policial .form-cell-comissionado {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #475569;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+
+.form-cadastro-policial .form-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-cadastro-policial .form-field-label {
+  display: block;
+  font-size: 0.9rem;
+  color: #475569;
+  margin-top: 4px;
+  margin-bottom: 0;
+}
+
+.form-cadastro-policial .form-cell-comissionado input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 form .grid.three-columns {
   grid-template-columns: 1fr;
 }

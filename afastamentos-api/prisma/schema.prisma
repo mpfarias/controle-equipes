@@ -10,6 +10,10 @@ model Policial {
   id                         Int                        @id @default(autoincrement())
   nome                       String
   matricula                  String                     @unique
+  cpf                        String?
+  dataNascimento             DateTime?
+  email                      String?
+  matriculaComissionadoGdf   String?
   equipe                     String?
   statusId                   Int
   status                     StatusPolicial             @relation(fields: [statusId], references: [id])
