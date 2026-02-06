@@ -7,7 +7,6 @@ import type {
   CreateRestricaoAfastamentoInput 
 } from '../../types';
 import { formatDate, formatNome } from '../../utils/dateUtils';
-import { handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';

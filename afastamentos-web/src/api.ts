@@ -76,10 +76,6 @@ async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  // Debug: log para verificar requisições
-  if (path.includes('/policiais') && path.includes('equipe')) {
-    console.log('API Request:', path, options);
-  }
   const headers = new Headers(options.headers ?? {});
   if (!(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
@@ -583,6 +579,9 @@ export const api = {
     funcaoId?: number;
     orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     orderDir?: 'asc' | 'desc';
+    /** Filtro previsão de férias: só retorna policiais com férias programadas neste mês/ano */
+    mesPrevisaoFerias?: number;
+    anoPrevisaoFerias?: number;
   }): Promise<{
     Policiales: Policial[];
     total: number;
@@ -606,6 +605,8 @@ export const api = {
     if (params.funcaoId) searchParams.append('funcaoId', String(params.funcaoId));
     if (params.orderBy) searchParams.append('orderBy', params.orderBy);
     if (params.orderDir) searchParams.append('orderDir', params.orderDir);
+    if (params.mesPrevisaoFerias != null) searchParams.append('mesPrevisaoFerias', String(params.mesPrevisaoFerias));
+    if (params.anoPrevisaoFerias != null) searchParams.append('anoPrevisaoFerias', String(params.anoPrevisaoFerias));
     const query = searchParams.toString();
     const path = `/policiais?${query}`;
     const cacheKey = `GET:${path}`;
@@ -618,7 +619,6 @@ export const api = {
       totalPages: number;
     }>(cacheKey);
     if (cached) {
-      console.log('Cache hit para:', cacheKey, cached);
       return cached;
     }
     const data = await request<{
@@ -629,13 +629,28 @@ export const api = {
       pageSize: number;
       totalPages: number;
     }>(path);
-    console.log('Dados recebidos do servidor para:', cacheKey, data);
     setCached(cacheKey, data);
     return data;
   },
 
   async getPolicial(id: number): Promise<Policial> {
     return request(`/policiais/${id}`);
+  },
+
+  /** Policiais com férias programadas (mês atual/próximo) que ainda não têm afastamento de Férias cadastrado. */
+  async getPoliciaisComFeriasProgramadasSemAfastamento(equipe?: string): Promise<Policial[]> {
+    const params = new URLSearchParams();
+    if (equipe) params.append('equipe', equipe);
+    const query = params.toString();
+    return request<Policial[]>(`/policiais/ferias-programadas-sem-afastamento${query ? `?${query}` : ''}`);
+  },
+
+  /** Policiais com férias programadas em meses anteriores (atrasadas) que ainda não têm afastamento de Férias cadastrado. */
+  async getPoliciaisComFeriasAtrasadasSemAfastamento(equipe?: string): Promise<Policial[]> {
+    const params = new URLSearchParams();
+    if (equipe) params.append('equipe', equipe);
+    const query = params.toString();
+    return request<Policial[]>(`/policiais/ferias-programadas-atrasadas-sem-afastamento${query ? `?${query}` : ''}`);
   },
 
   async createPolicial(payload: CreatePolicialInput): Promise<Policial> {

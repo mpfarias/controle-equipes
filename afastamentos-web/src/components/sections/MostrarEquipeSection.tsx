@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario, EquipeOption } from '../../types';
-import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, STATUS_LABEL, formatEquipeLabel } from '../../constants';
+import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, STATUS_LABEL, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent } from '@mui/material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
 import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -29,7 +29,7 @@ export function MostrarEquipeSection({
   permissoes,
 }: MostrarEquipeSectionProps) {
   const [policiais, setPoliciais] = useState<Policial[]>([]);
-  const [totalPoliciaisGeral, setTotalPoliciaisGeral] = useState<number>(0);
+  const [, setTotalPoliciaisGeral] = useState<number>(0);
   const [totalPoliciaisDisponiveis, setTotalPoliciaisDisponiveis] = useState<number>(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -103,6 +103,7 @@ export function MostrarEquipeSection({
     nome: '',
     matricula: '',
     status: 'ATIVO' as PolicialStatus,
+    matriculaComissionadoGdf: '' as string,
     equipe: undefined as Equipe | undefined,
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
@@ -248,12 +249,6 @@ export function MostrarEquipeSection({
         const dataFolga3Str = `${dataFolga3.getFullYear()}-${String(dataFolga3.getMonth() + 1).padStart(2, '0')}-${String(dataFolga3.getDate()).padStart(2, '0')}`;
         
         if (dataSelecionadaStr === dataFolga2Str || dataSelecionadaStr === dataFolga3Str) {
-          console.log(`Equipe ${equipe} está na folga na data ${dataSelecionadaStr}:`, {
-            dataSaida: `${dataSaida.getDate()}/${dataSaida.getMonth() + 1}/${dataSaida.getFullYear()}`,
-            folga2: dataFolga2Str,
-            folga3: dataFolga3Str,
-            dataSelecionada: dataSelecionadaStr
-          });
           return true;
         }
       }
@@ -360,31 +355,6 @@ export function MostrarEquipeSection({
 
       setEfetivoDisponivel(efetivoFiltrado);
       setModalEfetivoOpen(true);
-      
-      // Log para debug - verificar todas as equipes
-      const todasEquipes = ['A', 'B', 'C', 'D', 'E'] as Equipe[];
-      const equipesNaFolga = todasEquipes.map(eq => ({
-        equipe: eq,
-        estaNaFolga: equipeEstaNaSegundaOuTerceiraFolga(eq, dataSelecionada)
-      }));
-      
-      const policiaisExpediente = todosPoliciais.filter(p => p.funcaoId === funcaoExpedienteId);
-      const policiaisComEquipe = todosPoliciais.filter(p => !!p.equipe); // Verifica se tem equipe (não null/undefined)
-      const policiaisComEquipeNaFolga = policiaisComEquipe.filter(p => 
-        equipeEstaNaSegundaOuTerceiraFolga(p.equipe!, dataSelecionada)
-      );
-      
-      console.log('Efetivo filtrado:', {
-        dataSelecionada: dataSelecionadaStr,
-        totalPoliciais: todosPoliciais.length,
-        totalExpediente: policiaisExpediente.length,
-        totalComEquipe: policiaisComEquipe.length,
-        comEquipeNaFolga: policiaisComEquipeNaFolga.length,
-        equipesNaFolga,
-        totalFiltrado: efetivoFiltrado.length,
-        expediente: efetivoFiltrado.filter(p => p.funcaoId === funcaoExpedienteId).length,
-        equipes: efetivoFiltrado.filter(p => !!p.equipe).length // Verifica se tem equipe (não null/undefined)
-      });
       
       setSuccess(`Efetivo disponível gerado: ${efetivoFiltrado.length} policiais encontrados.`);
     } catch (error) {
@@ -641,9 +611,9 @@ export function MostrarEquipeSection({
     }
   }, []);
 
-  // Ordenar funções alfabeticamente
+  // Ordenar funções alfabeticamente (exclui "NÃO INFORMADO")
   const funcoesAtivas = useMemo(() => {
-    return funcoes.filter((f) => f.ativo !== false);
+    return funcoesParaSelecao(funcoes).filter((f) => f.ativo !== false);
   }, [funcoes]);
 
   const funcoesOrdenadas = useMemo(() => {
@@ -693,6 +663,7 @@ export function MostrarEquipeSection({
       nome: policial.nome,
       matricula: policial.matricula,
       status: policial.status,
+      matriculaComissionadoGdf: policial.matriculaComissionadoGdf ?? '',
       equipe: policial.equipe ?? undefined,
       funcaoId: funcaoId,
       fotoUrl: policial.fotoUrl ?? null,
@@ -758,6 +729,10 @@ export function MostrarEquipeSection({
       setEditError('Informe nome e matrícula.');
       return;
     }
+    if (!editForm.funcaoId) {
+      setEditError('Selecione uma função.');
+      return;
+    }
 
     // Validar se MOTORISTA DE DIA não tem equipe E
     let equipeFinal: string | undefined | null = editForm.equipe;
@@ -775,10 +750,16 @@ export function MostrarEquipeSection({
       }
     }
 
+    const matriculaComissionadoGdf =
+      editForm.status === 'COMISSIONADO'
+        ? (editForm.matriculaComissionadoGdf?.trim() || null)
+        : null;
+
     const payload = {
       nome,
       matricula,
       status: editForm.status,
+      matriculaComissionadoGdf,
       equipe: equipeFinal,
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl,
@@ -1161,6 +1142,11 @@ export function MostrarEquipeSection({
     }
   }, [paginaAtual, paginacaoNoServidor, totalPaginas, totalPaginasFiltrado]);
 
+  // Ao mudar de página, rolar para o topo para o usuário ver o primeiro registro
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [paginaAtual]);
+
   // Calcular totais de dias por tipo de afastamento para a modal de visualização
   const resumoDiasPorTipo = useMemo(() => {
     const totais: Record<string, number> = {};
@@ -1256,7 +1242,9 @@ export function MostrarEquipeSection({
     const head = [['Policial', 'Matrícula', 'Status', 'Função', 'Equipe']];
     const body = listaPdf.map((p) => [
       p.nome,
-      p.matricula,
+      p.status === 'COMISSIONADO' && (p.matriculaComissionadoGdf ?? '').trim()
+        ? p.matriculaComissionadoGdf!.trim()
+        : p.matricula,
       POLICIAL_STATUS_OPTIONS.find((o) => o.value === p.status)?.label ?? p.status,
       p.funcao?.nome ? formatNome(p.funcao.nome) : '—',
       formatEquipeLabel(p.equipe) === '—' ? '—' : (p.equipe ?? '—'),
@@ -1751,7 +1739,11 @@ export function MostrarEquipeSection({
                     </span>
                   </a>
                 </td>
-                <td>{policial.matricula}</td>
+                <td>
+                  {policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim()
+                    ? policial.matriculaComissionadoGdf!.trim()
+                    : policial.matricula}
+                </td>
                 <td>
                   <span className={getPolicialStatusClass(policial.status)}>
                     {
@@ -2100,10 +2092,27 @@ export function MostrarEquipeSection({
                   </select>
                 </label>
               </div>
+              {editForm.status === 'COMISSIONADO' && (
+                <label>
+                  Matrícula Comissionado
+                  <input
+                    value={editForm.matriculaComissionadoGdf}
+                    onChange={(event) =>
+                      setEditForm((prev) => ({
+                        ...prev,
+                        matriculaComissionadoGdf: event.target.value
+                          .replace(/[^0-9xX]/g, '')
+                          .toUpperCase(),
+                      }))
+                    }
+                  />
+                </label>
+              )}
               <label>
                 Função
                 <select
                   value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
+                  required
                   onChange={(event) => {
                     const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
                     const funcaoSelecionada = novoFuncaoId ? funcoes.find(f => f.id === novoFuncaoId) : null;
@@ -2332,7 +2341,9 @@ export function MostrarEquipeSection({
                           Matrícula
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5 }}>
-                          {viewingPolicial.matricula}
+                          {viewingPolicial.status === 'COMISSIONADO' && (viewingPolicial.matriculaComissionadoGdf ?? '').trim()
+                            ? viewingPolicial.matriculaComissionadoGdf!.trim()
+                            : viewingPolicial.matricula}
                         </Typography>
                       </Box>
 
@@ -3123,15 +3134,24 @@ export function MostrarEquipeSection({
                       marginTop: 1,
                     },
                     '& .print-list': {
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(2, 1fr)',
-                      gap: 1,
+                      display: 'block',
                     },
-                    '& .print-item': {
-                      padding: 1.5,
-                      border: '1px solid #e0e0e0',
-                      borderRadius: 1,
-                      breakInside: 'avoid',
+                    '& .print-table': {
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                    },
+                    '& .print-table th, & .print-table td': {
+                      border: '1px solid #ddd',
+                      padding: '8px 12px',
+                      textAlign: 'left',
+                      fontSize: '0.875rem',
+                    },
+                    '& .print-table th': {
+                      backgroundColor: '#f5f5f5',
+                      fontWeight: 600,
+                    },
+                    '& .print-table tr:nth-of-type(even)': {
+                      backgroundColor: '#fafafa',
                     },
                   },
                 }}
@@ -3164,7 +3184,7 @@ export function MostrarEquipeSection({
                               secondary={
                                 <Box component="span" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
                                   <Typography variant="caption" component="span" color="text.secondary">
-                                    Matrícula: {policial.matricula}
+                                    Matrícula: {policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim() ? policial.matriculaComissionadoGdf!.trim() : policial.matricula}
                                   </Typography>
                                   {formatEquipeLabel(policial.equipe) !== '—' && (
                                     <Chip
@@ -3191,38 +3211,36 @@ export function MostrarEquipeSection({
                       </List>
                     </Box>
 
-                    {/* Versão para impressão */}
-                    <Box className="print-list" sx={{ display: 'none', '@media print': { display: 'grid' } }}>
-                      {efetivoDisponivel.map((policial, index) => (
-                        <Paper
-                          key={policial.id}
-                          className="print-item"
-                          elevation={0}
-                          sx={{
-                            padding: 2,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: 0.5,
-                          }}
-                        >
-                          <Typography variant="h6" sx={{ fontWeight: 600, fontSize: '1rem' }}>
-                            {index + 1}. {policial.nome}
-                          </Typography>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                              <strong>Matrícula:</strong> {policial.matricula}
-                            </Typography>
-                            <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                              <strong>Equipe:</strong> {formatEquipeLabel(policial.equipe)}
-                            </Typography>
-                            {policial.funcao && (
-                              <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                                <strong>Função:</strong> {formatNome(policial.funcao.nome)}
-                              </Typography>
-                            )}
-                          </Box>
-                        </Paper>
-                      ))}
+                    {/* Versão para impressão: lista em tabela */}
+                    <Box className="print-list" sx={{ display: 'none', '@media print': { display: 'block' } }}>
+                      <TableContainer component={Paper} elevation={0} sx={{ '@media print': { boxShadow: 'none' } }}>
+                        <Table className="print-table" size="small" sx={{ minWidth: 500 }}>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell component="th" sx={{ width: 48 }}>#</TableCell>
+                              <TableCell component="th">Nome</TableCell>
+                              <TableCell component="th">Matrícula</TableCell>
+                              <TableCell component="th">Equipe</TableCell>
+                              <TableCell component="th">Função</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {efetivoDisponivel.map((policial, index) => (
+                              <TableRow key={policial.id}>
+                                <TableCell>{index + 1}</TableCell>
+                                <TableCell>{(policial.nome ?? '').toUpperCase()}</TableCell>
+                                <TableCell>
+                                  {policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim()
+                                    ? policial.matriculaComissionadoGdf!.trim()
+                                    : policial.matricula}
+                                </TableCell>
+                                <TableCell>{formatEquipeLabel(policial.equipe)}</TableCell>
+                                <TableCell>{policial.funcao ? formatNome(policial.funcao.nome) : '—'}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
                     </Box>
                   </>
                 ) : (

@@ -483,65 +483,65 @@ export class ArquivoProcessorService {
       policiaisExistentes.map(p => p.matricula.toUpperCase())
     );
     
-    // Filtrar policiais que já existem no banco
     const policiaisNovos = policiais.filter(
       policial => !matriculasExistentes.has(policial.matricula.toUpperCase())
     );
     
-    // Buscar todas as funções existentes
     const funcoesExistentes = await this.prisma.funcao.findMany({
       select: { id: true, nome: true },
     });
-    
     const mapaFuncoes = new Map<string, number>();
-    funcoesExistentes.forEach(f => {
-      mapaFuncoes.set(f.nome.toUpperCase(), f.id);
-    });
+    funcoesExistentes.forEach(f => mapaFuncoes.set(f.nome.toUpperCase(), f.id));
     
-    // Processar cada policial
+    const mapaNovos = new Map<string, PolicialExtraido>();
+    const NAO_INFORMADO_UPPER = 'NÃO INFORMADO';
     for (const policial of policiaisNovos) {
       const funcaoNomeUpper = policial.funcaoNome.toUpperCase();
-      
-      // Tentar encontrar função existente (busca exata)
-      let funcaoId = mapaFuncoes.get(funcaoNomeUpper);
-      
-      // Se não encontrou, criar nova função
-      if (!funcaoId) {
+      let funcaoId: number | undefined = mapaFuncoes.get(funcaoNomeUpper);
+      // Não criar nem usar a função "NÃO INFORMADO" — o usuário deve escolher uma função na modal
+      if (!funcaoId && funcaoNomeUpper !== NAO_INFORMADO_UPPER) {
         try {
           const novaFuncao = await this.prisma.funcao.create({
-            data: {
-              nome: policial.funcaoNome,
-              descricao: null,
-            },
+            data: { nome: policial.funcaoNome, descricao: null },
           });
-          
           funcaoId = novaFuncao.id;
           mapaFuncoes.set(funcaoNomeUpper, funcaoId);
-          
-          if (!funcoesCriadas.includes(policial.funcaoNome)) {
-            funcoesCriadas.push(policial.funcaoNome);
-          }
-        } catch (error) {
-          // Se der erro (pode ser duplicado por concorrência), tentar buscar novamente
+          if (!funcoesCriadas.includes(policial.funcaoNome)) funcoesCriadas.push(policial.funcaoNome);
+        } catch {
           const funcaoExistente = await this.prisma.funcao.findUnique({
             where: { nome: policial.funcaoNome },
             select: { id: true },
           });
-          
           if (funcaoExistente) {
             funcaoId = funcaoExistente.id;
             mapaFuncoes.set(funcaoNomeUpper, funcaoId);
           }
         }
       }
-      
-      policiaisComFuncaoId.push({
+      mapaNovos.set(policial.matricula.toUpperCase(), {
         matricula: policial.matricula,
         nome: policial.nome,
-        funcaoNome: policial.funcaoNome,
-        funcaoId,
+        funcaoNome: funcaoNomeUpper === NAO_INFORMADO_UPPER ? 'A definir' : policial.funcaoNome,
+        ...(funcaoId != null && { funcaoId }),
         ...(policial.status != null && { status: policial.status }),
+        jaCadastrado: false,
       });
+    }
+    
+    for (const policial of policiais) {
+      const key = policial.matricula.toUpperCase();
+      if (matriculasExistentes.has(key)) {
+        policiaisComFuncaoId.push({
+          matricula: policial.matricula,
+          nome: policial.nome,
+          funcaoNome: policial.funcaoNome,
+          ...(policial.status != null && { status: policial.status }),
+          jaCadastrado: true,
+        });
+      } else {
+        const entry = mapaNovos.get(key);
+        if (entry) policiaisComFuncaoId.push(entry);
+      }
     }
     
     return {

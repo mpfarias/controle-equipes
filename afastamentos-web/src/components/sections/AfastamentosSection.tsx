@@ -12,7 +12,7 @@ import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../uti
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { Autocomplete, TextField, Button, Checkbox, Box, Typography, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Paper, Chip, Tooltip } from '@mui/material';
+import { Alert, Autocomplete, TextField, Button, Checkbox, Box, Typography, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Paper, Chip, Tooltip, FormControl, InputLabel, Select, MenuItem, List, ListItem, ListItemText } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
 import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
@@ -31,6 +31,9 @@ interface AfastamentosSectionProps {
   openConfirm: (config: ConfirmConfig) => void;
   onChanged?: () => void;
   permissoes?: PermissoesPorTela | null;
+  /** Preencher formulário ao montar (ex.: policial + motivo Férias vindo do alerta do dashboard). Consumida ao ser aplicada. */
+  initialCadastro?: { policialId: number; motivoNome: string } | null;
+  onPreencherCadastroConsumed?: () => void;
 }
 
 export function AfastamentosSection({
@@ -38,6 +41,8 @@ export function AfastamentosSection({
   openConfirm,
   onChanged,
   permissoes,
+  initialCadastro,
+  onPreencherCadastroConsumed,
 }: AfastamentosSectionProps) {
   const initialForm = {
     policialId: '',
@@ -77,7 +82,21 @@ export function AfastamentosSection({
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
   const [dataFimFocada, setDataFimFocada] = useState(false);
-  
+
+  // Preencher formulário de cadastro quando vier initialCadastro (ex.: "Marcar férias agora" no modal do dashboard)
+  useEffect(() => {
+    if (!initialCadastro || motivos.length === 0) return;
+    const motivoFerias = motivos.find((m) => m.nome?.toLowerCase() === 'férias');
+    if (!motivoFerias) return;
+    setTabAtiva(0);
+    setForm((prev) => ({
+      ...prev,
+      policialId: String(initialCadastro.policialId),
+      motivoId: motivoFerias.id,
+    }));
+    onPreencherCadastroConsumed?.();
+  }, [initialCadastro, motivos, onPreencherCadastroConsumed]);
+
   // Estados para paginação na aba "Previsão de férias"
   const [paginaAtualPrevisao, setPaginaAtualPrevisao] = useState(1);
   const [itensPorPaginaPrevisao, setItensPorPaginaPrevisao] = useState(20);
@@ -86,6 +105,7 @@ export function AfastamentosSection({
   const [policiaisPrevisao, setPoliciaisPrevisao] = useState<Policial[]>([]);
   const [loadingPrevisao, setLoadingPrevisao] = useState(false);
   const [searchTermPrevisao, setSearchTermPrevisao] = useState('');
+  const [mesFiltroPrevisao, setMesFiltroPrevisao] = useState<number | ''>('');
   const [modalPolicialOpen, setModalPolicialOpen] = useState(false);
   const [policialSelecionado, setPolicialSelecionado] = useState<Policial | null>(null);
   const [modalMesPrevisaoOpen, setModalMesPrevisaoOpen] = useState(false);
@@ -93,6 +113,18 @@ export function AfastamentosSection({
   const [mesSelecionado, setMesSelecionado] = useState<string>('');
   const [salvandoMesPrevisao, setSalvandoMesPrevisao] = useState(false);
   const [documentoSei, setDocumentoSei] = useState<string>('');
+  // Excesso 1/12: efetivo total, limite por mês, totais por mês e meses em excesso
+  const [excessoDados, setExcessoDados] = useState<{
+    efetivoTotal: number;
+    limitePorMes: number;
+    porMes: { mes: number; nome: string; total: number }[];
+    mesesEmExcesso: { mes: number; nome: string; total: number }[];
+  } | null>(null);
+  const [loadingExcesso, setLoadingExcesso] = useState(false);
+  const [modalExcessoMesOpen, setModalExcessoMesOpen] = useState(false);
+  const [excessoMesSelecionado, setExcessoMesSelecionado] = useState<{ mes: number; nome: string } | null>(null);
+  const [policiaisExcessoMes, setPoliciaisExcessoMes] = useState<Policial[]>([]);
+  const [loadingPoliciaisExcesso, setLoadingPoliciaisExcesso] = useState(false);
 
   const [editAfastamentoModal, setEditAfastamentoModal] = useState<{
     open: boolean;
@@ -240,7 +272,10 @@ export function AfastamentosSection({
       if (busca) {
         params.search = busca;
       }
-      
+      if (mesFiltroPrevisao !== '' && mesFiltroPrevisao >= 1 && mesFiltroPrevisao <= 12) {
+        params.mesPrevisaoFerias = mesFiltroPrevisao;
+        params.anoPrevisaoFerias = new Date().getFullYear();
+      }
       if (!usuarioPodeVerTodos && currentUser.equipe) {
         params.equipe = currentUser.equipe;
       }
@@ -258,13 +293,115 @@ export function AfastamentosSection({
     } finally {
       setLoadingPrevisao(false);
     }
-  }, [currentUser, searchTermPrevisao]);
+  }, [currentUser, searchTermPrevisao, mesFiltroPrevisao]);
 
   useEffect(() => {
     if (tabAtiva === 1) {
       void carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
     }
   }, [tabAtiva, paginaAtualPrevisao, itensPorPaginaPrevisao, carregarPoliciaisPrevisao]);
+
+  // Carregar dados para "Excesso de policiais" (1/12 do efetivo) quando estiver na aba Previsão de férias
+  useEffect(() => {
+    if (tabAtiva !== 1) return;
+    const nivelNome = currentUser.nivel?.nome;
+    const usuarioPodeVerTodos =
+      nivelNome === 'ADMINISTRADOR' ||
+      nivelNome === 'SAD' ||
+      nivelNome === 'COMANDO' ||
+      currentUser.isAdmin === true;
+    const equipeParam = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+    const anoAtual = new Date().getFullYear();
+    const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+    const carregarExcesso = async () => {
+      setLoadingExcesso(true);
+      try {
+        const baseParams = { page: 1, pageSize: 1, includeAfastamentos: false, includeRestricoes: false };
+        if (equipeParam) (baseParams as { equipe?: string }).equipe = equipeParam;
+        const resEfetivo = await api.listPoliciaisPaginated(baseParams);
+        const efetivoTotal = resEfetivo.totalDisponiveis ?? resEfetivo.total ?? 0;
+        const limitePorMes = Math.ceil(efetivoTotal / 12);
+
+        const porMes: { mes: number; nome: string; total: number }[] = [];
+        await Promise.all(
+          [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(async (mes) => {
+            const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+              page: 1,
+              pageSize: 1,
+              includeAfastamentos: false,
+              includeRestricoes: false,
+              mesPrevisaoFerias: mes,
+              anoPrevisaoFerias: anoAtual,
+            };
+            if (equipeParam) params.equipe = equipeParam;
+            const res = await api.listPoliciaisPaginated(params);
+            porMes.push({ mes, nome: nomesMeses[mes - 1], total: res.total });
+          })
+        );
+        porMes.sort((a, b) => a.mes - b.mes);
+        const mesesEmExcesso = porMes.filter((m) => m.total > limitePorMes);
+        setExcessoDados({ efetivoTotal, limitePorMes, porMes, mesesEmExcesso });
+      } catch (err) {
+        console.error('Erro ao carregar dados de excesso 1/12:', err);
+        setExcessoDados(null);
+      } finally {
+        setLoadingExcesso(false);
+      }
+    };
+    void carregarExcesso();
+  }, [tabAtiva, currentUser]);
+
+  const abrirModalExcessoMes = useCallback(
+    async (mes: number, nome: string) => {
+      setExcessoMesSelecionado({ mes, nome });
+      setModalExcessoMesOpen(true);
+      setPoliciaisExcessoMes([]);
+      setLoadingPoliciaisExcesso(true);
+      try {
+        const nivelNome = currentUser.nivel?.nome;
+        const usuarioPodeVerTodos =
+          nivelNome === 'ADMINISTRADOR' ||
+          nivelNome === 'SAD' ||
+          nivelNome === 'COMANDO' ||
+          currentUser.isAdmin === true;
+        const equipeParam = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+        const anoAtual = new Date().getFullYear();
+        const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+          page: 1,
+          pageSize: 500,
+          includeAfastamentos: false,
+          includeRestricoes: false,
+          mesPrevisaoFerias: mes,
+          anoPrevisaoFerias: anoAtual,
+        };
+        if (equipeParam) params.equipe = equipeParam;
+        const res = await api.listPoliciaisPaginated(params);
+        setPoliciaisExcessoMes(res.Policiales ?? []);
+      } catch (err) {
+        console.error('Erro ao carregar policiais do mês:', err);
+      } finally {
+        setLoadingPoliciaisExcesso(false);
+      }
+    },
+    [currentUser]
+  );
+
+  const mesesPrevisao = [
+    { valor: '' as const, nome: 'Todos os meses' },
+    { valor: 1, nome: 'Janeiro' },
+    { valor: 2, nome: 'Fevereiro' },
+    { valor: 3, nome: 'Março' },
+    { valor: 4, nome: 'Abril' },
+    { valor: 5, nome: 'Maio' },
+    { valor: 6, nome: 'Junho' },
+    { valor: 7, nome: 'Julho' },
+    { valor: 8, nome: 'Agosto' },
+    { valor: 9, nome: 'Setembro' },
+    { valor: 10, nome: 'Outubro' },
+    { valor: 11, nome: 'Novembro' },
+    { valor: 12, nome: 'Dezembro' },
+  ];
 
   useEffect(() => {
     if (tabAtiva === 1) {
@@ -455,18 +592,9 @@ export function AfastamentosSection({
         dataFim: dataFimFinal || undefined,
       });
       setSuccess('Afastamento cadastrado com sucesso.');
-      
-      // Resetar form mantendo motivoId padrão
-      const feriasMotivo = motivos.find((m) => m.nome === 'Férias');
-      const motivoIdPadrao = feriasMotivo?.id || 0;
-      setForm({
-        policialId: '',
-        motivoId: motivoIdPadrao,
-        seiNumero: '',
-        descricao: '',
-        dataInicio: '',
-        dataFim: '',
-      });
+      setForm(initialForm);
+      setCalcularPeriodo(false);
+      setQuantidadeDias('');
       setMotivoOutroTexto('');
       
       await carregarDados();
@@ -798,7 +926,7 @@ export function AfastamentosSection({
 
   const handleSubmitEditAfastamento = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { afastamento, motivoId, seiNumero, descricao, dataInicio, dataFim, calcularPeriodo, quantidadeDias } = editAfastamentoModal;
+    const { afastamento, motivoId, seiNumero, descricao, dataInicio, dataFim, calcularPeriodo } = editAfastamentoModal;
     if (!afastamento) return;
     if (!motivoId || !seiNumero.trim()) {
       setEditAfastamentoModal((prev) => ({
@@ -1651,43 +1779,105 @@ export function AfastamentosSection({
 
       {tabAtiva === 1 && (
         <Box sx={{ p: 3 }}>
+          {/* Excesso de policiais (1/12 do efetivo) */}
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
+            Excesso de policiais
+          </Typography>
+          {loadingExcesso ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Carregando...
+            </Typography>
+          ) : excessoDados && excessoDados.mesesEmExcesso.length > 0 ? (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 3 }}>
+              {excessoDados.mesesEmExcesso.map((m) => (
+                <Alert
+                  key={m.mes}
+                  severity="warning"
+                  onClick={() => abrirModalExcessoMes(m.mes, m.nome)}
+                  sx={{
+                    cursor: 'pointer',
+                    flex: '1 1 auto',
+                    minWidth: 200,
+                    '&:hover': { opacity: 0.9 },
+                  }}
+                >
+                  <strong>{m.nome}</strong>: {m.total} policiais com férias programadas (limite 1/12: {excessoDados.limitePorMes})
+                </Alert>
+              ))}
+            </Box>
+          ) : excessoDados ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Nenhum mês com excesso. Limite por mês: {excessoDados.limitePorMes} (1/12 do efetivo total de {excessoDados.efetivoTotal}).
+            </Typography>
+          ) : null}
+
           <Typography variant="h6" sx={{ mb: 3 }}>
             Previsão de férias {new Date().getFullYear()}
           </Typography>
 
           {/* Controles de lista */}
-          <div className="list-controls" style={{ marginBottom: '16px' }}>
-            <input
-              className="search-input"
-              value={searchTermPrevisao}
-              onChange={(event) => setSearchTermPrevisao(event.target.value.toUpperCase())}
+          <Box
+            sx={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 2,
+              mb: 2,
+            }}
+          >
+            <TextField
+              size="small"
               placeholder="Pesquisar por nome ou matrícula"
+              value={searchTermPrevisao}
+              onChange={(e) => setSearchTermPrevisao(e.target.value.toUpperCase())}
+              sx={{ minWidth: 220 }}
             />
-            <button
-              className="ghost"
-              type="button"
-              onClick={() => void carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao)}
-            >
-              Atualizar lista
-            </button>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-              <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Itens por página:</span>
-              <select
-                value={itensPorPaginaPrevisao}
-                onChange={(event) => {
-                  setItensPorPaginaPrevisao(Number(event.target.value));
+            <FormControl size="small" sx={{ minWidth: 140 }}>
+              <InputLabel id="previsao-mes-label">Mês</InputLabel>
+              <Select
+                labelId="previsao-mes-label"
+                label="Mês"
+                value={mesFiltroPrevisao === '' ? '' : mesFiltroPrevisao}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setMesFiltroPrevisao(v === '' ? '' : Number(v));
                   setPaginaAtualPrevisao(1);
                 }}
-                style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
               >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={30}>30</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </label>
-          </div>
+                {mesesPrevisao.map((m) => (
+                  <MenuItem key={m.valor === '' ? 'todos' : m.valor} value={m.valor === '' ? '' : m.valor}>
+                    {m.nome}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="outlined"
+              size="medium"
+              onClick={() => void carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao)}
+              sx={{ ml: 'auto' }}
+            >
+              Atualizar lista
+            </Button>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel id="previsao-itens-label">Itens por página</InputLabel>
+              <Select
+                labelId="previsao-itens-label"
+                label="Itens por página"
+                value={itensPorPaginaPrevisao}
+                onChange={(e) => {
+                  setItensPorPaginaPrevisao(Number(e.target.value));
+                  setPaginaAtualPrevisao(1);
+                }}
+              >
+                <MenuItem value={10}>10</MenuItem>
+                <MenuItem value={20}>20</MenuItem>
+                <MenuItem value={30}>30</MenuItem>
+                <MenuItem value={50}>50</MenuItem>
+                <MenuItem value={100}>100</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
 
           {/* Contador de Registros */}
           <div style={{ 
@@ -1931,6 +2121,45 @@ export function AfastamentosSection({
               })()}
             </>
           )}
+
+          {/* Modal: lista de policiais do mês em excesso */}
+          <Dialog
+            open={modalExcessoMesOpen}
+            onClose={() => setModalExcessoMesOpen(false)}
+            maxWidth="sm"
+            fullWidth
+          >
+            <DialogTitle>
+              Policiais com férias programadas em {excessoMesSelecionado?.nome ?? ''}
+            </DialogTitle>
+            <DialogContent>
+              {loadingPoliciaisExcesso ? (
+                <Typography variant="body2" color="text.secondary">
+                  Carregando...
+                </Typography>
+              ) : policiaisExcessoMes.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  Nenhum policial encontrado.
+                </Typography>
+              ) : (
+                <List dense>
+                  {policiaisExcessoMes.map((p) => (
+                    <ListItem key={p.id}>
+                      <ListItemText
+                        primary={(p.nome ?? '').toUpperCase()}
+                        secondary={p.matricula}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setModalExcessoMesOpen(false)} variant="outlined">
+                Fechar
+              </Button>
+            </DialogActions>
+          </Dialog>
         </Box>
       )}
 

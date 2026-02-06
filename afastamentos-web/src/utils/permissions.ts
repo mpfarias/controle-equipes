@@ -1,11 +1,10 @@
 import type { PermissaoAcao } from '../types';
 import type { TabKey } from '../constants';
 
-export interface PermissoesPorTela {
-  [key: TabKey]: {
-    [key in PermissaoAcao]: boolean;
-  };
-}
+export type PermissoesPorTela = Record<
+  TabKey,
+  Partial<Record<PermissaoAcao, boolean>>
+>;
 
 /**
  * Verifica se o usuário tem uma permissão específica para uma tela

@@ -425,7 +425,7 @@ export class PoliciaisService {
         matriculaComissionadoGdf: data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null,
         status: { connect: { id: statusId } },
         equipe,
-        funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
+        funcao: { connect: { id: data.funcaoId } },
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
         updatedById: actor?.id ?? null,
@@ -456,6 +456,9 @@ export class PoliciaisService {
     funcaoId?: number;
     orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     orderDir?: 'asc' | 'desc';
+    /** Filtro para previsão de férias: só retorna policiais com férias programadas neste mês/ano */
+    mesPrevisaoFerias?: number;
+    anoPrevisaoFerias?: number;
   }): Promise<
     | PolicialResponse[]
     | {
@@ -478,6 +481,8 @@ export class PoliciaisService {
       funcaoId,
       orderBy,
       orderDir,
+      mesPrevisaoFerias,
+      anoPrevisaoFerias,
     } = options || {};
     const anoAtual = new Date().getFullYear();
     const include: {
@@ -524,14 +529,20 @@ export class PoliciaisService {
           : ({ [orderBy]: dir } as Prisma.PolicialOrderByWithRelationInput)
       : { nome: 'asc' };
 
-    // Se nÃ£o fornecer paginaÃ§Ã£o, retornar todos (incluindo desativados)
+    // Se não fornecer paginação, retornar todos (incluindo desativados)
     if (page === undefined && pageSize === undefined) {
       const policiais = await this.prisma.policial.findMany({
         where,
         orderBy: orderByClause,
         include,
       });
-      return policiais.map((policial) => this.mapFeriasPrevisao(policial));
+      let result = policiais.map((policial) => this.mapFeriasPrevisao(policial));
+      if (mesPrevisaoFerias != null && anoPrevisaoFerias != null) {
+        result = result.filter(
+          (p) => p.mesPrevisaoFerias === mesPrevisaoFerias && p.anoPrevisaoFerias === anoPrevisaoFerias,
+        );
+      }
+      return result;
     }
 
     // Implementar paginação: buscar todos, ordenar (desativados sempre por último) e fatiar a página
@@ -546,7 +557,13 @@ export class PoliciaisService {
       include,
     });
 
-    const mapped = allPoliciais.map((policial) => this.mapFeriasPrevisao(policial));
+    let mapped = allPoliciais.map((policial) => this.mapFeriasPrevisao(policial));
+
+    if (mesPrevisaoFerias != null && anoPrevisaoFerias != null) {
+      mapped = mapped.filter(
+        (p) => p.mesPrevisaoFerias === mesPrevisaoFerias && p.anoPrevisaoFerias === anoPrevisaoFerias,
+      );
+    }
 
     // Ordenar em memória: desativados sempre por último, depois pelo campo solicitado
     const orderField = orderBy || 'nome';
@@ -629,6 +646,215 @@ export class PoliciaisService {
     }
 
     return this.mapFeriasPrevisao(policial);
+  }
+
+  /**
+   * Retorna policiais que têm férias programadas (FeriasPolicial) no mês atual ou no próximo mês,
+   * mas que ainda não possuem afastamento de motivo "Férias" cadastrado que cubra esse(s) mês(es).
+   * Usado para alerta no dashboard.
+   */
+  async findPoliciaisComFeriasProgramadasSemAfastamento(equipe?: string): Promise<PolicialResponse[]> {
+    const now = new Date();
+    const anoAtual = now.getFullYear();
+    const mesAtual = now.getMonth() + 1; // 1-12 (mês atual no fuso do servidor)
+    const proximoMes = mesAtual === 12 ? 1 : mesAtual + 1;
+    const anoProximo = mesAtual === 12 ? anoAtual + 1 : anoAtual;
+
+    const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
+      where: { nome: 'Férias' },
+      select: { id: true },
+    });
+    if (!motivoFerias) return [];
+
+    const feriasPrevisao = await this.prisma.feriasPolicial.findMany({
+      where: {
+        ano: { in: [anoAtual, anoProximo] },
+      },
+      select: {
+        policialId: true,
+        dataInicio: true,
+        ano: true,
+      },
+    });
+
+    const policialIdsComPrevisaoNoPeriodo = new Set<number>();
+    for (const fp of feriasPrevisao) {
+      // Usar UTC para evitar que timezone do servidor mude o mês (ex.: 2026-02-01 00:00 UTC em Brasil vira 31/01)
+      const mesPrevisao = fp.dataInicio.getUTCMonth() + 1;
+      const anoPrevisao = fp.ano;
+      const ehMesAtual = anoPrevisao === anoAtual && mesPrevisao === mesAtual;
+      const ehProximoMes = anoPrevisao === anoProximo && mesPrevisao === proximoMes;
+      if (ehMesAtual || ehProximoMes) policialIdsComPrevisaoNoPeriodo.add(fp.policialId);
+    }
+
+    if (policialIdsComPrevisaoNoPeriodo.size === 0) return [];
+
+    const primeiroDiaMesAtual = new Date(anoAtual, mesAtual - 1, 1);
+    const ultimoDiaMesAtual = new Date(anoAtual, mesAtual, 0, 23, 59, 59);
+    const primeiroDiaProximoMes = new Date(anoProximo, proximoMes - 1, 1);
+    const ultimoDiaProximoMes = new Date(anoProximo, proximoMes, 0, 23, 59, 59);
+
+    const afastamentosFerias = await this.prisma.afastamento.findMany({
+      where: {
+        policialId: { in: Array.from(policialIdsComPrevisaoNoPeriodo) },
+        motivoId: motivoFerias.id,
+        status: 'ATIVO',
+      },
+      select: { policialId: true, dataInicio: true, dataFim: true },
+    });
+
+    function sobrepoeMes(
+      inicio: Date,
+      fim: Date | null,
+      primeiroDia: Date,
+      ultimoDia: Date,
+    ): boolean {
+      const inicioOk = inicio.getTime() <= ultimoDia.getTime();
+      const fimOk = fim == null || fim.getTime() >= primeiroDia.getTime();
+      return inicioOk && fimOk;
+    }
+
+    const policialIdsComAfastamentoNoPeriodo = new Set<number>();
+    for (const a of afastamentosFerias) {
+      const sobrepoeMesAtual = sobrepoeMes(
+        a.dataInicio,
+        a.dataFim,
+        primeiroDiaMesAtual,
+        ultimoDiaMesAtual,
+      );
+      const sobrepoeProximoMes = sobrepoeMes(
+        a.dataInicio,
+        a.dataFim,
+        primeiroDiaProximoMes,
+        ultimoDiaProximoMes,
+      );
+      if (sobrepoeMesAtual || sobrepoeProximoMes) policialIdsComAfastamentoNoPeriodo.add(a.policialId);
+    }
+
+    const idsSemAfastamento = Array.from(policialIdsComPrevisaoNoPeriodo).filter(
+      (id) => !policialIdsComAfastamentoNoPeriodo.has(id),
+    );
+
+    if (idsSemAfastamento.length === 0) return [];
+
+    const where: Prisma.PolicialWhereInput = {
+      id: { in: idsSemAfastamento },
+      status: { nome: { not: 'DESATIVADO' } },
+    };
+    if (equipe) where.equipe = equipe;
+
+    const anoAtualFerias = new Date().getFullYear();
+    const policiais = await this.prisma.policial.findMany({
+      where,
+      orderBy: { nome: 'asc' },
+      include: {
+        funcao: true,
+        status: true,
+        ferias: { where: { ano: anoAtualFerias }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return policiais.map((p) => this.mapFeriasPrevisao(p as PolicialWithRelations & { ferias?: FeriasPolicialEntity[] }));
+  }
+
+  /**
+   * Retorna policiais que têm férias programadas (FeriasPolicial) nos dois meses ANTERIORES ao atual,
+   * mas que ainda não possuem afastamento de motivo "Férias" cadastrado que cubra esse(s) mês(es).
+   * Ex.: em março, considera fevereiro e janeiro. Usado para alerta de férias atrasadas no dashboard.
+   */
+  async findPoliciaisComFeriasAtrasadasSemAfastamento(equipe?: string): Promise<PolicialResponse[]> {
+    const now = new Date();
+    const anoAtual = now.getFullYear();
+    const mesAtual = now.getMonth() + 1; // 1-12
+    const mesAnterior1 = mesAtual === 1 ? 12 : mesAtual - 1;
+    const anoAnterior1 = mesAtual === 1 ? anoAtual - 1 : anoAtual;
+    const mesAnterior2 = mesAnterior1 === 1 ? 12 : mesAnterior1 - 1;
+    const anoAnterior2 = mesAnterior1 === 1 ? anoAnterior1 - 1 : anoAnterior1;
+
+    const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
+      where: { nome: 'Férias' },
+      select: { id: true },
+    });
+    if (!motivoFerias) return [];
+
+    const feriasPrevisao = await this.prisma.feriasPolicial.findMany({
+      where: {
+        ano: { in: [anoAnterior1, anoAnterior2] },
+      },
+      select: {
+        policialId: true,
+        dataInicio: true,
+        ano: true,
+      },
+    });
+
+    const policialIdsComPrevisaoNoPeriodo = new Set<number>();
+    for (const fp of feriasPrevisao) {
+      const mesPrevisao = fp.dataInicio.getUTCMonth() + 1;
+      const anoPrevisao = fp.ano;
+      const ehMesAnterior1 = anoPrevisao === anoAnterior1 && mesPrevisao === mesAnterior1;
+      const ehMesAnterior2 = anoPrevisao === anoAnterior2 && mesPrevisao === mesAnterior2;
+      if (ehMesAnterior1 || ehMesAnterior2) policialIdsComPrevisaoNoPeriodo.add(fp.policialId);
+    }
+
+    if (policialIdsComPrevisaoNoPeriodo.size === 0) return [];
+
+    const primeiroDiaMes1 = new Date(anoAnterior1, mesAnterior1 - 1, 1);
+    const ultimoDiaMes1 = new Date(anoAnterior1, mesAnterior1, 0, 23, 59, 59);
+    const primeiroDiaMes2 = new Date(anoAnterior2, mesAnterior2 - 1, 1);
+    const ultimoDiaMes2 = new Date(anoAnterior2, mesAnterior2, 0, 23, 59, 59);
+
+    const afastamentosFerias = await this.prisma.afastamento.findMany({
+      where: {
+        policialId: { in: Array.from(policialIdsComPrevisaoNoPeriodo) },
+        motivoId: motivoFerias.id,
+        status: 'ATIVO',
+      },
+      select: { policialId: true, dataInicio: true, dataFim: true },
+    });
+
+    function sobrepoeMes(
+      inicio: Date,
+      fim: Date | null,
+      primeiroDia: Date,
+      ultimoDia: Date,
+    ): boolean {
+      const inicioOk = inicio.getTime() <= ultimoDia.getTime();
+      const fimOk = fim == null || fim.getTime() >= primeiroDia.getTime();
+      return inicioOk && fimOk;
+    }
+
+    const policialIdsComAfastamentoNoPeriodo = new Set<number>();
+    for (const a of afastamentosFerias) {
+      const sobrepoe1 = sobrepoeMes(a.dataInicio, a.dataFim, primeiroDiaMes1, ultimoDiaMes1);
+      const sobrepoe2 = sobrepoeMes(a.dataInicio, a.dataFim, primeiroDiaMes2, ultimoDiaMes2);
+      if (sobrepoe1 || sobrepoe2) policialIdsComAfastamentoNoPeriodo.add(a.policialId);
+    }
+
+    const idsSemAfastamento = Array.from(policialIdsComPrevisaoNoPeriodo).filter(
+      (id) => !policialIdsComAfastamentoNoPeriodo.has(id),
+    );
+
+    if (idsSemAfastamento.length === 0) return [];
+
+    const where: Prisma.PolicialWhereInput = {
+      id: { in: idsSemAfastamento },
+      status: { nome: { not: 'DESATIVADO' } },
+    };
+    if (equipe) where.equipe = equipe;
+
+    const anoAtualFerias = new Date().getFullYear();
+    const policiais = await this.prisma.policial.findMany({
+      where,
+      orderBy: { nome: 'asc' },
+      include: {
+        funcao: true,
+        status: true,
+        ferias: { where: { ano: anoAtualFerias }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return policiais.map((p) => this.mapFeriasPrevisao(p as PolicialWithRelations & { ferias?: FeriasPolicialEntity[] }));
   }
 
   async update(
@@ -774,24 +1000,23 @@ export class PoliciaisService {
 
     if (data.funcaoId !== undefined) {
       if (data.funcaoId === null || data.funcaoId === 0) {
-        updateData.funcao = { disconnect: true };
-      } else {
-        updateData.funcao = { connect: { id: data.funcaoId } };
-        // Regra: todo policial que passa a ter função sem equipe (Expediente adm, CMT UPM, SUBCMT UPM)
-        // deve ter o registro de equipe zerado no banco, independentemente da equipe anterior.
-        const funcao = await this.prisma.funcao.findUnique({
-          where: { id: data.funcaoId },
-          select: { nome: true },
-        });
-        if (funcao) {
-          const nomeUpper = funcao.nome.toUpperCase();
-          if (
-            nomeUpper.includes('EXPEDIENTE ADM') ||
-            nomeUpper.includes('CMT UPM') ||
-            nomeUpper.includes('SUBCMT UPM')
-          ) {
-            updateData.equipe = null;
-          }
+        throw new BadRequestException('A função é obrigatória. Informe uma função válida.');
+      }
+      updateData.funcao = { connect: { id: data.funcaoId } };
+      // Regra: todo policial que passa a ter função sem equipe (Expediente adm, CMT UPM, SUBCMT UPM)
+      // deve ter o registro de equipe zerado no banco, independentemente da equipe anterior.
+      const funcao = await this.prisma.funcao.findUnique({
+        where: { id: data.funcaoId },
+        select: { nome: true },
+      });
+      if (funcao) {
+        const nomeUpper = funcao.nome.toUpperCase();
+        if (
+          nomeUpper.includes('EXPEDIENTE ADM') ||
+          nomeUpper.includes('CMT UPM') ||
+          nomeUpper.includes('SUBCMT UPM')
+        ) {
+          updateData.equipe = null;
         }
       }
     }
@@ -1030,9 +1255,7 @@ export class PoliciaisService {
           updatedByName: actor?.nome ?? null,
         };
 
-        if (policialData.funcaoId) {
-          createData.funcao = { connect: { id: policialData.funcaoId } };
-        }
+        createData.funcao = { connect: { id: policialData.funcaoId } };
 
         await this.prisma.policial.create({
           data: createData,

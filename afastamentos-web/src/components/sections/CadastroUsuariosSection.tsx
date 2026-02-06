@@ -25,6 +25,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import type { EquipeOption, FuncaoOption, PerguntaSegurancaOption, Usuario, MotivoAfastamentoOption, TipoRestricaoAfastamento, StatusPolicialOption } from '../../types';
 import { api } from '../../api';
 import { formatNome } from '../../utils/dateUtils';
+import { handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 
@@ -1158,7 +1159,7 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
                 const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
                 setEdicaoPergunta(normalized);
               }}
-              onKeyDown={handleKeyDownNormalized}
+              onKeyDown={(e) => handleKeyDownNormalized(e as React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>)}
               size="small"
             />
           )}

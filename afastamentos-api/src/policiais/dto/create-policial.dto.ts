@@ -72,7 +72,7 @@ export class CreatePolicialDto {
   @MaxLength(50)
   equipe?: string | null;
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'A função é obrigatória.' })
   @IsInt()
-  funcaoId?: number;
+  funcaoId: number;
 }

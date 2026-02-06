@@ -26,9 +26,9 @@ export class PolicialBulkItemDto {
   @IsIn(POLICIAL_STATUS_VALUES)
   status: typeof POLICIAL_STATUS_VALUES[number];
 
-  @IsOptional()
+  @IsNotEmpty({ message: 'A função é obrigatória.' })
   @IsInt()
-  funcaoId?: number;
+  funcaoId: number;
 
   @IsOptional()
   @ValidateIf((o) => o.equipe !== null)

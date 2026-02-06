@@ -4,7 +4,6 @@ import {
   Button,
   Chip,
   Checkbox,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,

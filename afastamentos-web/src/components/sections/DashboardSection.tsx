@@ -7,8 +7,9 @@ import type {
   PolicialStatus,
   Equipe,
   EquipeOption,
+  FuncaoOption,
 } from '../../types';
-import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel } from '../../constants';
+import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import { formatPeriodo, formatDate, formatNome } from '../../utils/dateUtils';
 import { Button, Box, Checkbox, Collapse, Typography, Paper, Grid, Divider } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -29,7 +30,9 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const [motivoOutroFiltro, setMotivoOutroFiltro] = useState('');
   const [statusSelecionados, setStatusSelecionados] = useState<PolicialStatus[]>([]);
   const [equipesSelecionadas, setEquipesSelecionadas] = useState<Equipe[]>([]);
+  const [funcoesSelecionadas, setFuncoesSelecionadas] = useState<number[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
+  const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [filtrosExpanded, setFiltrosExpanded] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
     const now = new Date();
@@ -140,10 +143,14 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     void carregarAfastamentos();
     void (async () => {
       try {
-        const motivosData = await api.listMotivos();
+        const [motivosData, equipesData, funcoesData] = await Promise.all([
+          api.listMotivos(),
+          api.listEquipes(),
+          api.listFuncoes(),
+        ]);
         setMotivos(motivosData);
-        const equipesData = await api.listEquipes();
         setEquipes(equipesData);
+        setFuncoes(funcoesData);
       } catch (err) {
         // Silenciosamente falha
       }
@@ -159,6 +166,12 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
   const equipesAtivasSemSemEquipe = useMemo(() => {
     return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
   }, [equipesAtivas]);
+
+  const funcoesOrdenadas = useMemo(() => {
+    return [...funcoesParaSelecao(funcoes)]
+      .filter((f) => f.ativo !== false)
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [funcoes]);
 
   // Ordenar motivos alfabeticamente, com "Outro" sempre no final
   const motivosOrdenados = useMemo(() => {
@@ -389,7 +402,16 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
       });
     }
 
-    // SEXTO: Filtrar por busca de nome
+    // SEXTO: Filtrar por função (múltipla seleção)
+    if (funcoesSelecionadas.length > 0) {
+      resultado = resultado.filter((afastamento) => {
+        const funcaoId = afastamento.policial.funcaoId ?? afastamento.policial.funcao?.id;
+        if (funcaoId == null) return false;
+        return funcoesSelecionadas.includes(funcaoId);
+      });
+    }
+
+    // SÉTIMO: Filtrar por busca de nome
     if (normalizedSearch) {
       resultado = resultado.filter((afastamento) =>
         afastamento.policial.nome.toUpperCase().includes(normalizedSearch),
@@ -397,7 +419,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
     }
 
     return resultado;
-  }, [afastamentos, searchTerm, motivosSelecionados, motivoOutroFiltro, statusSelecionados, equipesSelecionadas, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
+  }, [afastamentos, searchTerm, motivosSelecionados, motivoOutroFiltro, statusSelecionados, equipesSelecionadas, funcoesSelecionadas, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -853,6 +875,83 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                 )}
               </Box>
             </Grid>
+
+            {/* Seção de Funções */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                Filtrar por Função
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(funcoesOrdenadas.length / 2))}, 1fr)`,
+                  gap: '8px 16px',
+                  mb: 2,
+                }}
+              >
+                {funcoesOrdenadas.map((funcao) => (
+                  <Box key={funcao.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={funcoesSelecionadas.includes(funcao.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFuncoesSelecionadas([...funcoesSelecionadas, funcao.id]);
+                        } else {
+                          setFuncoesSelecionadas(funcoesSelecionadas.filter((id) => id !== funcao.id));
+                        }
+                      }}
+                      size="small"
+                      sx={{
+                        '& .MuiSvgIcon-root': {
+                          fontSize: '1.25rem',
+                        },
+                      }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {formatNome(funcao.nome)}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setFuncoesSelecionadas(funcoesOrdenadas.map((f) => f.id))}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Selecionar Todos
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setFuncoesSelecionadas([])}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                  }}
+                >
+                  Limpar
+                </Button>
+                {funcoesSelecionadas.length > 0 && (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      ml: 'auto',
+                      alignSelf: 'center',
+                      color: 'text.secondary',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {funcoesSelecionadas.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
           </Grid>
 
           {/* Botão para limpar todos os filtros */}
@@ -864,12 +963,13 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
                 setMotivosSelecionados([]);
                 setStatusSelecionados([]);
                 setEquipesSelecionadas([]);
+                setFuncoesSelecionadas([]);
               }}
               sx={{
                 textTransform: 'none',
                 fontSize: '0.75rem',
               }}
-              disabled={motivosSelecionados.length === 0 && statusSelecionados.length === 0 && equipesSelecionadas.length === 0}
+              disabled={motivosSelecionados.length === 0 && statusSelecionados.length === 0 && equipesSelecionadas.length === 0 && funcoesSelecionadas.length === 0}
             >
               Limpar Todos os Filtros
             </Button>

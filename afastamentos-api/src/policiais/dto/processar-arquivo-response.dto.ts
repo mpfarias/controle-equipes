@@ -8,6 +8,8 @@ export interface PolicialExtraido {
   funcaoId?: number;
   /** Preenchido quando o arquivo tem coluna situação/Status (ex.: PDF com ASSESSOR -> COMISSIONADO). */
   status?: PolicialExtraidoStatus;
+  /** true quando a matrícula já existe no sistema; na modal mostra "Policial já cadastrado" e não envia no bulk. */
+  jaCadastrado?: boolean;
 }
 
 export interface ProcessarArquivoResponseDto {

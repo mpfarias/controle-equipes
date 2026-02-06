@@ -11,11 +11,10 @@ import type {
   ProcessFileResponse,
   Usuario,
 } from '../../types';
-import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel } from '../../constants';
+import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import { formatNome } from '../../utils/dateUtils';
 import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
-import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import {
   Box,
@@ -40,7 +39,6 @@ export function PoliciaisSection({
   currentUser,
   openConfirm,
   onChanged,
-  permissoes,
 }: PoliciaisSectionProps) {
   const initialForm = {
     nome: '',
@@ -78,7 +76,7 @@ export function PoliciaisSection({
   });
   const [validacaoModal, setValidacaoModal] = useState<{
     open: boolean;
-    policiais: Array<PolicialExtraido & { status: PolicialStatus; equipe?: Equipe }>;
+    policiais: Array<PolicialExtraido & { status: PolicialStatus; equipe?: Equipe; jaCadastrado?: boolean }>;
     loading: boolean;
     funcoesCriadas: string[];
   }>({
@@ -119,7 +117,7 @@ export function PoliciaisSection({
   }, []);
 
   const funcoesAtivas = useMemo(() => {
-    return funcoes.filter((f) => f.ativo !== false);
+    return funcoesParaSelecao(funcoes).filter((f) => f.ativo !== false);
   }, [funcoes]);
 
   // Ordenar funções alfabeticamente
@@ -248,11 +246,12 @@ export function PoliciaisSection({
         // Enviar arquivo para o backend
         const response: ProcessFileResponse = await api.uploadFile(file);
         
-        // Preparar dados para validação (status vindo do PDF/Excel ou padrão ATIVO)
+        // Preparar dados para validação (status vindo do PDF/Excel ou padrão ATIVO; jaCadastrado vindo da API)
         const policiaisComStatus = response.policiais.map((policial) => ({
           ...policial,
           status: (policial.status ?? 'ATIVO') as PolicialStatus,
           equipe: undefined as Equipe | undefined,
+          jaCadastrado: policial.jaCadastrado ?? false,
         }));
         
         // Abrir modal de validação
@@ -333,11 +332,11 @@ export function PoliciaisSection({
         nome,
         matricula,
         status: form.status,
+        funcaoId: form.funcaoId!,
         cpf: cpfEnvio ?? null,
         dataNascimento: dataNascimentoEnvio ?? null,
         email: emailEnvio ?? null,
         matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
-        funcaoId: form.funcaoId,
         equipe: equipeFinal === null ? null : (equipeFinal || undefined),
       });
       setSuccess('Policial cadastrado com sucesso.');
@@ -411,6 +410,10 @@ export function PoliciaisSection({
 
     if (!nome || !matricula) {
       setError('Informe nome e matrícula.');
+      return;
+    }
+    if (!form.funcaoId) {
+      setError('Selecione uma função.');
       return;
     }
 
@@ -536,7 +539,13 @@ export function PoliciaisSection({
   };
 
   const handleConfirmValidacao = async () => {
-    if (validacaoModal.policiais.length === 0 || validacaoModal.loading) {
+    const aSalvar = validacaoModal.policiais.filter((p) => !p.jaCadastrado);
+    if (aSalvar.length === 0 || validacaoModal.loading) {
+      return;
+    }
+    const semFuncao = aSalvar.filter((p) => !p.funcaoId);
+    if (semFuncao.length > 0) {
+      setError('Selecione uma função para todos os policiais a cadastrar.');
       return;
     }
 
@@ -545,8 +554,7 @@ export function PoliciaisSection({
       setError(null);
       setSuccess(null);
 
-      // Preparar dados para envio
-      const policiaisBulk: PolicialBulkItem[] = validacaoModal.policiais.map((policial) => ({
+      const policiaisBulk: PolicialBulkItem[] = aSalvar.map((policial) => ({
         matricula: policial.matricula,
         nome: policial.nome,
         status: policial.status,
@@ -554,7 +562,6 @@ export function PoliciaisSection({
         equipe: policial.equipe,
       }));
 
-      // Enviar para o backend
       const response = await api.createPoliciaisBulk({ policiais: policiaisBulk });
 
       // Mostrar resultado
@@ -1053,105 +1060,100 @@ export function PoliciaisSection({
                 </thead>
                 <tbody>
                   {validacaoModal.policiais.map((policial, idx) => {
-                    // Funções que não devem mostrar equipe: EXPEDIENTE ADM, CMT UPM, SUBCMT UPM
+                    const jaCadastrado = policial.jaCadastrado === true;
                     const funcaoUpper = policial.funcaoNome?.toUpperCase() || '';
-                    const naoMostraEquipe = 
-                      funcaoUpper.includes('EXPEDIENTE') || 
-                      funcaoUpper.includes('CMT UPM') || 
+                    const naoMostraEquipe =
+                      funcaoUpper.includes('EXPEDIENTE') ||
+                      funcaoUpper.includes('CMT UPM') ||
                       funcaoUpper.includes('SUBCMT UPM');
                     const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
                     return (
                       <tr key={idx}>
                         <td>{policial.matricula}</td>
                         <td>{policial.nome}</td>
-                        <td>
-                          <select
-                            value={policial.funcaoId || ''}
-                            onChange={(event) => {
-                              const novosPoliciais = [...validacaoModal.policiais];
-                              const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
-                              const funcaoSelecionada = funcoes.find(f => f.id === novoFuncaoId);
-                              const funcaoUpper = funcaoSelecionada?.nome.toUpperCase() || '';
-                              const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
-                              
-                              novosPoliciais[idx] = {
-                                ...novosPoliciais[idx],
-                                funcaoId: novoFuncaoId,
-                                funcaoNome: funcaoSelecionada?.nome || novosPoliciais[idx].funcaoNome,
-                                // Se mudar para MOTORISTA DE DIA e a equipe for E, limpar
-                                equipe: isMotoristaDia && novosPoliciais[idx].equipe === 'E' 
-                                  ? undefined 
-                                  : novosPoliciais[idx].equipe,
-                              };
-                              setValidacaoModal((prev) => ({
-                                ...prev,
-                                policiais: novosPoliciais,
-                              }));
-                            }}
-                            style={{ width: '100%', padding: '4px' }}
-                          >
-                            <option value="">Selecione uma função</option>
-                            {funcoesOrdenadas.map((funcao) => (
-                              <option key={funcao.id} value={funcao.id}>
-                                {formatNome(funcao.nome)}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          <select
-                            value={policial.status}
-                            onChange={(event) => {
-                              const novosPoliciais = [...validacaoModal.policiais];
-                              novosPoliciais[idx] = {
-                                ...novosPoliciais[idx],
-                                status: event.target.value as PolicialStatus,
-                              };
-                              setValidacaoModal((prev) => ({
-                                ...prev,
-                                policiais: novosPoliciais,
-                              }));
-                            }}
-                            style={{ width: '100%', padding: '4px' }}
-                          >
-                            {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td>
-                          {!naoMostraEquipe ? (
-                            <select
-                              value={policial.equipe || ''}
-                              onChange={(event) => {
-                                const novosPoliciais = [...validacaoModal.policiais];
-                                novosPoliciais[idx] = {
-                                  ...novosPoliciais[idx],
-                                  equipe: event.target.value ? (event.target.value as Equipe) : undefined,
-                                };
-                                setValidacaoModal((prev) => ({
-                                  ...prev,
-                                  policiais: novosPoliciais,
-                                }));
-                              }}
-                              style={{ width: '100%', padding: '4px' }}
-                              required
-                            >
-                              <option value="">Selecione uma equipe</option>
-                              {equipesDisponiveisCadastro
-                                .filter((option) => !isMotoristaDia || option.nome !== 'E')
-                                .map((option) => (
-                                  <option key={option.id} value={option.nome}>
-                                    {option.nome}
+                        {jaCadastrado ? (
+                          <td colSpan={3} style={{ color: '#64748b', fontStyle: 'italic' }}>
+                            Policial já cadastrado
+                          </td>
+                        ) : (
+                          <>
+                            <td>
+                              <select
+                                value={policial.funcaoId || ''}
+                                onChange={(event) => {
+                                  const novosPoliciais = [...validacaoModal.policiais];
+                                  const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
+                                  const funcaoSelecionada = funcoes.find(f => f.id === novoFuncaoId);
+                                  const funcaoUpperNew = funcaoSelecionada?.nome.toUpperCase() || '';
+                                  const isMD = funcaoUpperNew.includes('MOTORISTA DE DIA');
+                                  novosPoliciais[idx] = {
+                                    ...novosPoliciais[idx],
+                                    funcaoId: novoFuncaoId,
+                                    funcaoNome: funcaoSelecionada?.nome || novosPoliciais[idx].funcaoNome,
+                                    equipe: isMD && novosPoliciais[idx].equipe === 'E' ? undefined : novosPoliciais[idx].equipe,
+                                  };
+                                  setValidacaoModal((prev) => ({ ...prev, policiais: novosPoliciais }));
+                                }}
+                                style={{ width: '100%', padding: '4px' }}
+                              >
+                                <option value="">Selecione uma função</option>
+                                {funcoesOrdenadas.map((funcao) => (
+                                  <option key={funcao.id} value={funcao.id}>
+                                    {formatNome(funcao.nome)}
                                   </option>
                                 ))}
-                            </select>
-                          ) : (
-                            <span style={{ color: '#64748b', fontSize: '0.9rem' }}>-</span>
-                          )}
-                        </td>
+                              </select>
+                            </td>
+                            <td>
+                              <select
+                                value={policial.status}
+                                onChange={(event) => {
+                                  const novosPoliciais = [...validacaoModal.policiais];
+                                  novosPoliciais[idx] = {
+                                    ...novosPoliciais[idx],
+                                    status: event.target.value as PolicialStatus,
+                                  };
+                                  setValidacaoModal((prev) => ({ ...prev, policiais: novosPoliciais }));
+                                }}
+                                style={{ width: '100%', padding: '4px' }}
+                              >
+                                {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td>
+                              {!naoMostraEquipe ? (
+                                <select
+                                  value={policial.equipe || ''}
+                                  onChange={(event) => {
+                                    const novosPoliciais = [...validacaoModal.policiais];
+                                    novosPoliciais[idx] = {
+                                      ...novosPoliciais[idx],
+                                      equipe: event.target.value ? (event.target.value as Equipe) : undefined,
+                                    };
+                                    setValidacaoModal((prev) => ({ ...prev, policiais: novosPoliciais }));
+                                  }}
+                                  style={{ width: '100%', padding: '4px' }}
+                                  required
+                                >
+                                  <option value="">Selecione uma equipe</option>
+                                  {equipesDisponiveisCadastro
+                                    .filter((option) => !isMotoristaDia || option.nome !== 'E')
+                                    .map((option) => (
+                                      <option key={option.id} value={option.nome}>
+                                        {option.nome}
+                                      </option>
+                                    ))}
+                                </select>
+                              ) : (
+                                <span style={{ color: '#64748b', fontSize: '0.9rem' }}>-</span>
+                              )}
+                            </td>
+                          </>
+                        )}
                       </tr>
                     );
                   })}
@@ -1170,16 +1172,19 @@ export function PoliciaisSection({
               >
                 Cancelar
               </button>
-              {validacaoModal.policiais.length > 0 && (
-                <button
-                  type="button"
-                  className="primary"
-                  onClick={handleConfirmValidacao}
-                  disabled={validacaoModal.loading}
-                >
-                  {validacaoModal.loading ? 'Salvando...' : `Salvar ${validacaoModal.policiais.length} policiais`}
-                </button>
-              )}
+              {validacaoModal.policiais.length > 0 && (() => {
+                const qtdNovos = validacaoModal.policiais.filter((p) => !p.jaCadastrado).length;
+                return (
+                  <button
+                    type="button"
+                    className="primary"
+                    onClick={handleConfirmValidacao}
+                    disabled={validacaoModal.loading || qtdNovos === 0}
+                  >
+                    {validacaoModal.loading ? 'Salvando...' : `Salvar ${qtdNovos} policiais`}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>

@@ -2,7 +2,9 @@ import { useEffect, useState, useMemo } from 'react';
 import type { Usuario, Policial, Afastamento, Equipe } from '../../types';
 import type { TabKey } from '../../constants';
 import { 
+  Alert,
   Box, 
+  Button,
   Paper, 
   Typography, 
   Grid, 
@@ -11,6 +13,7 @@ import {
   DialogTitle, 
   DialogContent, 
   IconButton, 
+  Link,
   List, 
   ListItem, 
   ListItemText,
@@ -29,13 +32,14 @@ import { formatNome } from '../../utils/dateUtils';
 
 interface DashboardHomeSectionProps {
   currentUser: Usuario;
-  onTabChange?: (tab: TabKey) => void; // Mantido para compatibilidade, mas não usado no momento
+  onTabChange?: (tab: TabKey, options?: { preencherCadastro?: { policialId: number; motivoNome: string } }) => void;
   refreshKeyPoliciais?: number;
   refreshKeyAfastamentos?: number;
 }
 
 export function DashboardHomeSection({
   currentUser,
+  onTabChange,
   refreshKeyPoliciais = 0,
   refreshKeyAfastamentos = 0,
 }: DashboardHomeSectionProps) {
@@ -87,6 +91,12 @@ export function DashboardHomeSection({
   const [afastamentosMesModalTab, setAfastamentosMesModalTab] = useState<0 | 1>(0);
   // Lista completa de afastamentos do mês (para aba "Por afastamento" e cálculo do efetivo)
   const [afastamentosMesCompletos, setAfastamentosMesCompletos] = useState<Afastamento[]>([]);
+  // Policiais com férias programadas (mês atual/próximo) sem afastamento de Férias cadastrado
+  const [feriasProgramadasSemAfastamento, setFeriasProgramadasSemAfastamento] = useState<Policial[] | null>(null);
+  const [modalVerPoliciaisOpen, setModalVerPoliciaisOpen] = useState(false);
+  // Policiais com férias programadas em meses anteriores (atrasadas) sem afastamento
+  const [feriasAtrasadasSemAfastamento, setFeriasAtrasadasSemAfastamento] = useState<Policial[] | null>(null);
+  const [modalVerPoliciaisAtrasadosOpen, setModalVerPoliciaisAtrasadosOpen] = useState(false);
 
   // Estados para ano e mês selecionados
   const now = new Date();
@@ -359,12 +369,6 @@ export function DashboardHomeSection({
             
             const afastadosEquipeCount = policiaisUnicosAfastados.size;
             const disponiveisEquipe = Math.max(0, totalEquipe - afastadosEquipeCount);
-            
-            // Debug: verificar afastados
-            console.log(`Equipe ${equipe} - Afastados:`, {
-              totalAfastamentos: afastamentos.filter((af) => idsPoliciaisEquipe.has(af.policialId)).length,
-              policiaisUnicosAfastados: Array.from(policiaisUnicosAfastados),
-            });
             
             dadosPorEquipe[equipe] = {
               total: totalEquipe,
@@ -793,6 +797,36 @@ export function DashboardHomeSection({
     };
     void carregarFuncoesCopomMulher();
   }, []);
+
+  // Carregar policiais com férias programadas (mês atual e próximo) sem afastamento de Férias cadastrado
+  useEffect(() => {
+    const carregar = async () => {
+      try {
+        const equipe = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+        const lista = await api.getPoliciaisComFeriasProgramadasSemAfastamento(equipe);
+        setFeriasProgramadasSemAfastamento(lista);
+      } catch (error) {
+        console.error('Erro ao carregar policiais com férias programadas sem afastamento:', error);
+        setFeriasProgramadasSemAfastamento([]);
+      }
+    };
+    void carregar();
+  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos]);
+
+  // Carregar policiais com férias programadas em meses anteriores (atrasadas) sem afastamento
+  useEffect(() => {
+    const carregar = async () => {
+      try {
+        const equipe = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+        const lista = await api.getPoliciaisComFeriasAtrasadasSemAfastamento(equipe);
+        setFeriasAtrasadasSemAfastamento(lista);
+      } catch (error) {
+        console.error('Erro ao carregar policiais com férias atrasadas sem afastamento:', error);
+        setFeriasAtrasadasSemAfastamento([]);
+      }
+    };
+    void carregar();
+  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos]);
 
   // Cards do dashboard
   const cards = useMemo(() => {
@@ -1293,6 +1327,201 @@ export function DashboardHomeSection({
       </div>
 
       <Box sx={{ p: 3, width: '100%' }}>
+        {feriasProgramadasSemAfastamento != null && feriasProgramadasSemAfastamento.length > 0 && (() => {
+          const now = new Date();
+          const mesAtualNum = now.getMonth() + 1;
+          const proximoMesNum = mesAtualNum === 12 ? 1 : mesAtualNum + 1;
+          const anoAtual = now.getFullYear();
+          const anoProximo = mesAtualNum === 12 ? anoAtual + 1 : anoAtual;
+          const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+          const nomeMesAtual = nomesMeses[mesAtualNum - 1];
+          const nomeProximoMes = nomesMeses[proximoMesNum - 1];
+          const ordenados = [...feriasProgramadasSemAfastamento].sort((a, b) => {
+            const aMesAtual = a.anoPrevisaoFerias === anoAtual && a.mesPrevisaoFerias === mesAtualNum;
+            const bMesAtual = b.anoPrevisaoFerias === anoAtual && b.mesPrevisaoFerias === mesAtualNum;
+            if (aMesAtual && !bMesAtual) return -1;
+            if (!aMesAtual && bMesAtual) return 1;
+            return (a.nome ?? '').localeCompare(b.nome ?? '');
+          });
+          const qtdMesAtual = ordenados.filter((p) => p.anoPrevisaoFerias === anoAtual && p.mesPrevisaoFerias === mesAtualNum).length;
+          const qtdProximoMes = ordenados.filter((p) => p.anoPrevisaoFerias === anoProximo && p.mesPrevisaoFerias === proximoMesNum).length;
+          return (
+            <>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Existem policiais com férias programadas para os meses de {nomeMesAtual} e {nomeProximoMes}, mas não estão marcados.{' '}
+              {onTabChange && (
+                <Link
+                  component="button"
+                  variant="body2"
+                  onClick={() => setModalVerPoliciaisOpen(true)}
+                  sx={{ fontWeight: 600 }}
+                >
+                  Ver policiais
+                </Link>
+              )}
+            </Alert>
+            <Dialog open={modalVerPoliciaisOpen} onClose={() => setModalVerPoliciaisOpen(false)} maxWidth="sm" fullWidth>
+              <DialogTitle>Policiais com férias programadas sem afastamento</DialogTitle>
+              <DialogContent>
+                <List dense>
+                  {ordenados.map((p) => {
+                    const nomeMesFerias = p.mesPrevisaoFerias != null
+                      ? (mesesDisponiveis.find((m) => m.valor === p.mesPrevisaoFerias)?.nome ?? String(p.mesPrevisaoFerias))
+                      : '—';
+                    const textoFerias = p.anoPrevisaoFerias != null
+                      ? `${nomeMesFerias}/${p.anoPrevisaoFerias}`
+                      : nomeMesFerias;
+                    return (
+                    <ListItem key={p.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <ListItemText
+                        primary={(p.nome ?? '').toUpperCase()}
+                        secondary={
+                          <>
+                            {p.matricula}
+                            {p.mesPrevisaoFerias != null && (
+                              <> — Férias programadas: {textoFerias}</>
+                            )}
+                          </>
+                        }
+                      />
+                      {onTabChange && (
+                        <Link
+                          component="button"
+                          variant="body2"
+                          onClick={() => {
+                            onTabChange('afastamentos', { preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
+                            setModalVerPoliciaisOpen(false);
+                          }}
+                          sx={{ fontWeight: 600, flexShrink: 0 }}
+                        >
+                          Marcar férias agora
+                        </Link>
+                      )}
+                    </ListItem>
+                  );
+                  })}
+                </List>
+              </DialogContent>
+              <Box sx={{ px: 3, pb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    {nomeMesAtual}: {qtdMesAtual} policiais
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {nomeProximoMes}: {qtdProximoMes} policiais
+                  </Typography>
+                </Box>
+                <Button onClick={() => setModalVerPoliciaisOpen(false)} variant="outlined">
+                  Fechar
+                </Button>
+              </Box>
+            </Dialog>
+            </>
+          );
+        })()}
+        {feriasAtrasadasSemAfastamento != null && feriasAtrasadasSemAfastamento.length > 0 && (() => {
+          const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+          const mesesUnicos = Array.from(
+            new Set(
+              feriasAtrasadasSemAfastamento
+                .filter((p) => p.mesPrevisaoFerias != null && p.anoPrevisaoFerias != null)
+                .map((p) => `${p.anoPrevisaoFerias!}-${String(p.mesPrevisaoFerias!).padStart(2, '0')}`)
+            )
+          )
+            .sort()
+            .reverse()
+            .map((key) => {
+              const [ano, mes] = key.split('-').map(Number);
+              return { ano, mes, nome: nomesMeses[mes - 1] };
+            });
+          const textoMeses = mesesUnicos.length === 0
+            ? ''
+            : mesesUnicos.map((m) => m.nome).join(' e ');
+          const ordenados = [...feriasAtrasadasSemAfastamento].sort((a, b) => {
+            const aVal = (a.anoPrevisaoFerias ?? 0) * 100 + (a.mesPrevisaoFerias ?? 0);
+            const bVal = (b.anoPrevisaoFerias ?? 0) * 100 + (b.mesPrevisaoFerias ?? 0);
+            if (bVal !== aVal) return bVal - aVal;
+            return (a.nome ?? '').localeCompare(b.nome ?? '');
+          });
+          const qtdPorMes = mesesUnicos.map((m) => ({
+            ...m,
+            qtd: feriasAtrasadasSemAfastamento.filter(
+              (p) => p.anoPrevisaoFerias === m.ano && p.mesPrevisaoFerias === m.mes
+            ).length,
+          }));
+          return (
+            <>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Existem policiais com férias programadas em {textoMeses}, mas não foram marcadas.{' '}
+              {onTabChange && (
+                <Link
+                  component="button"
+                  variant="body2"
+                  onClick={() => setModalVerPoliciaisAtrasadosOpen(true)}
+                  sx={{ fontWeight: 600 }}
+                >
+                  Ver policiais
+                </Link>
+              )}
+            </Alert>
+            <Dialog open={modalVerPoliciaisAtrasadosOpen} onClose={() => setModalVerPoliciaisAtrasadosOpen(false)} maxWidth="sm" fullWidth>
+              <DialogTitle>Policiais com férias atrasadas sem afastamento</DialogTitle>
+              <DialogContent>
+                <List dense>
+                  {ordenados.map((p) => {
+                    const nomeMesFerias = p.mesPrevisaoFerias != null
+                      ? (mesesDisponiveis.find((m) => m.valor === p.mesPrevisaoFerias)?.nome ?? String(p.mesPrevisaoFerias))
+                      : '—';
+                    const textoFerias = p.anoPrevisaoFerias != null
+                      ? `${nomeMesFerias}/${p.anoPrevisaoFerias}`
+                      : nomeMesFerias;
+                    return (
+                    <ListItem key={p.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <ListItemText
+                        primary={(p.nome ?? '').toUpperCase()}
+                        secondary={
+                          <>
+                            {p.matricula}
+                            {p.mesPrevisaoFerias != null && (
+                              <> — Férias programadas: {textoFerias}</>
+                            )}
+                          </>
+                        }
+                      />
+                      {onTabChange && (
+                        <Link
+                          component="button"
+                          variant="body2"
+                          onClick={() => {
+                            onTabChange('afastamentos', { preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
+                            setModalVerPoliciaisAtrasadosOpen(false);
+                          }}
+                          sx={{ fontWeight: 600, flexShrink: 0 }}
+                        >
+                          Marcar férias agora
+                        </Link>
+                      )}
+                    </ListItem>
+                  );
+                  })}
+                </List>
+              </DialogContent>
+              <Box sx={{ px: 3, pb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  {qtdPorMes.map((m) => (
+                    <Typography key={`${m.ano}-${m.mes}`} variant="body2" color="text.secondary">
+                      {m.nome}: {m.qtd} policiais
+                    </Typography>
+                  ))}
+                </Box>
+                <Button onClick={() => setModalVerPoliciaisAtrasadosOpen(false)} variant="outlined">
+                  Fechar
+                </Button>
+              </Box>
+            </Dialog>
+            </>
+          );
+        })()}
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
           <FormControl sx={{ minWidth: 120 }}>
             <InputLabel id="ano-select-label">Ano</InputLabel>

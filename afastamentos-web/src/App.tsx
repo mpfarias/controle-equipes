@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, getToken, removeToken } from './api.ts';
 import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
-import { TABS, type TabKey } from './constants';
+import { TABS, type TabKey, type TabChangeOptions } from './constants';
 import {
   LoginView,
   ForgotPasswordView,
@@ -46,6 +46,8 @@ export default function App() {
   const [afastamentosVersion, setAfastamentosVersion] = useState(0);
   const [permissoesPorTela, setPermissoesPorTela] = useState<Record<TabKey, Record<PermissaoAcao, boolean>> | null>(null);
   const [permissoesCarregando, setPermissoesCarregando] = useState(false);
+  /** Preencher formulário de cadastro ao abrir "Gerenciar afastamentos" (ex.: policial + motivo Férias). Consumida ao montar AfastamentosSection. */
+  const [afastamentosPreencherCadastro, setAfastamentosPreencherCadastro] = useState<{ policialId: number; motivoNome: string } | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -89,7 +91,6 @@ export default function App() {
     try {
       setPermissoesCarregando(true);
       const data = await api.listUsuarioNivelPermissoes(currentUser.nivelId);
-      console.log('Permissões carregadas do backend:', { nivelId: currentUser.nivelId, data });
       const base: Record<TabKey, Record<PermissaoAcao, boolean>> = {} as Record<TabKey, Record<PermissaoAcao, boolean>>;
       // Inicializar todas as telas do TABS
       TABS.forEach((tab) => {
@@ -116,14 +117,12 @@ export default function App() {
       
       data.forEach((item: UsuarioNivelPermissao) => {
         const key = item.telaKey as TabKey;
-        console.log('Processando permissão:', { telaKey: item.telaKey, acao: item.acao, key, existeEmBase: Boolean(base[key]) });
         if (base[key]) {
           base[key][item.acao] = true;
         } else {
           console.warn('TelaKey não encontrada em base:', { telaKey: item.telaKey, telasDisponiveis: Object.keys(base) });
         }
       });
-      console.log('Permissões finais mapeadas:', base);
       setPermissoesPorTela(base);
     } catch (error) {
       console.warn('Não foi possível carregar permissões.', error);
@@ -318,7 +317,10 @@ export default function App() {
         {activeTab === 'dashboard' && (
           <DashboardHomeSection
             currentUser={currentUser}
-            onTabChange={setActiveTab}
+            onTabChange={(tab, options?: TabChangeOptions) => {
+              setActiveTab(tab);
+              if (options?.preencherCadastro) setAfastamentosPreencherCadastro(options.preencherCadastro);
+            }}
             refreshKeyPoliciais={policiaisVersion}
             refreshKeyAfastamentos={afastamentosVersion}
           />
@@ -331,6 +333,8 @@ export default function App() {
             openConfirm={openConfirm}
             onChanged={notifyAfastamentosChanged}
             permissoes={permissoesPorTela}
+            initialCadastro={afastamentosPreencherCadastro}
+            onPreencherCadastroConsumed={() => setAfastamentosPreencherCadastro(null)}
           />
         )}
         {activeTab === 'policiais' && (

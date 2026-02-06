@@ -52,6 +52,8 @@ export class PoliciaisController {
     @Query('funcaoId') funcaoId?: string,
     @Query('orderBy') orderBy?: string,
     @Query('orderDir') orderDir?: string,
+    @Query('mesPrevisaoFerias') mesPrevisaoFerias?: string,
+    @Query('anoPrevisaoFerias') anoPrevisaoFerias?: string,
   ) {
     const includeAfastamentosParsed = includeAfastamentos === 'true';
     const includeRestricoesParsed = includeRestricoes === 'true';
@@ -67,6 +69,14 @@ export class PoliciaisController {
     if (orderDir && !orderDirAllowed) {
       throw new BadRequestException('O orderDir deve ser asc ou desc.');
     }
+    const mesPrevisaoParsed = mesPrevisaoFerias ? Number.parseInt(mesPrevisaoFerias, 10) : undefined;
+    const anoPrevisaoParsed = anoPrevisaoFerias ? Number.parseInt(anoPrevisaoFerias, 10) : undefined;
+    if (mesPrevisaoFerias && Number.isNaN(mesPrevisaoParsed!)) {
+      throw new BadRequestException('O mesPrevisaoFerias deve ser numérico (1-12).');
+    }
+    if (anoPrevisaoFerias && Number.isNaN(anoPrevisaoParsed!)) {
+      throw new BadRequestException('O anoPrevisaoFerias deve ser numérico.');
+    }
     return this.policiaisService.findAll({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -78,12 +88,24 @@ export class PoliciaisController {
       funcaoId: funcaoIdParsed,
       orderBy: orderByAllowed ? (orderBy as 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') : undefined,
       orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
+      mesPrevisaoFerias: mesPrevisaoParsed,
+      anoPrevisaoFerias: anoPrevisaoParsed,
     });
   }
 
   @Get('restricoes-medicas')
   listRestricoesMedicas() {
     return this.policiaisService.listRestricoesMedicas();
+  }
+
+  @Get('ferias-programadas-sem-afastamento')
+  getFeriasProgramadasSemAfastamento(@Query('equipe') equipe?: string) {
+    return this.policiaisService.findPoliciaisComFeriasProgramadasSemAfastamento(equipe ?? undefined);
+  }
+
+  @Get('ferias-programadas-atrasadas-sem-afastamento')
+  getFeriasProgramadasAtrasadasSemAfastamento(@Query('equipe') equipe?: string) {
+    return this.policiaisService.findPoliciaisComFeriasAtrasadasSemAfastamento(equipe ?? undefined);
   }
 
   @Get('status')

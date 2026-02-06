@@ -1,4 +1,19 @@
-import type { AfastamentoStatus, Equipe, PolicialStatus } from '../types';
+import type { AfastamentoStatus, PolicialStatus } from '../types';
+import type { FuncaoOption } from '../types';
+
+/** Nome da função que não pode mais ser usada; filtrada das listas de seleção. */
+export const FUNCAO_NAO_INFORMADO_NOME = 'NÃO INFORMADO';
+
+/** Remove a função "NÃO INFORMADO" da lista (não deve ser selecionável). */
+export function funcoesParaSelecao(funcoes: FuncaoOption[]): FuncaoOption[] {
+  return funcoes.filter(
+    (f) => f.nome.toUpperCase().trim() !== FUNCAO_NAO_INFORMADO_NOME,
+  );
+}
+
+export type TabChangeOptions = {
+  preencherCadastro?: { policialId: number; motivoNome: string };
+};
 
 export type TabKey =
   | 'dashboard'

@@ -9,9 +9,8 @@ import type {
   Usuario,
   UsuarioNivelOption,
 } from '../../types';
-import { formatEquipeLabel } from '../../constants';
+import { formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import { formatNome } from '../../utils/dateUtils';
-import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
@@ -155,7 +154,7 @@ export function UsuariosSection({
   }, []);
 
   const funcoesAtivas = useMemo(() => {
-    return funcoes.filter((f) => f.ativo !== false);
+    return funcoesParaSelecao(funcoes).filter((f) => f.ativo !== false);
   }, [funcoes]);
 
 
@@ -365,34 +364,17 @@ export function UsuariosSection({
         equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
       }));
       
-      // Carregar funções do backend para o novo nível
-      const carregarFuncoes = async () => {
-        if (!value) {
-          setFuncoesDisponiveis([]);
-          return;
-        }
-        try {
-          const funcoesFiltradas = await api.listFuncoes(value as number);
-          setFuncoesDisponiveis(funcoesFiltradas);
-          
-          // Verificar se a função atual ainda está disponível para o novo nível
-          setForm((prevForm) => {
-            const funcaoAindaDisponivel = prevForm.funcaoId 
-              ? funcoesFiltradas.some(f => f.id === prevForm.funcaoId)
-              : true;
-            
-            // Se a função não estiver mais disponível, limpar
-            return {
-              ...prevForm,
-              funcaoId: funcaoAindaDisponivel ? prevForm.funcaoId : undefined,
-            };
-          });
-        } catch (err) {
-          console.error('Erro ao carregar funções:', err);
-          setFuncoesDisponiveis([]);
-        }
-      };
-      void carregarFuncoes();
+      // Verificar se a função atual ainda está na lista de funções disponíveis (após troca de nível)
+      const funcoesFiltradas = funcoesParaSelecao(funcoes);
+      setForm((prevForm) => {
+        const funcaoAindaDisponivel = prevForm.funcaoId
+          ? funcoesFiltradas.some(f => f.id === prevForm.funcaoId)
+          : true;
+        return {
+          ...prevForm,
+          funcaoId: funcaoAindaDisponivel ? prevForm.funcaoId : undefined,
+        };
+      });
       return;
     }
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -525,8 +507,7 @@ export function UsuariosSection({
         return {
           ...prev,
           nivelId: (value as number) || 0,
-          // Se não for OPERAÇÕES, definir equipe como null (sem equipe)
-          equipe: isOperacoes ? prev.equipe : undefined,
+          equipe: isOperacoes ? prev.equipe : 'A',
         };
       });
       return;
@@ -560,8 +541,7 @@ export function UsuariosSection({
       confirmarSenha: '',
       perguntaSeguranca: usuario.perguntaSeguranca || '',
       respostaSeguranca: '',
-      // Se for OPERAÇÕES, usar a equipe do usuário (ou 'A' como padrão); caso contrário, usar null (sem equipe)
-      equipe: isOperacoes ? (usuario.equipe ?? 'A') : undefined,
+      equipe: isOperacoes ? (usuario.equipe ?? 'A') : 'A',
       nivelId: nivelId,
       funcaoId: usuario.funcaoId ?? undefined,
     });

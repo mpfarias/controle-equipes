@@ -109,12 +109,12 @@ export interface CreatePolicialInput {
   nome: string;
   matricula: string;
   status: PolicialStatus;
+  funcaoId: number;
   cpf?: string | null;
   dataNascimento?: string | null;
   email?: string | null;
   matriculaComissionadoGdf?: string | null;
   equipe?: Equipe | null;
-  funcaoId?: number;
 }
 
 export interface Afastamento {
@@ -206,6 +206,8 @@ export interface PolicialExtraido {
   funcaoId?: number;
   /** Preenchido quando o arquivo tem coluna situação/Status (ex.: PDF com ASSESSOR -> COMISSIONADO). */
   status?: PolicialStatus;
+  /** true quando a matrícula já existe no sistema; na modal mostra "Policial já cadastrado". */
+  jaCadastrado?: boolean;
 }
 
 export interface ProcessFileResponse {
