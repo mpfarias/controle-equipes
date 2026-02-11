@@ -21,6 +21,9 @@ import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto.js';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
 import { DesativarPolicialDto } from './dto/desativar-policial.dto';
 import { RemoveRestricaoMedicaDto } from './dto/remove-restricao-medica.dto';
+import { CreateRestricaoMedicaDto } from './dto/create-restricao-medica.dto';
+import { UpdateRestricaoMedicaDto } from './dto/update-restricao-medica.dto';
+import { UpdateRestricaoMedicaPolicialDto } from './dto/update-restricao-medica-policial.dto';
 import { CreateStatusDto } from './dto/create-status.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -96,6 +99,28 @@ export class PoliciaisController {
   @Get('restricoes-medicas')
   listRestricoesMedicas() {
     return this.policiaisService.listRestricoesMedicas();
+  }
+
+  @Post('restricoes-medicas')
+  @Roles('ADMINISTRADOR', 'SAD')
+  createRestricaoMedica(@Body() dto: CreateRestricaoMedicaDto, @CurrentUser() user: Usuario) {
+    return this.policiaisService.createRestricaoMedica(dto, user.id);
+  }
+
+  @Patch('restricoes-medicas/:id')
+  @Roles('ADMINISTRADOR', 'SAD')
+  updateRestricaoMedicaOption(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateRestricaoMedicaDto,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.updateRestricaoMedicaOption(id, dto, user.id);
+  }
+
+  @Delete('restricoes-medicas/:id')
+  @Roles('ADMINISTRADOR', 'SAD')
+  deleteRestricaoMedicaOption(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
+    return this.policiaisService.deleteRestricaoMedicaOption(id, user.id);
   }
 
   @Get('ferias-programadas-sem-afastamento')
@@ -224,13 +249,14 @@ export class PoliciaisController {
   @Roles('ADMINISTRADOR', 'SAD')
   updateRestricaoMedica(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { restricaoMedicaId: number | null },
+    @Body() body: UpdateRestricaoMedicaPolicialDto,
     @CurrentUser() user: Usuario,
   ) {
     return this.policiaisService.updateRestricaoMedica(
       id,
-      body.restricaoMedicaId,
+      body.restricaoMedicaId ?? null,
       user.id,
+      body.observacao ?? null,
     );
   }
 

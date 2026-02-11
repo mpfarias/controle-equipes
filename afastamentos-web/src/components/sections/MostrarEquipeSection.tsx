@@ -47,12 +47,14 @@ export function MostrarEquipeSection({
     open: boolean;
     policial: Policial | null;
     restricaoMedicaId: number | null;
+    observacao: string;
     loading: boolean;
     error: string | null;
   }>({
     open: false,
     policial: null,
     restricaoMedicaId: null,
+    observacao: '',
     loading: false,
     error: null,
   });
@@ -1846,7 +1848,8 @@ export function MostrarEquipeSection({
         </table>
 
         {/* Controles de Paginação */}
-        {totalPaginasParaExibir > 1 && (
+        {/* Mostrar sempre que houver registros (mesmo com 1 página) */}
+        {totalParaExibir > 0 && (
           <div style={{ 
             display: 'flex', 
             justifyContent: 'space-between', 
@@ -2254,6 +2257,11 @@ export function MostrarEquipeSection({
                     <Typography variant="body1" sx={{ color: 'error.main', fontWeight: 500 }}>
                       Policial com restrição: {formatNome(viewingPolicial.restricaoMedica.nome)}
                     </Typography>
+                    {viewingPolicial.restricaoMedicaObservacao && (
+                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                        Observação: {viewingPolicial.restricaoMedicaObservacao}
+                      </Typography>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -2621,6 +2629,7 @@ export function MostrarEquipeSection({
                       open: true,
                       policial: viewingPolicial,
                       restricaoMedicaId: viewingPolicial.restricaoMedicaId ?? null,
+                      observacao: viewingPolicial.restricaoMedicaObservacao ?? '',
                       loading: false,
                       error: null,
                     });
@@ -2662,7 +2671,7 @@ export function MostrarEquipeSection({
       {/* Modal de Inserir Restrição Médica */}
       {restricaoModal.open && restricaoModal.policial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => {
-          setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
+          setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, observacao: '', loading: false, error: null });
         }}>
           <Box
             component="div"
@@ -2709,6 +2718,7 @@ export function MostrarEquipeSection({
                       setRestricaoModal((prev) => ({
                         ...prev,
                         restricaoMedicaId: value === '' ? null : parseInt(value, 10),
+                        observacao: value === '' ? '' : prev.observacao,
                       }));
                     }}
                     disabled={restricaoModal.loading || loadingRestricoes}
@@ -2730,6 +2740,28 @@ export function MostrarEquipeSection({
                   </select>
                 )}
               </label>
+              {restricaoModal.restricaoMedicaId !== null && (
+                <label style={{ display: 'block', marginBottom: '16px' }}>
+                  <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Observação</span>
+                  <textarea
+                    value={restricaoModal.observacao}
+                    onChange={(e) => setRestricaoModal((prev) => ({ ...prev, observacao: e.target.value }))}
+                    disabled={restricaoModal.loading}
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      fontSize: '1rem',
+                      border: '1px solid #cbd5e1',
+                      borderRadius: '8px',
+                      backgroundColor: 'white',
+                      resize: 'vertical',
+                      minHeight: '80px',
+                    }}
+                    placeholder="Descreva a observação da restrição (opcional)"
+                  />
+                </label>
+              )}
             </Box>
 
             <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
@@ -2737,7 +2769,7 @@ export function MostrarEquipeSection({
                 type="button"
                 className="secondary"
                 onClick={() => {
-                  setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
+                  setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, observacao: '', loading: false, error: null });
                 }}
                 disabled={restricaoModal.loading}
               >
@@ -2755,6 +2787,9 @@ export function MostrarEquipeSection({
                     const updatedPolicial = await api.updateRestricaoMedicaPolicial(
                       restricaoModal.policial.id,
                       restricaoModal.restricaoMedicaId,
+                      restricaoModal.restricaoMedicaId === null
+                        ? null
+                        : (restricaoModal.observacao?.trim() ? restricaoModal.observacao.trim() : null),
                     );
 
                     // Atualizar o policial na visualização
@@ -2763,7 +2798,7 @@ export function MostrarEquipeSection({
                     // Recarregar lista de policiais
                     await carregarPoliciais(paginaAtual, itensPorPagina);
 
-                    setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, loading: false, error: null });
+                    setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, observacao: '', loading: false, error: null });
                   } catch (err) {
                     setRestricaoModal((prev) => ({
                       ...prev,

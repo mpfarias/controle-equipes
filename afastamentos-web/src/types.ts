@@ -69,6 +69,7 @@ export interface RestricaoMedicaHistorico {
   restricaoMedica: RestricaoMedica;
   dataInicio: string;
   dataFim: string;
+  observacao?: string | null;
   removidoPorId?: number | null;
   removidoPorNome?: string | null;
   createdAt: string;
@@ -88,6 +89,7 @@ export interface Policial {
   funcao?: { id: number; nome: string; descricao?: string | null } | null;
   restricaoMedicaId?: number | null;
   restricaoMedica?: RestricaoMedica | null;
+  restricaoMedicaObservacao?: string | null;
   restricoesMedicasHistorico?: RestricaoMedicaHistorico[];
   fotoUrl?: string | null;
   mesPrevisaoFerias?: number | null;

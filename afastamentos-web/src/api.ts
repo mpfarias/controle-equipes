@@ -719,13 +719,40 @@ export const api = {
     return data;
   },
 
+  async createRestricaoMedicaOption(payload: { nome: string; descricao?: string | null }): Promise<RestricaoMedica> {
+    const data = await request<RestricaoMedica>('/policiais/restricoes-medicas', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateRestricaoMedicaOption(
+    id: number,
+    payload: { nome?: string; descricao?: string | null },
+  ): Promise<RestricaoMedica> {
+    const data = await request<RestricaoMedica>(`/policiais/restricoes-medicas/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteRestricaoMedicaOption(id: number): Promise<void> {
+    await request(`/policiais/restricoes-medicas/${id}`, { method: 'DELETE' });
+    clearCache();
+  },
+
   async updateRestricaoMedicaPolicial(
     id: number,
     restricaoMedicaId: number | null,
+    observacao?: string | null,
   ): Promise<Policial> {
     const data = await request<Policial>(`/policiais/${id}/restricao-medica`, {
       method: 'PATCH',
-      body: JSON.stringify({ restricaoMedicaId }),
+      body: JSON.stringify({ restricaoMedicaId, observacao }),
     });
     clearCache();
     return data;

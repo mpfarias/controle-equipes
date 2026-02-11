@@ -152,6 +152,22 @@ export function AfastamentosSection({
     loading: false,
   });
 
+  const [detalhesAfastamentoModal, setDetalhesAfastamentoModal] = useState<{
+    open: boolean;
+    afastamento: Afastamento | null;
+  }>({
+    open: false,
+    afastamento: null,
+  });
+
+  const handleOpenDetalhesAfastamento = (afastamento: Afastamento) => {
+    setDetalhesAfastamentoModal({ open: true, afastamento });
+  };
+
+  const handleCloseDetalhesAfastamento = () => {
+    setDetalhesAfastamentoModal({ open: false, afastamento: null });
+  };
+
   // Calcular dias automaticamente quando as datas são selecionadas
   const diasCalculados = useMemo(() => {
     if (!calcularPeriodo && form.dataInicio && form.dataFim) {
@@ -742,7 +758,7 @@ export function AfastamentosSection({
       return;
     }
 
-    // Validar se férias não pode ser antes da data atual
+    // Permitir cadastrar férias em período anterior à data atual (regra alterada)
     if (motivoNome === 'Férias') {
       // Verificar se o policial tem previsão de férias cadastrada
       const policialSelecionado = policiais.find((p) => p.id.toString() === form.policialId);
@@ -752,16 +768,6 @@ export function AfastamentosSection({
       }
       if (policialSelecionado.mesPrevisaoFerias == null) {
         setError('Não é possível cadastrar férias para um policial que não possui mês de previsão de férias definido. É necessário cadastrar o mês de previsão de férias antes de registrar o afastamento.');
-        return;
-      }
-      
-      const dataInicio = new Date(form.dataInicio);
-      const hoje = new Date();
-      hoje.setHours(0, 0, 0, 0);
-      dataInicio.setHours(0, 0, 0, 0);
-      
-      if (dataInicio < hoje) {
-        setError('A data de início das férias não pode ser anterior à data atual.');
         return;
       }
     }
@@ -1653,6 +1659,7 @@ export function AfastamentosSection({
             <thead>
               <tr>
                 <th>Policial</th>
+                <th>Matrícula</th>
                 <th>Motivo</th>
                 <th>SEI nº</th>
                 <th>Período</th>
@@ -1664,14 +1671,27 @@ export function AfastamentosSection({
               {afastamentosFiltrados.map((afastamento) => (
                 <tr key={afastamento.id}>
                   <td>
-                    <div>{afastamento.policial.nome}</div>
-                    <small>{afastamento.policial.matricula}</small>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDetalhesAfastamento(afastamento)}
+                      title="Clique para ver detalhes do afastamento"
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        margin: 0,
+                        color: '#3b82f6',
+                        cursor: 'pointer',
+                        fontWeight: 600,
+                        textAlign: 'left',
+                      }}
+                    >
+                      {afastamento.policial.nome}
+                    </button>
                   </td>
+                  <td>{afastamento.policial.matricula}</td>
                   <td>
                     <div>{formatNome(afastamento.motivo.nome)}</div>
-                    {afastamento.descricao && (
-                      <small>{afastamento.descricao}</small>
-                    )}
                   </td>
                   <td>{afastamento.seiNumero}</td>
                   <td>
@@ -1774,6 +1794,126 @@ export function AfastamentosSection({
           </table>
         )}
       </div>
+
+      {/* Modal Detalhes do afastamento */}
+      <Dialog
+        open={detalhesAfastamentoModal.open}
+        onClose={handleCloseDetalhesAfastamento}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12)',
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            color: 'white',
+            py: 2.5,
+            px: 3,
+          }}
+        >
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" sx={{ fontWeight: 600 }}>
+              Detalhes do afastamento
+            </Typography>
+            <IconButton
+              onClick={handleCloseDetalhesAfastamento}
+              size="small"
+              sx={{
+                color: 'white',
+                '&:hover': {
+                  backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                },
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {detalhesAfastamentoModal.afastamento && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  Policial
+                </Typography>
+                <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                  {detalhesAfastamentoModal.afastamento.policial.nome}
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                  Matrícula: {detalhesAfastamentoModal.afastamento.policial.matricula}
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                  Equipe: {formatEquipeLabel(detalhesAfastamentoModal.afastamento.policial.equipe)}
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                  Função: {detalhesAfastamentoModal.afastamento.policial.funcao?.nome ?? '—'}
+                </Typography>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  Motivo
+                </Typography>
+                <Typography variant="body1">
+                  {formatNome(detalhesAfastamentoModal.afastamento.motivo.nome)}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                    SEI nº
+                  </Typography>
+                  <Typography variant="body1">
+                    {detalhesAfastamentoModal.afastamento.seiNumero}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                    Status
+                  </Typography>
+                  <Chip
+                    label={STATUS_LABEL[detalhesAfastamentoModal.afastamento.status]}
+                    size="small"
+                    sx={{ fontWeight: 700 }}
+                  />
+                </Box>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  Período
+                </Typography>
+                <Typography variant="body1">
+                  {formatPeriodo(
+                    detalhesAfastamentoModal.afastamento.dataInicio,
+                    detalhesAfastamentoModal.afastamento.dataFim,
+                  )}
+                </Typography>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  Observação
+                </Typography>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {(detalhesAfastamentoModal.afastamento.descricao ?? '').trim() || '—'}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #e9ecef' }}>
+          <Button onClick={handleCloseDetalhesAfastamento} variant="contained">
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
         </>
       )}
 
@@ -1839,7 +1979,7 @@ export function AfastamentosSection({
                 label="Mês"
                 value={mesFiltroPrevisao === '' ? '' : mesFiltroPrevisao}
                 onChange={(e) => {
-                  const v = e.target.value;
+                  const v = String(e.target.value ?? '');
                   setMesFiltroPrevisao(v === '' ? '' : Number(v));
                   setPaginaAtualPrevisao(1);
                 }}

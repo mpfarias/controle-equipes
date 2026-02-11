@@ -22,7 +22,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import BlockIcon from '@mui/icons-material/Block';
 import SearchIcon from '@mui/icons-material/Search';
-import type { EquipeOption, FuncaoOption, PerguntaSegurancaOption, Usuario, MotivoAfastamentoOption, TipoRestricaoAfastamento, StatusPolicialOption } from '../../types';
+import type { EquipeOption, FuncaoOption, PerguntaSegurancaOption, Usuario, MotivoAfastamentoOption, TipoRestricaoAfastamento, StatusPolicialOption, RestricaoMedica } from '../../types';
 import { api } from '../../api';
 import { formatNome } from '../../utils/dateUtils';
 import { handleKeyDownNormalized } from '../../utils/inputUtils';
@@ -34,7 +34,7 @@ interface CadastroUsuariosSectionProps {
   permissoes?: PermissoesPorTela | null;
 }
 
-type TipoRemocao = 'equipe' | 'funcao' | 'pergunta' | 'motivo' | 'restricao' | 'status';
+type TipoRemocao = 'equipe' | 'funcao' | 'pergunta' | 'motivo' | 'restricao' | 'restricao-servico' | 'status';
 
 export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsuariosSectionProps) {
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
@@ -42,12 +42,14 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
   const [perguntas, setPerguntas] = useState<PerguntaSegurancaOption[]>([]);
   const [motivos, setMotivos] = useState<MotivoAfastamentoOption[]>([]);
   const [restricoes, setRestricoes] = useState<TipoRestricaoAfastamento[]>([]);
+  const [restricoesServico, setRestricoesServico] = useState<RestricaoMedica[]>([]);
   const [status, setStatus] = useState<StatusPolicialOption[]>([]);
   const [novoEquipe, setNovoEquipe] = useState({ nome: '', descricao: '' });
   const [novaFuncao, setNovaFuncao] = useState({ nome: '', descricao: '' });
   const [novaPergunta, setNovaPergunta] = useState('');
   const [novoMotivo, setNovoMotivo] = useState({ nome: '', descricao: '' });
   const [novaRestricao, setNovaRestricao] = useState({ nome: '', descricao: '' });
+  const [novaRestricaoServico, setNovaRestricaoServico] = useState({ nome: '', descricao: '' });
   const [novoStatus, setNovoStatus] = useState({ nome: '', descricao: '' });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -68,16 +70,18 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
   const [edicaoPergunta, setEdicaoPergunta] = useState('');
   const [edicaoMotivo, setEdicaoMotivo] = useState({ nome: '', descricao: '' });
   const [edicaoRestricao, setEdicaoRestricao] = useState({ nome: '', descricao: '' });
+  const [edicaoRestricaoServico, setEdicaoRestricaoServico] = useState({ nome: '', descricao: '' });
   const [edicaoStatus, setEdicaoStatus] = useState({ nome: '', descricao: '' });
 
   const carregarDados = useCallback(async () => {
     try {
-      const [equipesData, funcoesData, perguntasData, motivosData, restricoesData, statusData] = await Promise.all([
+      const [equipesData, funcoesData, perguntasData, motivosData, restricoesData, restricoesServicoData, statusData] = await Promise.all([
         api.listEquipes(),
         api.listFuncoes(),
         api.listPerguntasSeguranca(),
         api.listMotivos(),
         api.listTiposRestricaoAfastamento(),
+        api.listRestricoesMedicas(),
         api.listStatusPolicial(),
       ]);
       setEquipes(equipesData);
@@ -85,6 +89,7 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
       setPerguntas(perguntasData);
       setMotivos(motivosData);
       setRestricoes(restricoesData);
+      setRestricoesServico(restricoesServicoData);
       setStatus(statusData);
       setError(null);
     } catch (err) {
@@ -115,6 +120,10 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
   const restricoesOrdenadas = useMemo(() => {
     return [...restricoes].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
   }, [restricoes]);
+
+  const restricoesServicoOrdenadas = useMemo(() => {
+    return [...restricoesServico].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [restricoesServico]);
 
   const statusOrdenados = useMemo(() => {
     // Filtrar o status "DESATIVADO" da lista, pois é automático do sistema
@@ -181,6 +190,18 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
     );
   }, [restricoesOrdenadas, filtroTexto]);
 
+  const restricoesServicoFiltradas = useMemo(() => {
+    if (!filtroTexto.trim()) {
+      return restricoesServicoOrdenadas;
+    }
+    const termo = filtroTexto.trim().toLowerCase();
+    return restricoesServicoOrdenadas.filter(
+      (restricao) =>
+        restricao.nome.toLowerCase().includes(termo) ||
+        (restricao.descricao ?? '').toLowerCase().includes(termo),
+    );
+  }, [restricoesServicoOrdenadas, filtroTexto]);
+
   const statusFiltrados = useMemo(() => {
     if (!filtroTexto.trim()) {
       return statusOrdenados;
@@ -204,9 +225,12 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
       return 'Buscar motivo';
     }
     if (abaAtiva === 4) {
-      return 'Buscar restrição';
+      return 'Buscar restrição de afastamento';
     }
     if (abaAtiva === 5) {
+      return 'Buscar restrição de serviço';
+    }
+    if (abaAtiva === 6) {
       return 'Buscar status';
     }
     return 'Buscar equipe';
@@ -261,6 +285,10 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
         if (itemSelecionado.tipo === 'restricao') {
           await api.deleteTipoRestricaoAfastamento(itemSelecionado.id);
           setSuccess(`Tipo de restrição ${itemSelecionado.label} removido com sucesso.`);
+        }
+        if (itemSelecionado.tipo === 'restricao-servico') {
+          await api.deleteRestricaoMedicaOption(itemSelecionado.id);
+          setSuccess(`Restrição de serviço ${itemSelecionado.label} removida com sucesso.`);
         }
         if (itemSelecionado.tipo === 'status') {
           await api.deleteStatusPolicial(itemSelecionado.id);
@@ -374,6 +402,25 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
     }
   }, [novaRestricao, carregarDados]);
 
+  const criarRestricaoServico = useCallback(async () => {
+    if (!novaRestricaoServico.nome.trim()) {
+      setError('Informe o nome da restrição de serviço.');
+      return;
+    }
+    try {
+      await api.createRestricaoMedicaOption({
+        nome: novaRestricaoServico.nome.trim(),
+        descricao: novaRestricaoServico.descricao.trim() || null,
+      });
+      setNovaRestricaoServico({ nome: '', descricao: '' });
+      setSuccess('Restrição de serviço criada com sucesso.');
+      setError(null);
+      await carregarDados();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Não foi possível criar a restrição de serviço.');
+    }
+  }, [novaRestricaoServico, carregarDados]);
+
   const criarStatus = useCallback(async () => {
     if (!novoStatus.nome.trim()) {
       setError('Informe o nome do status.');
@@ -422,6 +469,10 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
         const restricao = item as TipoRestricaoAfastamento;
         setEdicaoRestricao({ nome: restricao.nome, descricao: restricao.descricao ?? '' });
       }
+      if (tipo === 'restricao-servico') {
+        const restricao = item as unknown as RestricaoMedica;
+        setEdicaoRestricaoServico({ nome: restricao.nome, descricao: restricao.descricao ?? '' });
+      }
       if (tipo === 'status') {
         const statusItem = item as StatusPolicialOption;
         setEdicaoStatus({ nome: statusItem.nome, descricao: statusItem.descricao ?? '' });
@@ -439,6 +490,7 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
     setEdicaoPergunta('');
     setEdicaoMotivo({ nome: '', descricao: '' });
     setEdicaoRestricao({ nome: '', descricao: '' });
+    setEdicaoRestricaoServico({ nome: '', descricao: '' });
     setEdicaoStatus({ nome: '', descricao: '' });
   }, []);
 
@@ -499,6 +551,17 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
         });
         setSuccess(`Tipo de restrição ${edicaoRestricao.nome.trim()} atualizado com sucesso.`);
       }
+      if (edicaoTipo === 'restricao-servico') {
+        if (!edicaoRestricaoServico.nome.trim()) {
+          setError('Informe o nome da restrição de serviço.');
+          return;
+        }
+        await api.updateRestricaoMedicaOption(edicaoId, {
+          nome: edicaoRestricaoServico.nome.trim(),
+          descricao: edicaoRestricaoServico.descricao.trim() || null,
+        });
+        setSuccess(`Restrição de serviço ${edicaoRestricaoServico.nome.trim()} atualizada com sucesso.`);
+      }
       if (edicaoTipo === 'status') {
         if (!edicaoStatus.nome.trim()) {
           setError('Informe o nome do status.');
@@ -529,6 +592,7 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
     edicaoPergunta,
     edicaoMotivo,
     edicaoRestricao,
+    edicaoRestricaoServico,
     edicaoStatus,
     carregarDados,
     fecharEdicao,
@@ -584,7 +648,8 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
           <Tab label={`Funções (${funcoesOrdenadas.length})`} />
           <Tab label={`Perguntas (${perguntasOrdenadas.length})`} />
           <Tab label={`Motivos (${motivosOrdenados.length})`} />
-          <Tab label={`Restrições (${restricoesOrdenadas.length})`} />
+          <Tab label={`Restrições de afastamentos (${restricoesOrdenadas.length})`} />
+          <Tab label={`Restrições de serviço (${restricoesServicoOrdenadas.length})`} />
           <Tab label={`Status (${statusOrdenados.length})`} />
         </Tabs>
         <Box padding={2} display="flex" flexDirection="column" gap={2}>
@@ -999,6 +1064,75 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
               <Box display="grid" gap={2} gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))">
                 <TextField
                   label="Nome"
+                  value={novaRestricaoServico.nome}
+                  onChange={(event) => {
+                    const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+                    setNovaRestricaoServico((prev) => ({ ...prev, nome: normalized }));
+                  }}
+                  size="small"
+                />
+                <TextField
+                  label="Descrição"
+                  value={novaRestricaoServico.descricao}
+                  onChange={(event) => {
+                    const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+                    setNovaRestricaoServico((prev) => ({ ...prev, descricao: normalized }));
+                  }}
+                  size="small"
+                />
+                <Box display="flex" alignItems="center">
+                  <Button variant="contained" onClick={() => void criarRestricaoServico()}>
+                    Adicionar restrição de serviço
+                  </Button>
+                </Box>
+              </Box>
+              <List dense>
+                {restricoesServicoFiltradas.map((restricao) => (
+                  <ListItem
+                    key={restricao.id}
+                    secondaryAction={
+                      <Box display="flex" alignItems="center" gap={0.5}>
+                        {canEdit(permissoes, 'gestao-sistema') && (
+                          <Tooltip title="Editar restrição de serviço" arrow>
+                            <IconButton
+                              edge="end"
+                              aria-label="Editar restrição de serviço"
+                              onClick={() => abrirEdicao('restricao-servico', restricao as any)}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canExcluir(permissoes, 'gestao-sistema') && (
+                          <Tooltip title="Excluir restrição de serviço" arrow>
+                            <IconButton
+                              edge="end"
+                              aria-label="Excluir restrição de serviço"
+                              color="error"
+                              onClick={() => abrirConfirmacao('excluir', 'restricao-servico', restricao.id, restricao.nome)}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    }
+                  >
+                    <ListItemText
+                      primary={formatNome(restricao.nome)}
+                      secondary={restricao.descricao || undefined}
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            </>
+          )}
+
+          {abaAtiva === 6 && (
+            <>
+              <Box display="grid" gap={2} gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))">
+                <TextField
+                  label="Nome"
                   value={novoStatus.nome}
                   onChange={(event) => {
                     const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
@@ -1103,6 +1237,7 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
             {edicaoTipo === 'pergunta' && 'Editar pergunta'}
             {edicaoTipo === 'motivo' && 'Editar motivo'}
             {edicaoTipo === 'restricao' && 'Editar tipo de restrição'}
+            {edicaoTipo === 'restricao-servico' && 'Editar restrição de serviço'}
             {edicaoTipo === 'status' && 'Editar status'}
           </Typography>
         </DialogTitle>
@@ -1202,6 +1337,28 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
                 onChange={(event) => {
                   const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
                   setEdicaoRestricao((prev) => ({ ...prev, descricao: normalized }));
+                }}
+                size="small"
+              />
+            </>
+          )}
+          {edicaoTipo === 'restricao-servico' && (
+            <>
+              <TextField
+                label="Nome"
+                value={edicaoRestricaoServico.nome}
+                onChange={(event) => {
+                  const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+                  setEdicaoRestricaoServico((prev) => ({ ...prev, nome: normalized }));
+                }}
+                size="small"
+              />
+              <TextField
+                label="Descrição"
+                value={edicaoRestricaoServico.descricao}
+                onChange={(event) => {
+                  const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+                  setEdicaoRestricaoServico((prev) => ({ ...prev, descricao: normalized }));
                 }}
                 size="small"
               />

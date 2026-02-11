@@ -70,6 +70,31 @@ export class AfastamentosService {
     };
   }
 
+  /**
+   * Regra de negócio (COPOM): restrições de férias NÃO devem bloquear policiais que
+   * têm mês de férias programado/confirmado para o mesmo mês da restrição.
+   *
+   * Critério: existir registro em FeriasPolicial (policialId+ano) cujo dataInicio esteja no mesmo mês/ano
+   * da data de início solicitada (a data de início está dentro da restrição).
+   */
+  private async policialTemFeriasProgramadasNoMes(policialId: number, dataInicio: Date): Promise<boolean> {
+    const ano = dataInicio.getFullYear();
+    const mes = dataInicio.getMonth() + 1;
+    const ferias = await this.prisma.feriasPolicial.findUnique({
+      where: { policialId_ano: { policialId, ano } },
+      select: { dataInicio: true },
+    });
+    if (!ferias?.dataInicio) {
+      return false;
+    }
+    const mesProgramado = ferias.dataInicio.getMonth() + 1;
+    return mesProgramado === mes;
+  }
+
+  private async deveIgnorarRestricaoParaFerias(policialId: number, dataInicio: Date): Promise<boolean> {
+    return this.policialTemFeriasProgramadasNoMes(policialId, dataInicio);
+  }
+
   private async assertPodeGerenciarAfastamentos(userId?: number): Promise<void> {
     if (!userId) {
       throw new ForbiddenException('Usuário inválido.');
@@ -311,17 +336,7 @@ export class AfastamentosService {
     dataFim: Date | null,
     excluirAfastamentoId?: number,
   ): Promise<void> {
-    // Validar se férias não pode ser antes da data atual
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-    const dataInicioNormalizada = new Date(dataInicio);
-    dataInicioNormalizada.setHours(0, 0, 0, 0);
-
-    if (dataInicioNormalizada < hoje) {
-      throw new BadRequestException(
-        'A data de início das férias não pode ser anterior à data atual.',
-      );
-    }
+    // Regra removida: permitir cadastrar/editar férias com data de início anterior à data atual.
 
     // Para férias, data fim é obrigatória
     if (!dataFim) {
@@ -782,8 +797,8 @@ export class AfastamentosService {
     );
 
     // Validar restrições de afastamento
-    // Verificar apenas se o início das férias está dentro de uma restrição
-    // A restrição deve bloquear apenas o início das férias, não qualquer sobreposição
+    // Verificar apenas se o início está dentro de uma restrição
+    // (Para Férias, a restrição deve bloquear apenas o início, não qualquer sobreposição)
     const motivo = await this.prisma.motivoAfastamento.findUnique({
       where: { id: data.motivoId },
     });
@@ -794,12 +809,26 @@ export class AfastamentosService {
     );
 
     if (restricao.bloqueado && restricao.restricao) {
-      const motivoNome = motivo?.nome || 'este tipo de afastamento';
-      const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
-      
-      throw new BadRequestException(
-        `Não é possível cadastrar ${motivoNome} com início em ${new Date(dataInicio).toLocaleDateString('pt-BR')}. Esta data está dentro do período de restrição "${restricaoNome}" (${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')}).`,
-      );
+      // Exceção: se for Férias e o policial tiver férias programadas/confirmadas para este mês,
+      // a restrição não deve bloquear.
+      if ((motivo?.nome ?? '').toLowerCase() === 'férias') {
+        const ignoraRestricao = await this.deveIgnorarRestricaoParaFerias(data.policialId, dataInicio);
+        if (ignoraRestricao) {
+          // segue o fluxo normalmente (não bloqueia)
+        } else {
+          const motivoNome = motivo?.nome || 'este tipo de afastamento';
+          const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+          throw new BadRequestException(
+            `Não é possível cadastrar ${motivoNome} com início em ${new Date(dataInicio).toLocaleDateString('pt-BR')}. Esta data está dentro do período de restrição "${restricaoNome}" (${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')}).`,
+          );
+        }
+      } else {
+        const motivoNome = motivo?.nome || 'este tipo de afastamento';
+        const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+        throw new BadRequestException(
+          `Não é possível cadastrar ${motivoNome} com início em ${new Date(dataInicio).toLocaleDateString('pt-BR')}. Esta data está dentro do período de restrição "${restricaoNome}" (${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')}).`,
+        );
+      }
     }
 
     const created = await this.prisma.afastamento.create({
@@ -1041,23 +1070,36 @@ export class AfastamentosService {
     );
 
     // Validar restrições de afastamento
-    const restricao = await this.restricoesAfastamentoService.verificarRestricaoPeriodo(
-      dataInicioFinal,
-      dataFimFinal,
-      motivoIdFinal,
-    );
+    // Para Férias: validar somente pela data de início (não por sobreposição de período)
+    const motivoFinal = await this.prisma.motivoAfastamento.findUnique({
+      where: { id: motivoIdFinal },
+      select: { nome: true },
+    });
+    const motivoFinalEhFerias = (motivoFinal?.nome ?? '').toLowerCase() === 'férias';
+
+    const restricao = motivoFinalEhFerias
+      ? await this.restricoesAfastamentoService.verificarRestricao(dataInicioFinal, motivoIdFinal)
+      : await this.restricoesAfastamentoService.verificarRestricaoPeriodo(dataInicioFinal, dataFimFinal, motivoIdFinal);
 
     if (restricao.bloqueado && restricao.restricao) {
-      // Buscar o nome do motivo para a mensagem de erro
-      const motivo = await this.prisma.motivoAfastamento.findUnique({
-        where: { id: motivoIdFinal },
-      });
-      const motivoNome = motivo?.nome || 'este tipo de afastamento';
-      const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
-      
-      throw new BadRequestException(
-        `Não é possível atualizar o afastamento (${motivoNome}) para o período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
-      );
+      // Exceção: se for Férias e o policial tiver férias programadas/confirmadas para este mês,
+      // a restrição não deve bloquear.
+      if (motivoFinalEhFerias) {
+        const ignoraRestricao = await this.deveIgnorarRestricaoParaFerias(policialIdFinal, dataInicioFinal);
+        if (!ignoraRestricao) {
+          const motivoNome = motivoFinal?.nome || 'este tipo de afastamento';
+          const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+          throw new BadRequestException(
+            `Não é possível atualizar o afastamento (${motivoNome}) para o período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
+          );
+        }
+      } else {
+        const motivoNome = motivoFinal?.nome || 'este tipo de afastamento';
+        const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
+        throw new BadRequestException(
+          `Não é possível atualizar o afastamento (${motivoNome}) para o período de ${new Date(restricao.restricao.dataInicio).toLocaleDateString('pt-BR')} a ${new Date(restricao.restricao.dataFim).toLocaleDateString('pt-BR')} devido à restrição "${restricaoNome}".`,
+        );
+      }
     }
 
     const updateData: Prisma.AfastamentoUpdateInput = {

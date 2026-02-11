@@ -21,6 +21,7 @@ model Policial {
   funcao                     Funcao?                    @relation(fields: [funcaoId], references: [id])
   restricaoMedicaId          Int?
   restricaoMedica            RestricaoMedica?           @relation(fields: [restricaoMedicaId], references: [id])
+  restricaoMedicaObservacao  String?
   restricoesMedicasHistorico RestricaoMedicaHistorico[]
   fotoUrl                    String?
   ferias                     FeriasPolicial[]
@@ -250,6 +251,7 @@ model RestricaoMedicaHistorico {
   restricaoMedica   RestricaoMedica @relation(fields: [restricaoMedicaId], references: [id])
   dataInicio        DateTime // Quando a restrição foi colocada
   dataFim           DateTime // Quando a restrição foi removida
+  observacao        String?
   removidoPorId     Int?
   removidoPorNome   String?
   createdAt         DateTime        @default(now())

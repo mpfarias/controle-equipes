@@ -8,6 +8,8 @@ import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto.js';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
 import { DesativarPolicialDto } from './dto/desativar-policial.dto';
+import { CreateRestricaoMedicaDto } from './dto/create-restricao-medica.dto';
+import { UpdateRestricaoMedicaDto } from './dto/update-restricao-medica.dto';
 import { CreateStatusDto } from './dto/create-status.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import * as bcrypt from 'bcryptjs';
@@ -1366,10 +1368,127 @@ export class PoliciaisService {
     });
   }
 
+  async createRestricaoMedica(
+    data: CreateRestricaoMedicaDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const nome = data.nome.trim();
+    const descricao = data.descricao?.trim() || null;
+
+    const existente = await this.prisma.restricaoMedica.findUnique({
+      where: { nome },
+    });
+    if (existente) {
+      throw new BadRequestException(`Já existe uma restrição de serviço com o nome "${nome}".`);
+    }
+
+    const created = await this.prisma.restricaoMedica.create({
+      data: { nome, descricao },
+    });
+
+    await this.audit.record({
+      entity: 'RestricaoMedica',
+      entityId: created.id,
+      action: AuditAction.CREATE,
+      actor,
+      after: created,
+    });
+
+    return created;
+  }
+
+  async updateRestricaoMedicaOption(
+    id: number,
+    data: UpdateRestricaoMedicaDto,
+    responsavelId?: number,
+  ): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.restricaoMedica.findUnique({
+      where: { id },
+    });
+    if (!before) {
+      throw new NotFoundException(`Restrição de serviço ${id} não encontrada.`);
+    }
+
+    if (data.nome && data.nome.trim() !== before.nome) {
+      const existente = await this.prisma.restricaoMedica.findUnique({
+        where: { nome: data.nome.trim() },
+      });
+      if (existente) {
+        throw new BadRequestException(`Já existe uma restrição de serviço com o nome "${data.nome.trim()}".`);
+      }
+    }
+
+    const updateData: Prisma.RestricaoMedicaUpdateInput = {};
+    if (data.nome !== undefined) {
+      updateData.nome = data.nome.trim();
+    }
+    if (data.descricao !== undefined) {
+      updateData.descricao = data.descricao?.trim() || null;
+    }
+
+    const updated = await this.prisma.restricaoMedica.update({
+      where: { id },
+      data: updateData,
+    });
+
+    await this.audit.record({
+      entity: 'RestricaoMedica',
+      entityId: updated.id,
+      action: AuditAction.UPDATE,
+      actor,
+      before,
+      after: updated,
+    });
+
+    return updated;
+  }
+
+  async deleteRestricaoMedicaOption(id: number, responsavelId?: number): Promise<void> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const before = await this.prisma.restricaoMedica.findUnique({
+      where: { id },
+      include: {
+        policiais: { select: { id: true }, take: 1 },
+        historico: { select: { id: true }, take: 1 },
+      },
+    });
+    if (!before) {
+      throw new NotFoundException(`Restrição de serviço ${id} não encontrada.`);
+    }
+
+    if (before.policiais.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir a restrição de serviço "${before.nome}" pois existem policiais cadastrados com esta restrição.`,
+      );
+    }
+
+    if (before.historico.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir a restrição de serviço "${before.nome}" pois existe histórico vinculado.`,
+      );
+    }
+
+    await this.prisma.restricaoMedica.delete({ where: { id } });
+
+    await this.audit.record({
+      entity: 'RestricaoMedica',
+      entityId: id,
+      action: AuditAction.DELETE,
+      actor,
+      before,
+    });
+  }
+
   async updateRestricaoMedica(
     id: number,
     restricaoMedicaId: number | null,
     responsavelId?: number,
+    observacao?: string | null,
   ): Promise<PolicialResponse> {
     const actor = await this.audit.resolveActor(responsavelId);
 
@@ -1400,6 +1519,8 @@ export class PoliciaisService {
         : restricaoMedicaId === null 
           ? { disconnect: true }
           : undefined,
+      restricaoMedicaObservacao:
+        restricaoMedicaId === null ? null : (observacao?.trim() ? observacao.trim() : null),
       updatedById: actor?.id ?? null,
       updatedByName: actor?.nome ?? null,
     };
@@ -1493,6 +1614,7 @@ export class PoliciaisService {
         restricaoMedicaId: before.restricaoMedicaId!,
         dataInicio: before.restricaoMedicaId ? before.updatedAt : new Date(),
         dataFim: new Date(),
+        observacao: before.restricaoMedicaObservacao ?? null,
         removidoPorId: actor.id,
         removidoPorNome: actor.nome,
       },
@@ -1501,6 +1623,7 @@ export class PoliciaisService {
     // Remover a restrição do policial
     const updateData: Prisma.PolicialUpdateInput = {
       restricaoMedica: { disconnect: true },
+      restricaoMedicaObservacao: null,
       updatedById: actor.id,
       updatedByName: actor.nome,
     };
