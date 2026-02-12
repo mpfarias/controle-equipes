@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario, EquipeOption } from '../../types';
+import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario, EquipeOption, HorarioSvg } from '../../types';
 import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, STATUS_LABEL, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
+import {
+  SVG_INTERVALO_ESCALAS_HORAS,
+  SVG_INTERVALO_EXPEDIENTE_HORAS,
+  ESCALA_DIA_INICIO,
+  ESCALA_DIA_FIM,
+  ESCALA_NOITE_INICIO,
+  ESCALA_NOITE_FIM,
+  EXPEDIENTE_INICIO,
+  EXPEDIENTE_FIM,
+} from '../../constants/svgRegras';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from '@mui/material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack } from '@mui/material';
 import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -127,6 +137,29 @@ export function MostrarEquipeSection({
   const [loadingEfetivo, setLoadingEfetivo] = useState(false);
   const [funcaoExpedienteId, setFuncaoExpedienteId] = useState<number | null>(null);
   const [modalEfetivoOpen, setModalEfetivoOpen] = useState(false);
+  const [dataSvg, setDataSvg] = useState<string>('');
+  const [horarioSvg, setHorarioSvg] = useState<string>('');
+  const [horariosSvg, setHorariosSvg] = useState<HorarioSvg[]>([]);
+  const [listaSvg, setListaSvg] = useState<Policial[]>([]);
+  const [modalListaSvgOpen, setModalListaSvgOpen] = useState(false);
+  const [loadingListaSvg, setLoadingListaSvg] = useState(false);
+  const [loadingHorariosSvg, setLoadingHorariosSvg] = useState(false);
+  const [horaInicioNovo, setHoraInicioNovo] = useState<string>('');
+  const [salvandoHorarioSvg, setSalvandoHorarioSvg] = useState(false);
+
+  // Hora fim = hora início + 8 horas (SVG sempre 8h), sempre minuto 00
+  const horaFimNovo = useMemo(() => {
+    if (!horaInicioNovo) return '';
+    const [h, m] = horaInicioNovo.split(':').map(Number);
+    const totalMin = (h * 60 + (m || 0)) + 8 * 60;
+    const newH = Math.floor(totalMin / 60) % 24;
+    return `${String(newH).padStart(2, '0')}:00`;
+  }, [horaInicioNovo]);
+
+  const horariosSvgOrdenados = useMemo(
+    () => [...horariosSvg].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio)),
+    [horariosSvg],
+  );
   
   // Verificar se o usuário é do nível Cpmulher
   const usuarioEhCpmulher = useMemo(() => {
@@ -174,6 +207,203 @@ export function MostrarEquipeSection({
     void buscarFuncoes();
   }, [usuarioEhCpmulher]);
 
+  // Carregar horários SVG quando a aba SVG estiver ativa
+  useEffect(() => {
+    if (tabAtiva !== 2) return;
+    let cancelled = false;
+    setLoadingHorariosSvg(true);
+    api.listHorariosSvg()
+      .then((data) => {
+        if (!cancelled) setHorariosSvg(data);
+      })
+      .catch(() => {
+        if (!cancelled) setHorariosSvg([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHorariosSvg(false);
+      });
+    return () => { cancelled = true; };
+  }, [tabAtiva, refreshKey]);
+
+  const handleGravarHorarioSvg = useCallback(async () => {
+    if (!horaInicioNovo || !horaFimNovo) return;
+    setSalvandoHorarioSvg(true);
+    try {
+      const criado = await api.createHorarioSvg({
+        horaInicio: horaInicioNovo,
+        horaFim: horaFimNovo,
+      });
+      setHorariosSvg((prev) => [...prev, criado]);
+      setHoraInicioNovo('');
+      setHorarioSvg(String(criado.id));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao gravar horário';
+      setError(msg);
+    } finally {
+      setSalvandoHorarioSvg(false);
+    }
+  }, [horaInicioNovo, horaFimNovo]);
+
+  const handleExcluirHorarioSvg = useCallback(async (id: number) => {
+    try {
+      await api.deleteHorarioSvg(id);
+      setHorariosSvg((prev) => prev.filter((h) => h.id !== id));
+      if (horarioSvg === String(id)) setHorarioSvg('');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao excluir horário';
+      setError(msg);
+    }
+  }, [horarioSvg]);
+
+  const handleGerarListaSvg = useCallback(async () => {
+    if (!dataSvg || !horarioSvg) return;
+
+    const horarioSelecionado = horariosSvg.find((h) => String(h.id) === horarioSvg);
+    if (!horarioSelecionado) return;
+
+    const horaInicioSvg = horarioSelecionado.horaInicio;
+    const horaFimSvg = horarioSelecionado.horaFim;
+
+    /**
+     * Regras SVG (svgRegras.ts):
+     * IMPEDIMENTOS: afastamento, restrição médica, DESATIVADO, COMISSIONADO, PTTC
+     * INTERVALOS: 6h entre escalas e SVG; 1h entre expediente e SVG
+     * Escala dia: 07-19 | Escala noite: 19-07 | Expediente: 07-15
+     */
+
+    setLoadingListaSvg(true);
+    setError(null);
+    setListaSvg([]);
+
+    try {
+      const [anoStr, mesStr, diaStr] = dataSvg.split('-');
+      const ano = Number(anoStr);
+      const mes = Number(mesStr) - 1;
+      const dia = Number(diaStr);
+      const dataSelecionada = new Date(ano, mes, dia);
+      const dataSelecionadaStr = `${anoStr}-${mesStr}-${String(dia).padStart(2, '0')}`;
+
+      const timeToMin = (s: string) => {
+        const [h, m] = s.split(':').map(Number);
+        return (h ?? 0) * 60 + (m ?? 0);
+      };
+
+      const rangesOverlap = (aStart: number, aEnd: number, bStart: number, bEnd: number): boolean => {
+        const norm = (s: number, e: number) => {
+          if (e >= s) return [[s, e]] as [number, number][];
+          return [[s, 24 * 60], [0, e]] as [number, number][];
+        };
+        const aRanges = norm(aStart, aEnd);
+        const bRanges = norm(bStart, bEnd);
+        for (const [as, ae] of aRanges) {
+          for (const [bs, be] of bRanges) {
+            if (as < be && ae > bs) return true;
+          }
+        }
+        return false;
+      };
+
+      const svgStart = timeToMin(horaInicioSvg);
+      let svgEnd = timeToMin(horaFimSvg);
+      if (svgEnd <= svgStart) svgEnd += 24 * 60;
+
+      const data = await api.listPoliciaisPaginated({
+        page: 1,
+        pageSize: 1000,
+        includeAfastamentos: true,
+        includeRestricoes: true,
+      });
+      const todosPoliciais = data.Policiales;
+
+      const afastamentos = await api.listAfastamentos({
+        dataInicio: dataSelecionadaStr,
+        dataFim: dataSelecionadaStr,
+        includePolicialFuncao: false,
+      });
+
+      const afastamentoAtivoNaData = (af: Afastamento) => {
+        const afInicioStr = typeof af.dataInicio === 'string' ? af.dataInicio.split('T')[0] : new Date(af.dataInicio).toISOString().split('T')[0];
+        const [anoAfInicio, mesAfInicio, diaAfInicio] = afInicioStr.split('-').map(Number);
+        const afInicioTimestamp = new Date(anoAfInicio, mesAfInicio - 1, diaAfInicio).getTime();
+        let afFimTimestamp: number | null = null;
+        if (af.dataFim) {
+          const afFimStr = typeof af.dataFim === 'string' ? af.dataFim.split('T')[0] : new Date(af.dataFim).toISOString().split('T')[0];
+          const [anoAfFim, mesAfFim, diaAfFim] = afFimStr.split('-').map(Number);
+          afFimTimestamp = new Date(anoAfFim, mesAfFim - 1, diaAfFim, 23, 59, 59, 999).getTime();
+        }
+        const dataTimestamp = dataSelecionada.getTime();
+        const comecaAntesOuDurante = afInicioTimestamp <= dataTimestamp;
+        const terminaDepoisOuDurante = afFimTimestamp === null || afFimTimestamp >= dataTimestamp;
+        return comecaAntesOuDurante && terminaDepoisOuDurante;
+      };
+
+      const idsAfastados = new Set(afastamentos.filter(afastamentoAtivoNaData).map((af) => af.policialId));
+
+      const eExpediente = (p: Policial) =>
+        p.funcaoId === funcaoExpedienteId || (p.funcao?.nome?.toUpperCase().includes('EXPEDIENTE ADM') ?? false);
+
+      const MIN_PER_HOUR = 60;
+      const M24 = 24 * MIN_PER_HOUR;
+      const intervaloEscalaMin = SVG_INTERVALO_ESCALAS_HORAS * MIN_PER_HOUR;
+      const intervaloExpMin = SVG_INTERVALO_EXPEDIENTE_HORAS * MIN_PER_HOUR;
+
+      const expedienteStart = timeToMin(EXPEDIENTE_INICIO);
+      const expedienteEnd = timeToMin(EXPEDIENTE_FIM);
+      const escalaDiaStart = timeToMin(ESCALA_DIA_INICIO);
+      const escalaDiaEnd = timeToMin(ESCALA_DIA_FIM);
+      const escalaNoiteStart = timeToMin(ESCALA_NOITE_INICIO);
+      const escalaNoiteEnd = timeToMin(ESCALA_NOITE_FIM);
+
+      const forbidExpStart = (svgStart - intervaloExpMin + M24) % M24;
+      const forbidExpEnd = (svgEnd + intervaloExpMin) % M24;
+      const forbidEscStart = (svgStart - intervaloEscalaMin + M24) % M24;
+      const forbidEscEnd = (svgEnd + intervaloEscalaMin) % M24;
+
+      const podeFazer = (p: Policial): boolean => {
+        if (p.status === 'DESATIVADO') return false;
+        if (p.status === 'COMISSIONADO' || p.status === 'PTTC') return false;
+        if (p.restricaoMedicaId != null) return false;
+        if (idsAfastados.has(p.id)) return false;
+
+        if (!p.equipe || p.equipe === 'SEM_EQUIPE') {
+          if (eExpediente(p)) {
+            const overlap = rangesOverlap(expedienteStart, expedienteEnd, forbidExpStart, forbidExpEnd);
+            return !overlap;
+          }
+          return false;
+        }
+
+        if (equipeEstaEmQualquerFolga(p.equipe, dataSelecionada)) return true;
+
+        const equipeDia = calcularEquipeServico(ano, mes, dia, 'dia');
+        const equipeNoite = calcularEquipeServico(ano, mes, dia, 'noite');
+        const trabalhaDia = equipeDia === p.equipe;
+        const trabalhaNoite = equipeNoite === p.equipe;
+
+        if (trabalhaDia) {
+          const overlap = rangesOverlap(escalaDiaStart, escalaDiaEnd, forbidEscStart, forbidEscEnd);
+          return !overlap;
+        }
+        if (trabalhaNoite) {
+          const overlap1 = rangesOverlap(escalaNoiteStart, M24, forbidEscStart, forbidEscEnd);
+          const overlap2 = rangesOverlap(0, escalaNoiteEnd, forbidEscStart, forbidEscEnd);
+          return !overlap1 && !overlap2;
+        }
+        return false;
+      };
+
+      const filtrados = todosPoliciais.filter(podeFazer);
+      setListaSvg(filtrados);
+      setModalListaSvgOpen(true);
+      setSuccess(`Lista SVG gerada: ${filtrados.length} policiais disponíveis.`);
+    } catch (err) {
+      console.error('Erro ao gerar lista SVG:', err);
+      setError('Erro ao gerar lista SVG. Tente novamente.');
+    } finally {
+      setLoadingListaSvg(false);
+    }
+  }, [dataSvg, horarioSvg, horariosSvg, funcaoExpedienteId]);
+
   // Constantes para cálculo de escalas (mesmas do CalendarioSection)
   const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
   const SEQUENCIA_EQUIPES: Equipe[] = ['D', 'E', 'B', 'A', 'C'];
@@ -207,8 +437,21 @@ export function MostrarEquipeSection({
     return equipe;
   };
 
-  // Verificar se uma equipe está na segunda ou terceira folga em uma data específica
-  const equipeEstaNaSegundaOuTerceiraFolga = (equipe: Equipe, data: Date): boolean => {
+  // Calcular qual equipe está de serviço em dia/período (para regras SVG)
+  const calcularEquipeServico = (ano: number, mes: number, dia: number, periodo: 'dia' | 'noite'): Equipe | null => {
+    const dataAtual = new Date(ano, mes, dia);
+    const dataMinima = new Date(2026, 0, 1);
+    if (dataAtual.getTime() < dataMinima.getTime()) return null;
+    const diffTime = dataAtual.getTime() - DATA_INICIO_ESCALA.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+    const posicaoDia = ((diffDays % 5) + 5) % 5;
+    const posicaoNoite = (posicaoDia - 1 + 5) % 5;
+    const equipe = periodo === 'dia' ? SEQUENCIA_EQUIPES[posicaoDia] : SEQUENCIA_EQUIPES[posicaoNoite];
+    return equipe;
+  };
+
+  // Verificar se uma equipe está em folga 1, 2 ou 3 em uma data específica
+  const equipeEstaEmQualquerFolga = (equipe: Equipe, data: Date): boolean => {
     // A equipe que sai do serviço noturno às 07h do dia X entra de folga
     // Folga 1: dia X (primeiro dia de folga)
     // Folga 2: dia X+1 (segundo dia de folga) ✓
@@ -247,15 +490,38 @@ export function MostrarEquipeSection({
         dataFolga3.setDate(dataFolga3.getDate() + 2);
         
         // Comparar apenas a data (sem hora)
+        const dataFolga1Str = `${dataSaida.getFullYear()}-${String(dataSaida.getMonth() + 1).padStart(2, '0')}-${String(dataSaida.getDate()).padStart(2, '0')}`;
         const dataFolga2Str = `${dataFolga2.getFullYear()}-${String(dataFolga2.getMonth() + 1).padStart(2, '0')}-${String(dataFolga2.getDate()).padStart(2, '0')}`;
         const dataFolga3Str = `${dataFolga3.getFullYear()}-${String(dataFolga3.getMonth() + 1).padStart(2, '0')}-${String(dataFolga3.getDate()).padStart(2, '0')}`;
         
-        if (dataSelecionadaStr === dataFolga2Str || dataSelecionadaStr === dataFolga3Str) {
+        if (dataSelecionadaStr === dataFolga1Str || dataSelecionadaStr === dataFolga2Str || dataSelecionadaStr === dataFolga3Str) {
           return true;
         }
       }
     }
     
+    return false;
+  };
+
+  const equipeEstaNaSegundaOuTerceiraFolga = (equipe: Equipe, data: Date): boolean => {
+    const dataSelecionadaStr = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
+    for (let diasAtras = 0; diasAtras <= 15; diasAtras++) {
+      const dataVerificacao = new Date(data);
+      dataVerificacao.setDate(dataVerificacao.getDate() - diasAtras);
+      const dataMinima = new Date(2026, 0, 1);
+      if (dataVerificacao.getTime() < dataMinima.getTime()) continue;
+      const equipeQueSaiu = calcularEquipeQueSaiuNoturno(dataVerificacao);
+      if (equipeQueSaiu === equipe) {
+        const dataSaida = new Date(dataVerificacao);
+        const dataFolga2 = new Date(dataSaida);
+        dataFolga2.setDate(dataFolga2.getDate() + 1);
+        const dataFolga3 = new Date(dataSaida);
+        dataFolga3.setDate(dataFolga3.getDate() + 2);
+        const dataFolga2Str = `${dataFolga2.getFullYear()}-${String(dataFolga2.getMonth() + 1).padStart(2, '0')}-${String(dataFolga2.getDate()).padStart(2, '0')}`;
+        const dataFolga3Str = `${dataFolga3.getFullYear()}-${String(dataFolga3.getMonth() + 1).padStart(2, '0')}-${String(dataFolga3.getDate()).padStart(2, '0')}`;
+        if (dataSelecionadaStr === dataFolga2Str || dataSelecionadaStr === dataFolga3Str) return true;
+      }
+    }
     return false;
   };
 
@@ -1308,6 +1574,7 @@ export function MostrarEquipeSection({
         <Tabs value={tabAtiva} onChange={(_e, newValue) => setTabAtiva(newValue)}>
           <Tab label="Efetivo do COPOM" />
           <Tab label="Gerar efetivo disponível" />
+          <Tab label="Disponibilidade SVG" />
         </Tabs>
       </Box>
 
@@ -1315,7 +1582,7 @@ export function MostrarEquipeSection({
         <>
           <div>
             <h2>
-              Mostrar Efetivo do COPOM
+              Efetivo do COPOM
             </h2>
             <p>Visualize os policiais cadastrados e execute ações rápidas.</p>
           </div>
@@ -3284,6 +3551,179 @@ export function MostrarEquipeSection({
                   </Typography>
                 )}
               </Box>
+            </DialogContent>
+          </Dialog>
+        </Box>
+      )}
+
+      {tabAtiva === 2 && (
+        <Box sx={{ p: 3 }}>
+          <Typography variant="h6" sx={{ mb: 3 }}>
+            Disponibilidade SVG
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Crie os intervalos de horário abaixo. Depois, selecione a data e o horário para gerar a lista de policiais que podem tirar o voluntário.
+          </Typography>
+
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="subtitle2" sx={{ mb: 2 }}>Criar novo intervalo</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start" flexWrap="wrap">
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel id="svg-hora-inicio-label">Hora início</InputLabel>
+                <Select
+                  labelId="svg-hora-inicio-label"
+                  label="Hora início"
+                  value={horaInicioNovo}
+                  onChange={(e) => setHoraInicioNovo(e.target.value)}
+                >
+                  <MenuItem value="">
+                    <em>Selecione</em>
+                  </MenuItem>
+                  {Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`).map((h) => (
+                    <MenuItem key={h} value={h}>{h}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <TextField
+                label="Hora fim"
+                type="time"
+                value={horaFimNovo}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+                sx={{ minWidth: 140 }}
+                disabled
+              />
+              <Button
+                variant="outlined"
+                onClick={handleGravarHorarioSvg}
+                disabled={!horaInicioNovo || !horaFimNovo || salvandoHorarioSvg}
+                sx={{ mt: { xs: 0, sm: 0 }, alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
+              >
+                {salvandoHorarioSvg ? 'Gravando...' : 'Gravar'}
+              </Button>
+            </Stack>
+          </Box>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start" sx={{ maxWidth: 600, mb: 3 }}>
+            <TextField
+              label="Data"
+              type="date"
+              value={dataSvg}
+              onChange={(e) => setDataSvg(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ min: '2026-01-01' }}
+              size="small"
+              sx={{ minWidth: 180 }}
+            />
+            <FormControl sx={{ minWidth: 250 }} size="small">
+              <InputLabel id="svg-horario-label">Horário</InputLabel>
+              <Select
+                labelId="svg-horario-label"
+                label="Horário"
+                value={horarioSvg}
+                onChange={(e) => setHorarioSvg(e.target.value)}
+                disabled={loadingHorariosSvg}
+              >
+                <MenuItem value="">
+                  <em>Selecione um horário</em>
+                </MenuItem>
+                {horariosSvgOrdenados.map((h) => (
+                  <MenuItem key={h.id} value={String(h.id)}>
+                    {h.horaInicio} - {h.horaFim}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Button
+              variant="contained"
+              onClick={handleGerarListaSvg}
+              disabled={!dataSvg || !horarioSvg || loadingListaSvg}
+              sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
+            >
+              {loadingListaSvg ? 'Gerando...' : 'Gerar lista'}
+            </Button>
+          </Stack>
+
+          {horariosSvgOrdenados.length > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Intervalos cadastrados</Typography>
+              <List dense sx={{ maxWidth: 400, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                {horariosSvgOrdenados.map((h) => (
+                  <ListItem
+                    key={h.id}
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        size="small"
+                        onClick={() => openConfirm({
+                          title: 'Excluir intervalo',
+                          message: `Deseja excluir o intervalo ${h.horaInicio} - ${h.horaFim}?`,
+                          onConfirm: () => handleExcluirHorarioSvg(h.id),
+                        })}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                    }
+                  >
+                    <ListItemText primary={`${h.horaInicio} - ${h.horaFim}`} />
+                  </ListItem>
+                ))}
+              </List>
+            </Box>
+          )}
+
+          <Dialog open={modalListaSvgOpen} onClose={() => setModalListaSvgOpen(false)} maxWidth="md" fullWidth>
+            <DialogTitle>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6">
+                  Disponível para SVG ({listaSvg.length} policiais)
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  <Button variant="outlined" startIcon={<Print />} onClick={() => window.print()} size="small">
+                    Imprimir
+                  </Button>
+                  <IconButton onClick={() => setModalListaSvgOpen(false)} size="small">
+                    <CloseIcon />
+                  </IconButton>
+                </Box>
+              </Box>
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Data: {dataSvg} | Horário: {horariosSvg.find((h) => String(h.id) === horarioSvg)?.horaInicio ?? ''} - {horariosSvg.find((h) => String(h.id) === horarioSvg)?.horaFim ?? ''}
+              </Typography>
+              {listaSvg.length > 0 ? (
+                <List dense>
+                  {listaSvg.map((policial, index) => (
+                    <ListItem key={policial.id} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                      <ListItemText primary={`${index + 1}. ${(policial.nome ?? '').toUpperCase()}`} />
+                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', pl: 7, mt: 0.5 }}>
+                        <Chip
+                          label={policial.matricula}
+                          size="small"
+                          sx={{ height: '20px', fontSize: '0.65rem' }}
+                        />
+                        {policial.equipe && (
+                          <Chip
+                            label={`Equipe ${policial.equipe}`}
+                            size="small"
+                            sx={{ height: '20px', fontSize: '0.65rem', backgroundColor: '#e0f2fe', color: '#0369a1' }}
+                          />
+                        )}
+                        {policial.funcao && (
+                          <Typography variant="caption" component="span" color="text.secondary">
+                            {formatNome(policial.funcao.nome)}
+                          </Typography>
+                        )}
+                      </Box>
+                    </ListItem>
+                  ))}
+                </List>
+              ) : (
+                <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
+                  Nenhum policial disponível para o horário selecionado conforme as regras do SVG.
+                </Typography>
+              )}
             </DialogContent>
           </Dialog>
         </Box>

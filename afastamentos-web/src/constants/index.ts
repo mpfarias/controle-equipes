@@ -36,7 +36,7 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
   { key: 'policiais', label: 'Cadastrar Policial' },
-  { key: 'equipe', label: 'Mostrar Efetivo do COPOM' },
+  { key: 'equipe', label: 'Gerenciar Efetivo' },
   { key: 'usuarios', label: 'Cadastrar usuários' },
   { key: 'gestao-sistema', label: 'Gestão do Sistema' },
   { key: 'relatorios', label: 'Relatórios' },

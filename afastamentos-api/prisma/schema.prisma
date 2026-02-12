@@ -293,3 +293,14 @@ model UsuarioNivelPermissao {
 
   @@unique([nivelId, telaKey, acao])
 }
+
+model HorarioSvg {
+  id        Int      @id @default(autoincrement())
+  horaInicio String  // HH:mm
+  horaFim    String  // HH:mm
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([horaInicio, horaFim])
+}

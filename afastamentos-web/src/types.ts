@@ -157,6 +157,12 @@ export interface StatusPolicialOption {
   updatedAt?: string;
 }
 
+export interface HorarioSvg {
+  id: number;
+  horaInicio: string;
+  horaFim: string;
+}
+
 export interface UsuarioNivelOption {
   id: number;
   nome: string;

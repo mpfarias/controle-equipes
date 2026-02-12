@@ -29,6 +29,7 @@ import type {
   CreateRestricaoAfastamentoInput,
   UpdateRestricaoAfastamentoInput,
   StatusPolicialOption,
+  HorarioSvg,
 } from './types.ts';
 
 const envApiUrl = import.meta.env.VITE_API_URL;
@@ -779,6 +780,31 @@ export const api = {
     const data = await request<MotivoAfastamentoOption[]>('/afastamentos/motivos');
     setCached(cacheKey, data);
     return data;
+  },
+
+  async listHorariosSvg(): Promise<HorarioSvg[]> {
+    const cacheKey = 'GET:/svg/horarios';
+    const cached = getCached<HorarioSvg[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<HorarioSvg[]>('/svg/horarios');
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async createHorarioSvg(payload: { horaInicio: string; horaFim: string }): Promise<HorarioSvg> {
+    const data = await request<HorarioSvg>('/svg/horarios', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteHorarioSvg(id: number): Promise<void> {
+    await request(`/svg/horarios/${id}`, { method: 'DELETE' });
+    clearCache();
   },
 
   async listAfastamentos(
