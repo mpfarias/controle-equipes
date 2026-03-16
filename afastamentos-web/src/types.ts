@@ -32,6 +32,7 @@ export interface Usuario {
   nivel?: { id: number; nome: string; descricao?: string | null; ativo?: boolean };
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null };
+  fotoUrl?: string | null;
   createdById?: number | null;
   createdByName?: string | null;
   createdAt: string;
@@ -47,6 +48,7 @@ export interface CreateUsuarioInput {
   equipe?: Equipe;
   nivelId: number;
   funcaoId?: number;
+  fotoUrl?: string | null;
 }
 
 export interface LoginInput {

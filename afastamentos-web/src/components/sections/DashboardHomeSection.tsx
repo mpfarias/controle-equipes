@@ -5,6 +5,8 @@ import {
   Alert,
   Box, 
   Button,
+  Card,
+  CardContent,
   Paper, 
   Typography, 
   Grid, 
@@ -23,12 +25,14 @@ import {
   FormControl,
   InputLabel,
   Tabs,
-  Tab
+  Tab,
+  alpha
 } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Groups, MilitaryTech, EventBusy, PersonSearch, BeachAccess, WbSunny, DirectionsCar, Diversity1, BusinessCenter } from '@mui/icons-material';
 import { api } from '../../api';
 import { formatEquipeLabel } from '../../constants';
-import { formatNome } from '../../utils/dateUtils';
+import { formatNome, formatMatricula } from '../../utils/dateUtils';
+import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 
 interface DashboardHomeSectionProps {
   currentUser: Usuario;
@@ -45,6 +49,18 @@ export function DashboardHomeSection({
 }: DashboardHomeSectionProps) {
   const [totalPoliciaisAfastados, setTotalPoliciaisAfastados] = useState<number | null>(null);
   const [totalPoliciaisCadastrados, setTotalPoliciaisCadastrados] = useState<number | null>(null);
+  const [efetivoPorStatus, setEfetivoPorStatus] = useState<Record<string, number>>({
+    ATIVO: 0,
+    PTTC: 0,
+    DESIGNADO: 0,
+    COMISSIONADO: 0,
+  });
+  const [efetivoPorPosto, setEfetivoPorPosto] = useState<Record<string, number>>({
+    oficiais: 0,
+    pracas: 0,
+    civis: 0,
+    outros: 0,
+  });
   const [totalFerias, setTotalFerias] = useState<number | null>(null);
   const [totalAbono, setTotalAbono] = useState<number | null>(null);
   const [expedienteData, setExpedienteData] = useState<{
@@ -97,6 +113,16 @@ export function DashboardHomeSection({
   // Policiais com férias programadas em meses anteriores (atrasadas) sem afastamento
   const [feriasAtrasadasSemAfastamento, setFeriasAtrasadasSemAfastamento] = useState<Policial[] | null>(null);
   const [modalVerPoliciaisAtrasadosOpen, setModalVerPoliciaisAtrasadosOpen] = useState(false);
+  // Modal Efetivo por Posto - lista de policiais por categoria
+  const [modalPostoOpen, setModalPostoOpen] = useState(false);
+  const [modalPostoTipo, setModalPostoTipo] = useState<'oficiais' | 'pracas' | 'civil' | 'civis' | 'outros' | null>(null);
+  const [modalPostoPoliciais, setModalPostoPoliciais] = useState<Policial[]>([]);
+  const [loadingModalPosto, setLoadingModalPosto] = useState(false);
+  // Modal Efetivo do COPOM - lista de policiais por status (Ativos, PTTC, Designados, Comissionados)
+  const [modalStatusOpen, setModalStatusOpen] = useState(false);
+  const [modalStatusTipo, setModalStatusTipo] = useState<'ATIVO' | 'PTTC' | 'DESIGNADO' | 'COMISSIONADO' | null>(null);
+  const [modalStatusPoliciais, setModalStatusPoliciais] = useState<Policial[]>([]);
+  const [loadingModalStatus, setLoadingModalStatus] = useState(false);
 
   // Estados para ano e mês selecionados
   const now = new Date();
@@ -416,7 +442,9 @@ export function DashboardHomeSection({
 
         const data = await api.listPoliciaisPaginated(params);
         // Filtrar para excluir DESATIVADOS (incluir ATIVO, DESIGNADO, COMISSIONADO, PTTC)
-        let policiaisAtivos = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        // status pode vir como string ou objeto { nome: string }
+        const statusNome = (p: Policial) => (typeof p.status === 'object' && p.status && 'nome' in p.status) ? (p.status as { nome: string }).nome : String(p.status ?? '');
+        let policiaisAtivos = data.Policiales.filter((p) => statusNome(p) !== 'DESATIVADO');
         
         // Se for Cpmulher, filtrar apenas policiais com as funções permitidas
         // Se não houver funções configuradas ainda, aguardar até que sejam carregadas
@@ -424,6 +452,8 @@ export function DashboardHomeSection({
           if (funcoesCopomMulherIds.length === 0) {
             // Aguardar até que as funções sejam carregadas
             setTotalPoliciaisCadastrados(0);
+            setEfetivoPorStatus({ ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 });
+            setEfetivoPorPosto({ oficiais: 0, pracas: 0, civis: 0, outros: 0 });
             return;
           }
           policiaisAtivos = policiaisAtivos.filter((p) => 
@@ -432,9 +462,29 @@ export function DashboardHomeSection({
         }
         
         setTotalPoliciaisCadastrados(policiaisAtivos.length);
+
+        // Contar por status (Ativos, PTTC, Designados, Comissionados)
+        const counts: Record<string, number> = { ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 };
+        for (const p of policiaisAtivos) {
+          const s = statusNome(p);
+          if (s in counts) counts[s]++;
+        }
+        setEfetivoPorStatus(counts);
+
+        // Contar por posto/graduação - endpoint dedicado no backend
+        const equipeParaPosto = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+        const postosData = await api.getEfetivoPorPosto(equipeParaPosto);
+        setEfetivoPorPosto({
+          oficiais: postosData.oficiais,
+          pracas: postosData.pracas,
+          civis: postosData.civis,
+          outros: postosData.outros,
+        });
       } catch (error) {
         console.error('Erro ao carregar total de policiais:', error);
         setTotalPoliciaisCadastrados(0);
+        setEfetivoPorStatus({ ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 });
+        setEfetivoPorPosto({ oficiais: 0, pracas: 0, civis: 0, outros: 0 });
       } finally {
         setLoadingPoliciais(false);
       }
@@ -832,6 +882,28 @@ export function DashboardHomeSection({
   const cards = useMemo(() => {
     const todosCards = [
       {
+        title: 'Efetivo do COPOM',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#6366f1',
+        showCount: false,
+        isEquipe: true,
+        isEfetivo: true,
+        loadingCount: loadingPoliciais,
+        filters: undefined,
+      },
+      {
+        title: 'Efetivo por Posto/Graduação',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#0ea5e9',
+        showCount: false,
+        isEquipe: true,
+        isEfetivoPosto: true,
+        loadingCount: loadingPoliciais,
+        filters: undefined,
+      },
+      {
         title: 'Afastamentos do Mês',
         description: loadingAfastamentos 
           ? 'Carregando...' 
@@ -976,7 +1048,99 @@ export function DashboardHomeSection({
     }
     
     return todosCards;
-  }, [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisCadastrados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds, usuarioEhCpmulher]);
+  }, [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisCadastrados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds, usuarioEhCpmulher, efetivoPorStatus, efetivoPorPosto]);
+
+  const cardsDestaque = useMemo(() =>
+    cards.filter((c) => (c as { isEfetivo?: boolean; isEfetivoPosto?: boolean }).isEfetivo || (c as { isEfetivo?: boolean; isEfetivoPosto?: boolean }).isEfetivoPosto),
+    [cards],
+  );
+  const cardsRestantes = useMemo(() =>
+    cards.filter((c) => !(c as { isEfetivo?: boolean; isEfetivoPosto?: boolean }).isEfetivo && !(c as { isEfetivo?: boolean; isEfetivoPosto?: boolean }).isEfetivoPosto),
+    [cards],
+  );
+
+  const handlePostoClick = async (posto: 'oficiais' | 'pracas' | 'civis' | 'outros') => {
+    setModalPostoTipo(posto);
+    setModalPostoOpen(true);
+    setLoadingModalPosto(true);
+    setModalPostoPoliciais([]);
+    try {
+      const equipe = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+      // Mapear chaves do frontend (plural) para o esperado pela API (singular)
+      const postoApi =
+        posto === 'oficiais' ? 'oficial' :
+        posto === 'pracas' ? 'praca' :
+        posto === 'civis' ? 'civil' : posto;
+      const lista = await api.getPoliciaisPorPosto(postoApi, equipe);
+      const ordenados = sortPorPatenteENome(lista);
+      setModalPostoPoliciais(ordenados);
+    } catch (error) {
+      console.error('Erro ao carregar policiais por posto:', error);
+      setModalPostoPoliciais([]);
+    } finally {
+      setLoadingModalPosto(false);
+    }
+  };
+
+  const handleStatusClick = async (status: 'ATIVO' | 'PTTC' | 'DESIGNADO' | 'COMISSIONADO') => {
+    setModalStatusTipo(status);
+    setModalStatusOpen(true);
+    setLoadingModalStatus(true);
+    setModalStatusPoliciais([]);
+    try {
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page: 1,
+        pageSize: 1000,
+        includeAfastamentos: false,
+        includeRestricoes: false,
+        status,
+      };
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      }
+      const data = await api.listPoliciaisPaginated(params);
+      let policiais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+      if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+        policiais = policiais.filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId));
+      }
+      const ordenados = sortPorPatenteENome(policiais);
+      setModalStatusPoliciais(ordenados);
+    } catch (error) {
+      console.error('Erro ao carregar policiais por status:', error);
+      setModalStatusPoliciais([]);
+    } finally {
+      setLoadingModalStatus(false);
+    }
+  };
+
+  const handleEfetivoTotalClick = async () => {
+    setModalTitle('Efetivo Total');
+    setModalOpen(true);
+    setLoadingModal(true);
+    setModalType('policiais');
+    try {
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page: 1,
+        pageSize: 1000,
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      };
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      }
+      const data = await api.listPoliciaisPaginated(params);
+      let policiais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+      if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
+        policiais = policiais.filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId));
+      }
+      setPoliciaisModal(sortPorPatenteENome(policiais));
+    } catch (error) {
+      console.error('Erro ao carregar efetivo total:', error);
+      setModalOpen(false);
+    } finally {
+      setLoadingModal(false);
+    }
+  };
 
   const handleNumberClick = async (
     card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; funcoesIds?: number[] }; isEquipe?: boolean; isExpediente?: boolean; isMotoristas?: boolean; isCopomMulher?: boolean; equipe?: string },
@@ -1079,17 +1243,17 @@ export function DashboardHomeSection({
         if (tipo === 'afastados') {
           // Mostrar afastamentos com detalhes (motivo, datas)
           setModalType('afastamentos');
-          setAfastamentosModal(afastamentosDaEquipe);
+          setAfastamentosModal(sortAfastamentosPorPatenteENome(afastamentosDaEquipe));
         } else {
           // disponiveis - mostrar apenas policiais
           setModalType('policiais');
           const afastadosDaEquipe = new Set(afastamentosDaEquipe.map((af) => af.policialId));
           const policiaisDisponiveis = todosPoliciais.filter((p) => !afastadosDaEquipe.has(p.id));
-          setPoliciaisModal(policiaisDisponiveis);
+          setPoliciaisModal(sortPorPatenteENome(policiaisDisponiveis));
         }
       } else {
         // total - mostrar todos
-        setPoliciaisModal(todosPoliciais);
+        setPoliciaisModal(sortPorPatenteENome(todosPoliciais));
       }
     } catch (error) {
       console.error('Erro ao carregar dados do modal:', error);
@@ -1153,7 +1317,7 @@ export function DashboardHomeSection({
         const filtrados = afastamentosNoMesMotivo.filter((af) => 
           af.motivo?.nome?.toLowerCase() === card.filters!.motivo!.toLowerCase()
         );
-        setAfastamentosModal(filtrados);
+        setAfastamentosModal(sortAfastamentosPorPatenteENome(filtrados));
       } else if (card.title === 'Policiais Disponíveis') {
         // Card "Policiais Disponíveis" - buscar policiais que não estão afastados no mês
         setModalType('policiais');
@@ -1211,7 +1375,7 @@ export function DashboardHomeSection({
 
         // Filtrar apenas os policiais que NÃO estão afastados
         const policiaisDisponiveis = todosPoliciais.filter((p) => !idsAfastados.has(p.id));
-        setPoliciaisModal(policiaisDisponiveis);
+        setPoliciaisModal(sortPorPatenteENome(policiaisDisponiveis));
       } else if (card.title === 'Afastamentos do Mês') {
         // Card "Afastamentos do Mês" - abas: Por motivo, Por afastamento, Do Efetivo Total
         setModalType('afastamentosPorMotivo');
@@ -1305,7 +1469,7 @@ export function DashboardHomeSection({
           );
         }
         
-        setPoliciaisModal(todosPoliciais);
+        setPoliciaisModal(sortPorPatenteENome(todosPoliciais));
       } else {
         // Cards sem filtro específico - não fazer nada por enquanto
         setModalOpen(false);
@@ -1341,7 +1505,7 @@ export function DashboardHomeSection({
             const bMesAtual = b.anoPrevisaoFerias === anoAtual && b.mesPrevisaoFerias === mesAtualNum;
             if (aMesAtual && !bMesAtual) return -1;
             if (!aMesAtual && bMesAtual) return 1;
-            return (a.nome ?? '').localeCompare(b.nome ?? '');
+            return comparePorPatenteENome(a, b);
           });
           const qtdMesAtual = ordenados.filter((p) => p.anoPrevisaoFerias === anoAtual && p.mesPrevisaoFerias === mesAtualNum).length;
           const qtdProximoMes = ordenados.filter((p) => p.anoPrevisaoFerias === anoProximo && p.mesPrevisaoFerias === proximoMesNum).length;
@@ -1377,7 +1541,7 @@ export function DashboardHomeSection({
                         primary={(p.nome ?? '').toUpperCase()}
                         secondary={
                           <>
-                            {p.matricula}
+                            {formatMatricula(p.matricula)}
                             {p.mesPrevisaoFerias != null && (
                               <> — Férias programadas: {textoFerias}</>
                             )}
@@ -1441,7 +1605,7 @@ export function DashboardHomeSection({
             const aVal = (a.anoPrevisaoFerias ?? 0) * 100 + (a.mesPrevisaoFerias ?? 0);
             const bVal = (b.anoPrevisaoFerias ?? 0) * 100 + (b.mesPrevisaoFerias ?? 0);
             if (bVal !== aVal) return bVal - aVal;
-            return (a.nome ?? '').localeCompare(b.nome ?? '');
+            return comparePorPatenteENome(a, b);
           });
           const qtdPorMes = mesesUnicos.map((m) => ({
             ...m,
@@ -1481,7 +1645,7 @@ export function DashboardHomeSection({
                         primary={(p.nome ?? '').toUpperCase()}
                         secondary={
                           <>
-                            {p.matricula}
+                            {formatMatricula(p.matricula)}
                             {p.mesPrevisaoFerias != null && (
                               <> — Férias programadas: {textoFerias}</>
                             )}
@@ -1522,8 +1686,22 @@ export function DashboardHomeSection({
             </>
           );
         })()}
-        <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
-          <FormControl sx={{ minWidth: 120 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 3,
+            p: 2,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: 2,
+            bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04),
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: (theme) => alpha(theme.palette.primary.main, 0.12),
+          }}
+        >
+          <FormControl size="small" sx={{ minWidth: 120 }} variant="outlined">
             <InputLabel id="ano-select-label">Ano</InputLabel>
             <Select
               labelId="ano-select-label"
@@ -1539,7 +1717,7 @@ export function DashboardHomeSection({
               ))}
             </Select>
           </FormControl>
-          <FormControl sx={{ minWidth: 150 }}>
+          <FormControl size="small" sx={{ minWidth: 150 }} variant="outlined">
             <InputLabel id="mes-select-label">Mês</InputLabel>
             <Select
               labelId="mes-select-label"
@@ -1555,46 +1733,74 @@ export function DashboardHomeSection({
               ))}
             </Select>
           </FormControl>
-        </Box>
-        <Grid container spacing={3}>
-          {cards.map((card, index) => (
-            <Grid size={{ xs: 12, sm: 6, md: 2.4 }} key={`card-${card.title}-${index}`}>
-              <Paper
-                elevation={2}
+        </Paper>
+        {/* Primeira linha: cards em destaque (Efetivo do COPOM e Efetivo por Posto) */}
+        <Grid container spacing={3} justifyContent="center" sx={{ mb: 3 }}>
+          {cardsDestaque.map((card, index) => (
+            <Grid size={{ xs: 12, sm: 10, md: 5 }} key={`destaque-${card.title}-${index}`}>
+              <Card
+                elevation={0}
                 sx={{
-                  p: 3,
                   height: '100%',
-                  cursor: (card as any).isEquipe || (card as any).isExpediente ? 'default' : 'pointer',
-                  transition: 'all 0.3s ease',
+                  cursor: (card as any).isEfetivo || (card as any).isEfetivoPosto ? 'default' : 'pointer',
+                  transition: 'all 0.25s ease',
+                  border: '1px solid',
+                  borderColor: alpha(card.color, 0.3),
                   borderLeft: `4px solid ${card.color}`,
+                  borderRadius: 2,
+                  overflow: 'hidden',
                   '&:hover': {
-                    elevation: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 2 : 4,
-                    transform: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 'none' : 'translateY(-4px)',
-                    boxShadow: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 2 : 4,
+                    boxShadow: `0 12px 40px ${alpha(card.color, 0.15)}`,
+                    borderColor: alpha(card.color, 0.5),
                   },
                 }}
                 onClick={(e) => {
-                  // Só permite clique se não for card de equipe, expediente, motoristas ou copom mulher
-                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher) {
+                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher && !(card as any).isEfetivo && !(card as any).isEfetivoPosto) {
                     handleCardClick(card);
                   } else {
-                    // Para cards de equipe/expediente/motoristas/copom mulher, prevenir propagação
                     e.stopPropagation();
                   }
                 }}
               >
-                <Typography
-                  variant="h6"
-                  sx={{
-                    mb: 1,
-                    fontWeight: 600,
-                    color: card.color,
-                  }}
-                >
-                  {card.title}
-                </Typography>
+                <CardContent sx={{ p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+                    {(card as any).isEfetivo && <Groups sx={{ fontSize: 28, color: card.color }} />}
+                    {(card as any).isEfetivoPosto && <MilitaryTech sx={{ fontSize: 28, color: card.color }} />}
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        fontWeight: 600,
+                        color: card.color,
+                        fontSize: '1.15rem',
+                        letterSpacing: '-0.01em',
+                      }}
+                    >
+                      {card.title}
+                    </Typography>
+                  </Box>
                 {card.showCount && (
-                  <Box sx={{ mb: 1, minHeight: '60px', display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box
+                    sx={{
+                      mb: 1,
+                      minHeight: '60px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      cursor: 'pointer',
+                      borderRadius: 1,
+                      px: 1,
+                      py: 0.5,
+                      alignSelf: 'flex-start',
+                      transition: 'background-color 0.2s',
+                      '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isEfetivo && !(card as any).isEfetivoPosto) {
+                        handleCardClick(card);
+                      }
+                    }}
+                  >
                     {card.loadingCount ? (
                       <CircularProgress size={40} sx={{ color: card.color }} />
                     ) : card.countValue !== null ? (
@@ -1639,13 +1845,181 @@ export function DashboardHomeSection({
                     </Box>
                   </Typography>
                 )}
-                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? (
+                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isEfetivo || (card as any).isEfetivoPosto ? (
                   <Box sx={{ mb: 1, minHeight: '60px' }}>
                     {(card as any).loadingCount ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60px' }}>
                         <CircularProgress size={40} sx={{ color: card.color }} />
                       </Box>
                     ) : (() => {
+                      if ((card as any).isEfetivo) {
+                        const total = totalPoliciaisCadastrados ?? 0;
+                        const statusOrder = ['ATIVO', 'PTTC', 'DESIGNADO', 'COMISSIONADO'] as const;
+                        const statusLabels: Record<string, string> = {
+                          ATIVO: 'Ativos',
+                          PTTC: 'PTTC',
+                          DESIGNADO: 'Designados',
+                          COMISSIONADO: 'Comissionados',
+                        };
+                        return (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'baseline',
+                                gap: 0.5,
+                                mb: 0.5,
+                                cursor: 'pointer',
+                                borderRadius: 1,
+                                px: 1,
+                                py: 0.5,
+                                '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEfetivoTotalClick();
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                Total:
+                              </Typography>
+                              <Typography variant="h4" sx={{ fontWeight: 700, color: card.color, fontSize: '2rem' }}>
+                                {total}
+                              </Typography>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                {total === 1 ? 'policial' : 'policiais'}
+                              </Typography>
+                            </Box>
+                            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              {statusOrder.map((status) => (
+                                <Box
+                                  key={status}
+                                  component="li"
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    fontSize: '0.875rem',
+                                    cursor: 'pointer',
+                                    borderRadius: 1,
+                                    px: 1,
+                                    py: 0.25,
+                                    '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleStatusClick(status);
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                    {statusLabels[status]}:
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: card.color }}>
+                                    {efetivoPorStatus[status] ?? 0}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Box>
+                        );
+                      }
+                      if ((card as any).isEfetivoPosto) {
+                        const totalPosto = (efetivoPorPosto.oficiais ?? 0) + (efetivoPorPosto.pracas ?? 0) + (efetivoPorPosto.civis ?? 0) + (efetivoPorPosto.outros ?? 0);
+                        const totalExibir = totalPosto > 0 ? totalPosto : (totalPoliciaisCadastrados ?? 0);
+                        const postosOrder = [
+                          { key: 'oficiais', label: 'Oficiais' },
+                          { key: 'pracas', label: 'Praças' },
+                          { key: 'civis', label: 'Civis' },
+                        ] as const;
+                        return (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'baseline',
+                                gap: 0.5,
+                                mb: 0.5,
+                                cursor: 'pointer',
+                                borderRadius: 1,
+                                px: 1,
+                                py: 0.5,
+                                '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEfetivoTotalClick();
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                Total:
+                              </Typography>
+                              <Typography variant="h4" sx={{ fontWeight: 700, color: card.color, fontSize: '2rem' }}>
+                                {totalExibir}
+                              </Typography>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                                {totalExibir === 1 ? 'policial' : 'policiais'}
+                              </Typography>
+                            </Box>
+                            <Box component="ul" sx={{ m: 0, pl: 2.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                              {postosOrder.map(({ key, label }) => (
+                                <Box
+                                  key={key}
+                                  component="li"
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    fontSize: '0.875rem',
+                                    cursor: 'pointer',
+                                    borderRadius: 1,
+                                    px: 1,
+                                    py: 0.25,
+                                    '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePostoClick(key);
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                    {label}:
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: card.color }}>
+                                    {efetivoPorPosto[key] ?? 0}
+                                  </Typography>
+                                </Box>
+                              ))}
+                              {(efetivoPorPosto.outros ?? 0) > 0 && (
+                                <Box
+                                  component="li"
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    fontSize: '0.875rem',
+                                    cursor: 'pointer',
+                                    borderRadius: 1,
+                                    px: 1,
+                                    py: 0.25,
+                                    '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handlePostoClick('outros');
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                    Outros:
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: card.color }}>
+                                    {efetivoPorPosto.outros}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                          </Box>
+                        );
+                      }
                       if ((card as any).isExpediente) {
                         if (expedienteData) {
                           const pctExp = expedienteData.total > 0 ? Math.round((expedienteData.afastados / expedienteData.total) * 1000) / 10 : 0;
@@ -2103,9 +2477,331 @@ export function DashboardHomeSection({
                     {card.description}
                   </Typography>
                 )}
-              </Paper>
+                </CardContent>
+              </Card>
             </Grid>
           ))}
+        </Grid>
+
+        {/* Demais cards */}
+        <Grid container spacing={3}>
+          {cardsRestantes.map((card, index) => {
+            const CardIcon =
+              card.title === 'Afastamentos do Mês' ? EventBusy :
+              card.title === 'Policiais Disponíveis' ? PersonSearch :
+              card.title === 'Férias' ? BeachAccess :
+              card.title === 'Abono' ? WbSunny :
+              (card as any).isExpediente ? BusinessCenter :
+              (card as any).isMotoristas ? DirectionsCar :
+              (card as any).isCopomMulher ? Diversity1 :
+              Groups;
+            return (
+            <Grid size={{ xs: 12, sm: 6, md: 2.4 }} key={`card-${card.title}-${index}`}>
+              <Card
+                elevation={0}
+                sx={{
+                  height: '100%',
+                  cursor: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 'default' : 'pointer',
+                  transition: 'all 0.25s ease',
+                  border: '1px solid',
+                  borderColor: alpha(card.color, 0.25),
+                  borderLeft: `4px solid ${card.color}`,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  '&:hover': {
+                    boxShadow: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher
+                      ? undefined
+                      : `0 8px 24px ${alpha(card.color, 0.12)}`,
+                    borderColor: alpha(card.color, 0.4),
+                  },
+                }}
+                onClick={(e) => {
+                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher) {
+                    handleCardClick(card);
+                  } else {
+                    e.stopPropagation();
+                  }
+                }}
+              >
+                <CardContent sx={{ p: 2.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                    <CardIcon sx={{ fontSize: 22, color: card.color, flexShrink: 0 }} />
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        fontWeight: 600,
+                        color: card.color,
+                        fontSize: '0.95rem',
+                        lineHeight: 1.3,
+                      }}
+                    >
+                      {card.title}
+                    </Typography>
+                  </Box>
+                {card.showCount && (
+                  <Box
+                    sx={{
+                      mb: 1,
+                      minHeight: '60px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1,
+                      cursor: 'pointer',
+                      borderRadius: 1,
+                      px: 1,
+                      py: 0.5,
+                      alignSelf: 'flex-start',
+                      transition: 'background-color 0.2s',
+                      '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isEfetivo && !(card as any).isEfetivoPosto) {
+                        handleCardClick(card);
+                      }
+                    }}
+                  >
+                    {card.loadingCount ? (
+                      <CircularProgress size={40} sx={{ color: card.color }} />
+                    ) : card.countValue !== null ? (
+                      <>
+                        <Typography
+                          variant="h3"
+                          sx={{
+                            fontWeight: 700,
+                            color: card.color,
+                            fontSize: '3rem',
+                            lineHeight: 1,
+                          }}
+                        >
+                          {card.countValue}
+                        </Typography>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            color: 'text.secondary',
+                            fontSize: '0.875rem',
+                            alignSelf: 'flex-end',
+                            pb: 0.5,
+                          }}
+                        >
+                          {card.unit
+                            ? (card.unit === 'férias'
+                                ? 'férias'
+                                : card.countValue === 1
+                                  ? card.unit
+                                  : `${card.unit}s`)
+                            : (card.countValue === 1 ? 'policial' : 'policiais')}
+                        </Typography>
+                      </>
+                    ) : null}
+                  </Box>
+                )}
+                {card.title === 'Afastamentos do Mês' && (card as { porcentagemAfastamentos?: number | null }).porcentagemAfastamentos != null && !card.loadingCount && (
+                  <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 1 }}>
+                    Porcentagem de afastamentos:{' '}
+                    <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                      {(card as { porcentagemAfastamentos: number }).porcentagemAfastamentos}%
+                    </Box>
+                  </Typography>
+                )}
+                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isEfetivo || (card as any).isEfetivoPosto ? (
+                  <Box sx={{ mb: 1, minHeight: '60px' }}>
+                    {(card as any).loadingCount ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60px' }}>
+                        <CircularProgress size={40} sx={{ color: card.color }} />
+                      </Box>
+                    ) : (() => {
+                      if ((card as any).isEquipe && (card as any).equipe) {
+                        const equipe = (card as any).equipe as string;
+                        const dados = policiaisPorEquipe[equipe] ?? { total: 0, afastados: 0, disponiveis: 0 };
+                        const pct = dados.total > 0 ? Math.round((dados.afastados / dados.total) * 1000) / 10 : 0;
+                        return (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>
+                              Afastados:{' '}
+                              <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                {pct}%
+                              </Box>
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: '0.875rem' }}>
+                              {(['total', 'afastados', 'disponiveis'] as const).map((tipo) => (
+                                <Box
+                                  key={tipo}
+                                  sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    borderRadius: 1,
+                                    px: 1,
+                                    py: 0.5,
+                                    '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleNumberClick(card, tipo);
+                                  }}
+                                >
+                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                    {tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}:
+                                  </Typography>
+                                  <Typography component="span" fontWeight={600} sx={{ color: card.color }}>
+                                    {tipo === 'total' ? dados.total : tipo === 'afastados' ? dados.afastados : dados.disponiveis}
+                                  </Typography>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Box>
+                        );
+                      }
+                      if ((card as any).isExpediente) {
+                        if (expedienteData) {
+                          const pctExp = expedienteData.total > 0 ? Math.round((expedienteData.afastados / expedienteData.total) * 1000) / 10 : 0;
+                          return (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctExp}%
+                                </Box>
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: '0.875rem' }}>
+                                {(['total', 'afastados', 'disponiveis'] as const).map((tipo) => (
+                                  <Box
+                                    key={tipo}
+                                    sx={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      cursor: 'pointer',
+                                      borderRadius: 1,
+                                      px: 1,
+                                      py: 0.5,
+                                      '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleNumberClick(card, tipo);
+                                    }}
+                                  >
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                      {tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}:
+                                    </Typography>
+                                    <Typography component="span" fontWeight={600} sx={{ color: card.color }}>
+                                      {tipo === 'total' ? expedienteData.total : tipo === 'afastados' ? expedienteData.afastados : expedienteData.disponiveis}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          );
+                        }
+                      }
+                      if ((card as any).isMotoristas) {
+                        if (motoristasData) {
+                          const pctMot = motoristasData.total > 0 ? Math.round((motoristasData.afastados / motoristasData.total) * 1000) / 10 : 0;
+                          return (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctMot}%
+                                </Box>
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: '0.875rem' }}>
+                                {(['total', 'afastados', 'disponiveis'] as const).map((tipo) => (
+                                  <Box
+                                    key={tipo}
+                                    sx={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      cursor: 'pointer',
+                                      borderRadius: 1,
+                                      px: 1,
+                                      py: 0.5,
+                                      '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleNumberClick(card, tipo);
+                                    }}
+                                  >
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                      {tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}:
+                                    </Typography>
+                                    <Typography component="span" fontWeight={600} sx={{ color: card.color }}>
+                                      {tipo === 'total' ? motoristasData.total : tipo === 'afastados' ? motoristasData.afastados : motoristasData.disponiveis}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          );
+                        }
+                      }
+                      if ((card as any).isCopomMulher) {
+                        if (copomMulherData) {
+                          const pctCopom = copomMulherData.total > 0 ? Math.round((copomMulherData.afastados / copomMulherData.total) * 1000) / 10 : 0;
+                          return (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem', mb: 0.5 }}>
+                                Afastados:{' '}
+                                <Box component="span" sx={{ fontWeight: 700, color: card.color }}>
+                                  {pctCopom}%
+                                </Box>
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: '0.875rem' }}>
+                                {(['total', 'afastados', 'disponiveis'] as const).map((tipo) => (
+                                  <Box
+                                    key={tipo}
+                                    sx={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      cursor: 'pointer',
+                                      borderRadius: 1,
+                                      px: 1,
+                                      py: 0.5,
+                                      '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleNumberClick(card, tipo);
+                                    }}
+                                  >
+                                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                      {tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}:
+                                    </Typography>
+                                    <Typography component="span" fontWeight={600} sx={{ color: card.color }}>
+                                      {tipo === 'total' ? copomMulherData.total : tipo === 'afastados' ? copomMulherData.afastados : copomMulherData.disponiveis}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          );
+                        }
+                      }
+                      return (
+                        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                          Carregando...
+                        </Typography>
+                      );
+                    })()}
+                  </Box>
+                ) : null}
+                {card.description && (
+                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                    {card.description}
+                  </Typography>
+                )}
+                </CardContent>
+              </Card>
+            </Grid>
+            );
+          })}
         </Grid>
       </Box>
 
@@ -2307,7 +3003,7 @@ export function DashboardHomeSection({
                       secondary={
                         <>
                           <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
-                            Matrícula: {policial.matricula}
+                            Matrícula: {formatMatricula(policial.matricula)}
                           </Box>
                           {policial.funcao && (
                             <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
@@ -2347,7 +3043,7 @@ export function DashboardHomeSection({
                       secondary={
                         <>
                           <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
-                            Matrícula: {afastamento.policial.matricula}
+                            Matrícula: {formatMatricula(afastamento.policial.matricula)}
                           </Box>
                           <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
                             Período: {new Date(afastamento.dataInicio).toLocaleDateString('pt-BR')} 
@@ -2356,6 +3052,174 @@ export function DashboardHomeSection({
                           <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
                             Equipe: {formatEquipeLabel(afastamento.policial.equipe)}
                           </Box>
+                        </>
+                      }
+                    />
+                  </ListItem>
+                ))
+              )}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Efetivo do COPOM - lista de policiais por status */}
+      <Dialog
+        open={modalStatusOpen}
+        onClose={() => setModalStatusOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { maxHeight: '80vh' } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {modalStatusTipo === 'ATIVO' ? 'Ativos' :
+           modalStatusTipo === 'PTTC' ? 'PTTC' :
+           modalStatusTipo === 'DESIGNADO' ? 'Designados' :
+           modalStatusTipo === 'COMISSIONADO' ? 'Comissionados' : 'Efetivo do COPOM'}
+          <IconButton onClick={() => setModalStatusOpen(false)} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {loadingModalStatus ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <List>
+              {modalStatusPoliciais.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                  Nenhum policial encontrado.
+                </Typography>
+              ) : (
+                modalStatusPoliciais.map((policial) => (
+                  <ListItem key={policial.id} divider>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body1" fontWeight={500}>
+                            {policial.nome}
+                          </Typography>
+                          <Chip
+                            label={
+                              policial.status === 'ATIVO' ? 'Ativo' :
+                              policial.status === 'COMISSIONADO' ? 'Comissionado' :
+                              policial.status === 'DESIGNADO' ? 'Designado' :
+                              policial.status === 'PTTC' ? 'PTTC' : 'Desativado'
+                            }
+                            size="small"
+                            sx={{
+                              backgroundColor:
+                                policial.status === 'ATIVO' ? '#dcfce7' :
+                                policial.status === 'COMISSIONADO' ? '#fee2e2' :
+                                policial.status === 'DESIGNADO' ? '#fef9c3' :
+                                policial.status === 'PTTC' ? '#dbeafe' : '#fee2e2',
+                              color:
+                                policial.status === 'ATIVO' ? '#166534' :
+                                policial.status === 'COMISSIONADO' ? '#991b1b' :
+                                policial.status === 'DESIGNADO' ? '#92400e' :
+                                policial.status === 'PTTC' ? '#1d4ed8' : '#991b1b',
+                            }}
+                          />
+                          {formatEquipeLabel(policial.equipe) !== '—' && policial.equipe && (
+                            <Chip label={`Equipe ${policial.equipe}`} size="small" variant="outlined" />
+                          )}
+                        </Box>
+                      }
+                      secondary={
+                        <>
+                          <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                            Matrícula: {formatMatricula(policial.matricula)}
+                          </Box>
+                          {policial.funcao && (
+                            <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                              Função: {formatNome(policial.funcao.nome)}
+                            </Box>
+                          )}
+                        </>
+                      }
+                    />
+                  </ListItem>
+                ))
+              )}
+            </List>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Efetivo por Posto - lista de policiais por categoria */}
+      <Dialog
+        open={modalPostoOpen}
+        onClose={() => setModalPostoOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { maxHeight: '80vh' } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {modalPostoTipo === 'oficiais' ? 'Oficiais' :
+           modalPostoTipo === 'pracas' ? 'Praças' :
+           modalPostoTipo === 'civis' ? 'Civis' :
+           modalPostoTipo === 'outros' ? 'Outros' : 'Efetivo por Posto'}
+          <IconButton onClick={() => setModalPostoOpen(false)} size="small">
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {loadingModalPosto ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <List>
+              {modalPostoPoliciais.length === 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                  Nenhum policial encontrado.
+                </Typography>
+              ) : (
+                modalPostoPoliciais.map((policial) => (
+                  <ListItem key={policial.id} divider>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body1" fontWeight={500}>
+                            {policial.nome}
+                          </Typography>
+                          <Chip
+                            label={
+                              policial.status === 'ATIVO' ? 'Ativo' :
+                              policial.status === 'COMISSIONADO' ? 'Comissionado' :
+                              policial.status === 'DESIGNADO' ? 'Designado' :
+                              policial.status === 'PTTC' ? 'PTTC' : 'Desativado'
+                            }
+                            size="small"
+                            sx={{
+                              backgroundColor:
+                                policial.status === 'ATIVO' ? '#dcfce7' :
+                                policial.status === 'COMISSIONADO' ? '#fee2e2' :
+                                policial.status === 'DESIGNADO' ? '#fef9c3' :
+                                policial.status === 'PTTC' ? '#dbeafe' : '#fee2e2',
+                              color:
+                                policial.status === 'ATIVO' ? '#166534' :
+                                policial.status === 'COMISSIONADO' ? '#991b1b' :
+                                policial.status === 'DESIGNADO' ? '#92400e' :
+                                policial.status === 'PTTC' ? '#1d4ed8' : '#991b1b',
+                            }}
+                          />
+                          {formatEquipeLabel(policial.equipe) !== '—' && policial.equipe && (
+                            <Chip label={`Equipe ${policial.equipe}`} size="small" variant="outlined" />
+                          )}
+                        </Box>
+                      }
+                      secondary={
+                        <>
+                          <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
+                            Matrícula: {formatMatricula(policial.matricula)}
+                          </Box>
+                          {policial.funcao && (
+                            <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                              Função: {formatNome(policial.funcao.nome)}
+                            </Box>
+                          )}
                         </>
                       }
                     />

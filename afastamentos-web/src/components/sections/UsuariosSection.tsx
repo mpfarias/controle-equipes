@@ -10,12 +10,13 @@ import type {
   UsuarioNivelOption,
 } from '../../types';
 import { formatEquipeLabel, funcoesParaSelecao } from '../../constants';
-import { formatNome } from '../../utils/dateUtils';
+import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { IconButton, Tooltip } from '@mui/material';
-import { Edit, Block, CheckCircle, Delete } from '@mui/icons-material';
+import { ImageCropper } from '../common/ImageCropper';
+import { IconButton, Tooltip, Box, Card, CardMedia, CardActions, Typography } from '@mui/material';
+import { Edit, Block, CheckCircle, Delete, PhotoCamera, AddPhotoAlternate } from '@mui/icons-material';
 
 interface UsuariosSectionProps {
   currentUser: Usuario;
@@ -40,6 +41,7 @@ export function UsuariosSection({
     equipe: 'A' as Equipe,
     nivelId: 0 as number, // Será preenchido quando os níveis forem carregados
     funcaoId: undefined as number | undefined,
+    fotoUrl: undefined as string | null | undefined,
   };
 
   const initialEditForm = {
@@ -52,6 +54,7 @@ export function UsuariosSection({
     equipe: 'A' as Equipe,
     nivelId: 0 as number, // Será preenchido quando os níveis forem carregados ou ao editar
     funcaoId: undefined as number | undefined,
+    fotoUrl: undefined as string | null | undefined,
   };
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -75,10 +78,19 @@ export function UsuariosSection({
   const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null);
   const [editForm, setEditForm] = useState(initialEditForm);
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [matriculaError, setMatriculaError] = useState<string | null>(null);
   const matriculaTimeoutRef = useRef<number | null>(null);
+  const [showImageCropper, setShowImageCropper] = useState(false);
+  const [imageForCrop, setImageForCrop] = useState('');
+  const [fotoContext, setFotoContext] = useState<'create' | 'edit'>('create');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRefEdit = useRef<HTMLInputElement | null>(null);
+  const fileSelectInProgressRef = useRef(false);
+  const fileDialogCancelTimeoutRef = useRef<number | null>(null);
+  const [fileSelectBlocking, setFileSelectBlocking] = useState(false);
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
     usuario: Usuario | null;
@@ -383,6 +395,11 @@ export function UsuariosSection({
   const resetForm = () => {
     setForm(initialCreateForm);
     setMatriculaError(null);
+    setShowImageCropper(false);
+    setImageForCrop('');
+    setFileSelectBlocking(false);
+    fileSelectInProgressRef.current = false;
+    if (fileInputRef.current) fileInputRef.current.value = '';
     if (matriculaTimeoutRef.current) {
       clearTimeout(matriculaTimeoutRef.current);
       matriculaTimeoutRef.current = null;
@@ -402,6 +419,91 @@ export function UsuariosSection({
     setEditForm(initialEditForm);
     setEditingUsuario(null);
     setEditError(null);
+    setEditLoading(false);
+    setShowImageCropper(false);
+    setImageForCrop('');
+    setFileSelectBlocking(false);
+    fileSelectInProgressRef.current = false;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (fileInputRefEdit.current) fileInputRefEdit.current.value = '';
+  };
+
+  const openFileDialog = (ctx: 'create' | 'edit') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.detail > 1) return;
+    if (fileSelectInProgressRef.current) return;
+    if (fileDialogCancelTimeoutRef.current) {
+      clearTimeout(fileDialogCancelTimeoutRef.current);
+      fileDialogCancelTimeoutRef.current = null;
+    }
+    fileSelectInProgressRef.current = true;
+    setFileSelectBlocking(true);
+    setFotoContext(ctx);
+    const input = ctx === 'create' ? fileInputRef.current : fileInputRefEdit.current;
+    requestAnimationFrame(() => {
+      input?.click();
+    });
+    fileDialogCancelTimeoutRef.current = window.setTimeout(() => {
+      fileDialogCancelTimeoutRef.current = null;
+      fileSelectInProgressRef.current = false;
+      setFileSelectBlocking(false);
+    }, 2000);
+  };
+
+  const handleFileSelect = (ctx: 'create' | 'edit') => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.target;
+    const file = input.files?.[0];
+    if (fileDialogCancelTimeoutRef.current) {
+      clearTimeout(fileDialogCancelTimeoutRef.current);
+      fileDialogCancelTimeoutRef.current = null;
+    }
+    if (file) {
+      input.blur();
+      if (!file.type.startsWith('image/')) {
+        fileSelectInProgressRef.current = false;
+        setFileSelectBlocking(false);
+        if (ctx === 'create') setError('Por favor, selecione uma imagem válida.');
+        else setEditError('Por favor, selecione uma imagem válida.');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        fileSelectInProgressRef.current = false;
+        setFileSelectBlocking(false);
+        if (ctx === 'create') setError('A imagem deve ter no máximo 5MB.');
+        else setEditError('A imagem deve ter no máximo 5MB.');
+        return;
+      }
+      setFotoContext(ctx);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImageForCrop(e.target?.result as string);
+        setShowImageCropper(true);
+        setError(null);
+        setEditError(null);
+        setFileSelectBlocking(false);
+        setTimeout(() => {
+          fileSelectInProgressRef.current = false;
+        }, 300);
+      };
+      reader.readAsDataURL(file);
+      input.value = '';
+    } else {
+      fileSelectInProgressRef.current = false;
+      setFileSelectBlocking(false);
+    }
+  };
+
+  const handleCropComplete = (croppedImageUrl: string) => {
+    if (fotoContext === 'create') {
+      setForm((prev) => ({ ...prev, fotoUrl: croppedImageUrl }));
+    } else {
+      setEditForm((prev) => ({ ...prev, fotoUrl: croppedImageUrl }));
+    }
+    setShowImageCropper(false);
+    setImageForCrop('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (fileInputRefEdit.current) fileInputRefEdit.current.value = '';
   };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -471,6 +573,7 @@ export function UsuariosSection({
         funcaoId: form.funcaoId,
         // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar null (sem equipe)
         equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : undefined,
+        fotoUrl: form.fotoUrl ?? undefined,
       };
       await api.createUsuario(payload);
       resetForm();
@@ -515,37 +618,45 @@ export function UsuariosSection({
     setEditForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleEdit = (usuario: Usuario) => {
+  const handleEdit = async (usuario: Usuario) => {
     setEditingUsuario(usuario);
-    // Se o usuário não tiver nivelId, usar o primeiro nível disponível (geralmente OPERAÇÕES)
-    let nivelId = usuario.nivelId ?? 0;
-    
-    // Se o usuário sendo editado é administrador e o usuário logado não é admin,
-    // manter o nível ADMINISTRADOR (não permitir alteração)
-    const usuarioEditadoIsAdmin = isUsuarioAdministrador(usuario);
-    if (usuarioEditadoIsAdmin && !currentUserIsAdmin) {
-      // Manter o nível atual do usuário sendo editado
-      nivelId = usuario.nivelId ?? 0;
-    } else if (!nivelId && niveisDisponiveis.length > 0) {
-      const primeiroNivel = niveisDisponiveis.find(n => n.nome === 'OPERAÇÕES') || niveisDisponiveis[0];
-      nivelId = primeiroNivel?.id ?? 0;
-    }
-    
-    const nivelDoUsuario = usuarioNiveis.find(n => n.id === nivelId);
-    const isOperacoes = nivelDoUsuario?.nome === 'OPERAÇÕES';
-    
-    setEditForm({
-      nome: usuario.nome,
-      matricula: usuario.matricula,
-      senha: '',
-      confirmarSenha: '',
-      perguntaSeguranca: usuario.perguntaSeguranca || '',
-      respostaSeguranca: '',
-      equipe: isOperacoes ? (usuario.equipe ?? 'A') : 'A',
-      nivelId: nivelId,
-      funcaoId: usuario.funcaoId ?? undefined,
-    });
     setEditError(null);
+    setEditLoading(true);
+    setShowImageCropper(false);
+    const applyForm = (u: Usuario) => {
+      let nivelId = u.nivelId ?? 0;
+      const usuarioEditadoIsAdmin = isUsuarioAdministrador(u);
+      if (usuarioEditadoIsAdmin && !currentUserIsAdmin) {
+        nivelId = u.nivelId ?? 0;
+      } else if (!nivelId && niveisDisponiveis.length > 0) {
+        const primeiroNivel = niveisDisponiveis.find(n => n.nome === 'OPERAÇÕES') || niveisDisponiveis[0];
+        nivelId = primeiroNivel?.id ?? 0;
+      }
+      const nivelDoUsuario = usuarioNiveis.find(n => n.id === nivelId);
+      const isOperacoes = nivelDoUsuario?.nome === 'OPERAÇÕES';
+      setEditForm({
+        nome: u.nome,
+        matricula: u.matricula,
+        senha: '',
+        confirmarSenha: '',
+        perguntaSeguranca: u.perguntaSeguranca || '',
+        respostaSeguranca: '',
+        equipe: isOperacoes ? (u.equipe ?? 'A') : 'A',
+        nivelId: nivelId,
+        funcaoId: u.funcaoId ?? undefined,
+        fotoUrl: u.fotoUrl ?? null,
+      });
+    };
+    applyForm(usuario);
+    try {
+      const usuarioCompleto = await api.getUsuario(usuario.id);
+      setEditingUsuario(usuarioCompleto);
+      applyForm(usuarioCompleto);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Não foi possível carregar os dados do usuário.');
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const handleEditSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -596,7 +707,7 @@ export function UsuariosSection({
     }
 
     const novaSenha = editForm.senha;
-    const payloadBase: Partial<CreateUsuarioInput> = {
+    const payloadBase: Partial<CreateUsuarioInput> & { fotoUrl?: string | null } = {
       nome,
       matricula,
       perguntaSeguranca: editForm.perguntaSeguranca.trim() || undefined,
@@ -605,6 +716,7 @@ export function UsuariosSection({
       equipe: nivelSelecionadoEdit?.nome === 'OPERAÇÕES' ? editForm.equipe : undefined,
       nivelId: editForm.nivelId,
       funcaoId: editForm.funcaoId,
+      fotoUrl: editForm.fotoUrl ?? undefined,
     };
 
     openConfirm({
@@ -988,6 +1100,102 @@ export function UsuariosSection({
             />
           </label>
         </div>
+        <div>
+          <label style={{ display: 'block', marginBottom: 8 }}>Foto do usuário</label>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', marginTop: 1, position: 'relative' }}>
+            {fileSelectBlocking && fotoContext === 'create' && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: 120,
+                  height: 160,
+                  zIndex: 10,
+                  cursor: 'wait',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              />
+            )}
+            <Card
+              sx={{
+                position: 'relative',
+                width: 120,
+                height: 160,
+                borderRadius: 2,
+                boxShadow: 2,
+              }}
+            >
+              {form.fotoUrl ? (
+                <>
+                  <CardMedia
+                    component="img"
+                    image={form.fotoUrl}
+                    alt="Foto do usuário"
+                    sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                  <CardActions
+                    sx={{
+                      position: 'absolute',
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+                      justifyContent: 'center',
+                      padding: '6px',
+                    }}
+                  >
+                    <IconButton
+                      size="small"
+                      onClick={openFileDialog('create')}
+                      sx={{ color: 'white', backgroundColor: 'rgba(255,255,255,0.2)', '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)' } }}
+                      title="Alterar foto"
+                    >
+                      <PhotoCamera fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, fotoUrl: undefined }));
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      sx={{ color: 'white', backgroundColor: 'rgba(255,255,255,0.2)', '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.8)' } }}
+                      title="Remover foto"
+                    >
+                      <Delete fontSize="small" />
+                    </IconButton>
+                  </CardActions>
+                </>
+              ) : (
+                <Box
+                  sx={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: '#f5f5f5',
+                    cursor: 'pointer',
+                    '&:hover': { backgroundColor: '#eeeeee' },
+                  }}
+                  onClick={openFileDialog('create')}
+                >
+                  <AddPhotoAlternate sx={{ fontSize: 36, color: '#9e9e9e', mb: 0.5 }} />
+                  <Typography variant="caption" color="text.secondary">
+                    Adicionar foto
+                  </Typography>
+                </Box>
+              )}
+            </Card>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handleFileSelect('create')}
+              style={{ display: 'none' }}
+            />
+          </Box>
+        </div>
         <div className="form-actions">
           <button className="primary" type="submit" disabled={submitting}>
             {submitting ? 'Salvando...' : 'Cadastrar usuário'}
@@ -1046,7 +1254,7 @@ export function UsuariosSection({
                 }
               >
                 <td>{usuario.nome}</td>
-                <td>{usuario.matricula}</td>
+                <td>{formatMatricula(usuario.matricula)}</td>
                 <td>{formatEquipeLabel(usuario.equipe)}</td>
                 <td>{usuario.nivel?.nome || '-'}</td>
                 <td className="actions">
@@ -1183,6 +1391,118 @@ export function UsuariosSection({
               </div>
             )}
             <form onSubmit={handleEditSubmit}>
+              <label style={{ display: 'block', marginBottom: 8 }}>
+                Foto do usuário
+              </label>
+              <Box sx={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 2, position: 'relative' }}>
+                {fileSelectBlocking && fotoContext === 'edit' && (
+                  <Box
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: 120,
+                      height: 160,
+                      zIndex: 10,
+                      cursor: 'wait',
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
+                <Card
+                  sx={{
+                    position: 'relative',
+                    width: 120,
+                    height: 160,
+                    borderRadius: 2,
+                    boxShadow: 2,
+                  }}
+                >
+                  {editLoading ? (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#f5f5f5',
+                        fontSize: '0.8rem',
+                        color: '#64748b',
+                      }}
+                    >
+                      Carregando...
+                    </Box>
+                  ) : editForm.fotoUrl ? (
+                    <>
+                      <CardMedia
+                        key={String(editForm.fotoUrl?.slice(0, 80))}
+                        component="img"
+                        image={editForm.fotoUrl}
+                        alt="Foto do usuário"
+                        sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                      <CardActions
+                        sx={{
+                          position: 'absolute',
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
+                          justifyContent: 'center',
+                          padding: '6px',
+                        }}
+                      >
+                        <IconButton
+                          size="small"
+                          onClick={openFileDialog('edit')}
+                          sx={{ color: 'white', backgroundColor: 'rgba(255,255,255,0.2)', '&:hover': { backgroundColor: 'rgba(255,255,255,0.3)' } }}
+                          title="Alterar foto"
+                        >
+                          <PhotoCamera fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setEditForm((prev) => ({ ...prev, fotoUrl: null }));
+                            if (fileInputRefEdit.current) fileInputRefEdit.current.value = '';
+                          }}
+                          sx={{ color: 'white', backgroundColor: 'rgba(255,255,255,0.2)', '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.8)' } }}
+                          title="Remover foto"
+                        >
+                          <Delete fontSize="small" />
+                        </IconButton>
+                      </CardActions>
+                    </>
+                  ) : (
+                    <Box
+                      sx={{
+                        width: '100%',
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: '#f5f5f5',
+                        cursor: 'pointer',
+                        '&:hover': { backgroundColor: '#eeeeee' },
+                      }}
+                      onClick={openFileDialog('edit')}
+                    >
+                      <AddPhotoAlternate sx={{ fontSize: 36, color: '#9e9e9e', mb: 0.5 }} />
+                      <Typography variant="caption" color="text.secondary">
+                        Adicionar foto
+                      </Typography>
+                    </Box>
+                  )}
+                </Card>
+                <input
+                  ref={fileInputRefEdit}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect('edit')}
+                  style={{ display: 'none' }}
+                />
+              </Box>
               <div className="grid three-columns">
                 <label>
                   Nome
@@ -1380,6 +1700,26 @@ export function UsuariosSection({
         </div>
       )}
 
+      {showImageCropper && (
+        <div className="modal-backdrop modal-backdrop-top" role="dialog" aria-modal="true">
+          <div className="modal" style={{ maxWidth: '800px' }}>
+            <h3>Enquadrar foto</h3>
+            <ImageCropper
+              imageSrc={imageForCrop}
+              onCropComplete={handleCropComplete}
+              onCancel={() => {
+                setShowImageCropper(false);
+                setImageForCrop('');
+                fileSelectInProgressRef.current = false;
+                setFileSelectBlocking(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                if (fileInputRefEdit.current) fileInputRefEdit.current.value = '';
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Modal de Exclusão Permanente com Confirmação de Senha */}
       {deleteModal.open && deleteModal.usuario && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -1389,7 +1729,7 @@ export function UsuariosSection({
               <strong>ATENã‡ãƒO: Esta ação é IRREVERSãVEL!</strong>
               <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
                 O usuário <strong>{deleteModal.usuario.nome}</strong> (matrícula{' '}
-                <strong>{deleteModal.usuario.matricula}</strong>) será removido
+                <strong>{formatMatricula(deleteModal.usuario.matricula)}</strong>) será removido
                 permanentemente do banco de dados.
               </p>
               <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>

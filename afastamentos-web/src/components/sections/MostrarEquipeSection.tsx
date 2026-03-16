@@ -9,16 +9,16 @@ import {
   ESCALA_DIA_FIM,
   ESCALA_NOITE_INICIO,
   ESCALA_NOITE_FIM,
-  EXPEDIENTE_INICIO,
-  EXPEDIENTE_FIM,
+  getExpedienteHorario,
 } from '../../constants/svgRegras';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf } from '@mui/icons-material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert } from '@mui/material';
+import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf, Search } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { formatPeriodo, calcularDiasEntreDatas, formatNome } from '../../utils/dateUtils';
+import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
+import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
@@ -141,6 +141,8 @@ export function MostrarEquipeSection({
   const [horarioSvg, setHorarioSvg] = useState<string>('');
   const [horariosSvg, setHorariosSvg] = useState<HorarioSvg[]>([]);
   const [listaSvg, setListaSvg] = useState<Policial[]>([]);
+  const [listaSvgCompleta, setListaSvgCompleta] = useState<Array<{ policial: Policial; disponivel: boolean; motivo?: string }>>([]);
+  const [buscaSvg, setBuscaSvg] = useState('');
   const [modalListaSvgOpen, setModalListaSvgOpen] = useState(false);
   const [loadingListaSvg, setLoadingListaSvg] = useState(false);
   const [loadingHorariosSvg, setLoadingHorariosSvg] = useState(false);
@@ -160,6 +162,22 @@ export function MostrarEquipeSection({
     () => [...horariosSvg].sort((a, b) => a.horaInicio.localeCompare(b.horaInicio)),
     [horariosSvg],
   );
+
+  const listaSvgFiltrada = useMemo(() => {
+    const termo = buscaSvg.trim().toLowerCase();
+    let resultado;
+    if (!termo) {
+      resultado = listaSvgCompleta.filter((r) => r.disponivel);
+    } else {
+      resultado = listaSvgCompleta.filter((r) => {
+        const nome = (r.policial.nome ?? '').toLowerCase();
+        const matricula = (r.policial.matricula ?? '').toLowerCase();
+        const matriculaGdf = (r.policial.matriculaComissionadoGdf ?? '').toLowerCase();
+        return nome.includes(termo) || matricula.includes(termo) || matriculaGdf.includes(termo);
+      });
+    }
+    return sortAfastamentosPorPatenteENome(resultado);
+  }, [listaSvgCompleta, buscaSvg]);
   
   // Verificar se o usuário é do nível Cpmulher
   const usuarioEhCpmulher = useMemo(() => {
@@ -268,7 +286,7 @@ export function MostrarEquipeSection({
      * Regras SVG (svgRegras.ts):
      * IMPEDIMENTOS: afastamento, restrição médica, DESATIVADO, COMISSIONADO, PTTC
      * INTERVALOS: 6h entre escalas e SVG; 1h entre expediente e SVG
-     * Escala dia: 07-19 | Escala noite: 19-07 | Expediente: 07-15
+     * Escala dia: 07-19 | Escala noite: 19-07 | Expediente: seg-qui 13-19, sex 07-13
      */
 
     setLoadingListaSvg(true);
@@ -306,6 +324,13 @@ export function MostrarEquipeSection({
       const svgStart = timeToMin(horaInicioSvg);
       let svgEnd = timeToMin(horaFimSvg);
       if (svgEnd <= svgStart) svgEnd += 24 * 60;
+
+      /**
+       * Período proibido = intervalo de descanso obrigatório antes e depois do SVG.
+       * Se o turno do policial SOBREPÕE esse período, ele NÃO pode fazer o SVG.
+       * - Escalas: 6h antes e 6h depois do SVG
+       * - Expediente: 1h antes e 1h depois do SVG
+       */
 
       const data = await api.listPoliciaisPaginated({
         page: 1,
@@ -347,8 +372,7 @@ export function MostrarEquipeSection({
       const intervaloEscalaMin = SVG_INTERVALO_ESCALAS_HORAS * MIN_PER_HOUR;
       const intervaloExpMin = SVG_INTERVALO_EXPEDIENTE_HORAS * MIN_PER_HOUR;
 
-      const expedienteStart = timeToMin(EXPEDIENTE_INICIO);
-      const expedienteEnd = timeToMin(EXPEDIENTE_FIM);
+      const expedienteHorario = getExpedienteHorario(dataSelecionada);
       const escalaDiaStart = timeToMin(ESCALA_DIA_INICIO);
       const escalaDiaEnd = timeToMin(ESCALA_DIA_FIM);
       const escalaNoiteStart = timeToMin(ESCALA_NOITE_INICIO);
@@ -359,21 +383,27 @@ export function MostrarEquipeSection({
       const forbidEscStart = (svgStart - intervaloEscalaMin + M24) % M24;
       const forbidEscEnd = (svgEnd + intervaloEscalaMin) % M24;
 
-      const podeFazer = (p: Policial): boolean => {
-        if (p.status === 'DESATIVADO') return false;
-        if (p.status === 'COMISSIONADO' || p.status === 'PTTC') return false;
-        if (p.restricaoMedicaId != null) return false;
-        if (idsAfastados.has(p.id)) return false;
+      const avaliarPolicialSvg = (p: Policial): { disponivel: boolean; motivo?: string } => {
+        if (p.status === 'DESATIVADO') return { disponivel: false, motivo: 'Status desativado' };
+        if (p.status === 'COMISSIONADO' || p.status === 'PTTC') return { disponivel: false, motivo: `Status ${p.status} não permite SVG` };
+        if (p.restricaoMedicaId != null) return { disponivel: false, motivo: 'Possui restrição médica (inclui porte de arma suspenso)' };
+        if (idsAfastados.has(p.id)) return { disponivel: false, motivo: 'Em gozo de afastamento' };
 
         if (!p.equipe || p.equipe === 'SEM_EQUIPE') {
           if (eExpediente(p)) {
+            if (!expedienteHorario) return { disponivel: true };
+            const expedienteStart = timeToMin(expedienteHorario.inicio);
+            const expedienteEnd = timeToMin(expedienteHorario.fim);
             const overlap = rangesOverlap(expedienteStart, expedienteEnd, forbidExpStart, forbidExpEnd);
-            return !overlap;
+            if (overlap) {
+              return { disponivel: false, motivo: `Choque de horário: expediente ${expedienteHorario.inicio}-${expedienteHorario.fim}. Requer intervalo de 1h antes e depois do SVG` };
+            }
+            return { disponivel: true };
           }
-          return false;
+          return { disponivel: false, motivo: 'Não é expediente nem escala. Equipe não definida.' };
         }
 
-        if (equipeEstaEmQualquerFolga(p.equipe, dataSelecionada)) return true;
+        if (equipeEstaEmQualquerFolga(p.equipe, dataSelecionada)) return { disponivel: true };
 
         const equipeDia = calcularEquipeServico(ano, mes, dia, 'dia');
         const equipeNoite = calcularEquipeServico(ano, mes, dia, 'noite');
@@ -382,18 +412,31 @@ export function MostrarEquipeSection({
 
         if (trabalhaDia) {
           const overlap = rangesOverlap(escalaDiaStart, escalaDiaEnd, forbidEscStart, forbidEscEnd);
-          return !overlap;
+          if (overlap) {
+            return { disponivel: false, motivo: `Choque de horário: escala dia ${ESCALA_DIA_INICIO}-${ESCALA_DIA_FIM}. Requer intervalo de 6h antes e depois do SVG` };
+          }
+          return { disponivel: true };
         }
         if (trabalhaNoite) {
           const overlap1 = rangesOverlap(escalaNoiteStart, M24, forbidEscStart, forbidEscEnd);
           const overlap2 = rangesOverlap(0, escalaNoiteEnd, forbidEscStart, forbidEscEnd);
-          return !overlap1 && !overlap2;
+          if (overlap1 || overlap2) {
+            return { disponivel: false, motivo: `Choque de horário: escala noite ${ESCALA_NOITE_INICIO}-${ESCALA_NOITE_FIM}. Requer intervalo de 6h antes e depois do SVG` };
+          }
+          return { disponivel: true };
         }
-        return false;
+        return { disponivel: false, motivo: 'Equipe não está em escala no dia' };
       };
 
-      const filtrados = todosPoliciais.filter(podeFazer);
+      const resultadoCompleto = todosPoliciais.map((p) => {
+        const { disponivel, motivo } = avaliarPolicialSvg(p);
+        return { policial: p, disponivel, motivo };
+      });
+      const filtrados = resultadoCompleto.filter((r) => r.disponivel).map((r) => r.policial);
+
       setListaSvg(filtrados);
+      setListaSvgCompleta(resultadoCompleto);
+      setBuscaSvg('');
       setModalListaSvgOpen(true);
       setSuccess(`Lista SVG gerada: ${filtrados.length} policiais disponíveis.`);
     } catch (err) {
@@ -621,7 +664,7 @@ export function MostrarEquipeSection({
         return eDoExpediente || estaNaFolga;
       });
 
-      setEfetivoDisponivel(efetivoFiltrado);
+      setEfetivoDisponivel(sortPorPatenteENome(efetivoFiltrado));
       setModalEfetivoOpen(true);
       
       setSuccess(`Efetivo disponível gerado: ${efetivoFiltrado.length} policiais encontrados.`);
@@ -775,10 +818,15 @@ export function MostrarEquipeSection({
       // Para Cpmulher, precisamos buscar TODOS os policiais primeiro para filtrar por função
       // porque o backend não suporta múltiplos funcaoId
       const buscarTodosParaFiltro = usuarioEhCpmulher && funcoesCpmulherIds.length > 0;
-      
+      // Para ordenação por patente (nome), precisamos buscar todos e ordenar no cliente,
+      // pois a patente está embutida no campo nome e o backend ordena apenas alfabeticamente
+      const buscarTodosParaOrdenacaoPorPatente =
+        !buscarTodosParaFiltro && (ordenacao === null || ordenacao?.campo === 'nome');
+      const buscarTodos = buscarTodosParaFiltro || buscarTodosParaOrdenacaoPorPatente;
+
       const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
-        page: buscarTodosParaFiltro ? 1 : page,
-        pageSize: buscarTodosParaFiltro ? 10000 : pageSize, // Buscar todos se precisar filtrar por função (aumentar limite)
+        page: buscarTodos ? 1 : page,
+        pageSize: buscarTodos ? 10000 : pageSize,
         includeAfastamentos: false,
         includeRestricoes: true,
       };
@@ -804,7 +852,7 @@ export function MostrarEquipeSection({
       if (filtroFuncao && !buscarTodosParaFiltro) {
         params.funcaoId = filtroFuncao;
       }
-      if (ordenacao && !buscarTodosParaFiltro) {
+      if (ordenacao && !buscarTodos) {
         params.orderBy = ordenacao.campo;
         params.orderDir = ordenacao.direcao;
       }
@@ -819,13 +867,12 @@ export function MostrarEquipeSection({
         );
       }
       
-      // Se buscamos todos para filtrar (Cpmulher), armazenar TODOS os policiais filtrados
-      // A paginação será aplicada no cliente (filteredPoliciales → policiaisPaginados)
-      if (buscarTodosParaFiltro) {
+      // Se buscamos todos (Cpmulher ou ordenação por patente), armazenar TODOS e paginar no cliente
+      if (buscarTodos) {
         setPaginacaoNoServidor(false);
         setPoliciais(policiaisFiltrados);
         setTotalPoliciais(policiaisFiltrados.length);
-        setTotalPaginas(1);
+        setTotalPaginas(Math.max(1, Math.ceil(policiaisFiltrados.length / pageSize)));
       } else {
         setPaginacaoNoServidor(true);
         setPoliciais(policiaisFiltrados);
@@ -1253,13 +1300,13 @@ export function MostrarEquipeSection({
         if (!aDesativado && bDesativado) return -1;
         const campo = ordenacao?.campo ?? 'nome';
         const dir = ordenacao?.direcao ?? 'asc';
+        if (campo === 'nome') {
+          const cmp = comparePorPatenteENome(a, b);
+          return dir === 'asc' ? cmp : -cmp;
+        }
         let valorA: string;
         let valorB: string;
         switch (campo) {
-          case 'nome':
-            valorA = a.nome.toUpperCase();
-            valorB = b.nome.toUpperCase();
-            break;
           case 'matricula':
             valorA = a.matricula.toUpperCase();
             valorB = b.matricula.toUpperCase();
@@ -1277,8 +1324,7 @@ export function MostrarEquipeSection({
             valorB = (b.funcao?.nome ?? '').toUpperCase();
             break;
           default:
-            valorA = a.nome.toUpperCase();
-            valorB = b.nome.toUpperCase();
+            return comparePorPatenteENome(a, b);
         }
         const cmp = valorA.localeCompare(valorB);
         return dir === 'asc' ? cmp : -cmp;
@@ -1337,11 +1383,11 @@ export function MostrarEquipeSection({
         let valorA: string | number;
         let valorB: string | number;
 
+        if (ordenacao.campo === 'nome') {
+          const cmp = comparePorPatenteENome(a, b);
+          return ordenacao.direcao === 'asc' ? cmp : -cmp;
+        }
         switch (ordenacao.campo) {
-          case 'nome':
-            valorA = a.nome.toUpperCase();
-            valorB = b.nome.toUpperCase();
-            break;
           case 'matricula':
             valorA = a.matricula.toUpperCase();
             valorB = b.matricula.toUpperCase();
@@ -1358,16 +1404,13 @@ export function MostrarEquipeSection({
         return ordenacao.direcao === 'asc' ? comparacao : -comparacao;
       });
     } else {
-      // Sem ordenação por coluna: ativos primeiro, desativados por último (por nome)
+      // Sem ordenação por coluna: ativos primeiro, desativados por último (por patente e nome)
       resultado = [...resultado].sort((a, b) => {
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
         if (aDesativado && !bDesativado) return 1;
         if (!aDesativado && bDesativado) return -1;
-        if (aDesativado && bDesativado) {
-          return a.nome.toUpperCase().localeCompare(b.nome.toUpperCase());
-        }
-        return a.nome.toUpperCase().localeCompare(b.nome.toUpperCase());
+        return comparePorPatenteENome(a, b);
       });
     }
 
@@ -2009,9 +2052,11 @@ export function MostrarEquipeSection({
                   </a>
                 </td>
                 <td>
-                  {policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim()
-                    ? policial.matriculaComissionadoGdf!.trim()
-                    : policial.matricula}
+                  {formatMatricula(
+                    policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim()
+                      ? policial.matriculaComissionadoGdf!.trim()
+                      : policial.matricula
+                  )}
                 </td>
                 <td>
                   <span className={getPolicialStatusClass(policial.status)}>
@@ -2616,9 +2661,11 @@ export function MostrarEquipeSection({
                           Matrícula
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5 }}>
-                          {viewingPolicial.status === 'COMISSIONADO' && (viewingPolicial.matriculaComissionadoGdf ?? '').trim()
-                            ? viewingPolicial.matriculaComissionadoGdf!.trim()
-                            : viewingPolicial.matricula}
+                          {formatMatricula(
+                            viewingPolicial.status === 'COMISSIONADO' && (viewingPolicial.matriculaComissionadoGdf ?? '').trim()
+                              ? viewingPolicial.matriculaComissionadoGdf!.trim()
+                              : viewingPolicial.matricula
+                          )}
                         </Typography>
                       </Box>
 
@@ -3289,7 +3336,7 @@ export function MostrarEquipeSection({
               ⚠️ Esta ação não pode ser desfeita!
             </p>
             <p style={{ marginBottom: '24px' }}>
-              Tem certeza que deseja excluir permanentemente <strong>{deleteModal.policial.nome}</strong> (matrícula {deleteModal.policial.matricula}) do banco de dados?
+              Tem certeza que deseja excluir permanentemente <strong>{deleteModal.policial.nome}</strong> (matrícula {formatMatricula(deleteModal.policial.matricula)}) do banco de dados?
             </p>
             
             {deleteModal.error && (
@@ -3486,7 +3533,7 @@ export function MostrarEquipeSection({
                               secondary={
                                 <Box component="span" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
                                   <Typography variant="caption" component="span" color="text.secondary">
-                                    Matrícula: {policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim() ? policial.matriculaComissionadoGdf!.trim() : policial.matricula}
+                                    Matrícula: {formatMatricula(policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim() ? policial.matriculaComissionadoGdf!.trim() : policial.matricula)}
                                   </Typography>
                                   {formatEquipeLabel(policial.equipe) !== '—' && (
                                     <Chip
@@ -3532,9 +3579,11 @@ export function MostrarEquipeSection({
                                 <TableCell>{index + 1}</TableCell>
                                 <TableCell>{(policial.nome ?? '').toUpperCase()}</TableCell>
                                 <TableCell>
-                                  {policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim()
-                                    ? policial.matriculaComissionadoGdf!.trim()
-                                    : policial.matricula}
+                                  {formatMatricula(
+                                    policial.status === 'COMISSIONADO' && (policial.matriculaComissionadoGdf ?? '').trim()
+                                      ? policial.matriculaComissionadoGdf!.trim()
+                                      : policial.matricula
+                                  )}
                                 </TableCell>
                                 <TableCell>{formatEquipeLabel(policial.equipe)}</TableCell>
                                 <TableCell>{policial.funcao ? formatNome(policial.funcao.nome) : '—'}</TableCell>
@@ -3692,28 +3741,62 @@ export function MostrarEquipeSection({
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 Data: {dataSvg} | Horário: {horariosSvg.find((h) => String(h.id) === horarioSvg)?.horaInicio ?? ''} - {horariosSvg.find((h) => String(h.id) === horarioSvg)?.horaFim ?? ''}
               </Typography>
-              {listaSvg.length > 0 ? (
+              <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1, mb: 2 }}>
+                <Search sx={{ color: 'action.active', mb: 1 }} fontSize="small" />
+                <TextField
+                  label="Buscar por nome ou matrícula"
+                  value={buscaSvg}
+                  onChange={(e) => setBuscaSvg(e.target.value)}
+                  variant="outlined"
+                  size="small"
+                  fullWidth
+                />
+              </Box>
+              {listaSvgFiltrada.length > 0 ? (
                 <List dense>
-                  {listaSvg.map((policial, index) => (
-                    <ListItem key={policial.id} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-                      <ListItemText primary={`${index + 1}. ${(policial.nome ?? '').toUpperCase()}`} />
-                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', pl: 7, mt: 0.5 }}>
-                        <Chip
-                          label={policial.matricula}
-                          size="small"
-                          sx={{ height: '20px', fontSize: '0.65rem' }}
-                        />
-                        {policial.equipe && (
-                          <Chip
-                            label={`Equipe ${policial.equipe}`}
-                            size="small"
-                            sx={{ height: '20px', fontSize: '0.65rem', backgroundColor: '#e0f2fe', color: '#0369a1' }}
-                          />
-                        )}
-                        {policial.funcao && (
-                          <Typography variant="caption" component="span" color="text.secondary">
-                            {formatNome(policial.funcao.nome)}
-                          </Typography>
+                  {listaSvgFiltrada.map((item, index) => (
+                    <ListItem key={item.policial.id} sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+                      <Box sx={{ width: '100%' }}>
+                        <ListItemText primary={`${index + 1}. ${(item.policial.nome ?? '').toUpperCase()}`} />
+                        {item.disponivel ? (
+                          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', pl: 7, mt: 0.5 }}>
+                            <Chip
+                              label={formatMatricula(
+                                item.policial.status === 'COMISSIONADO' && (item.policial.matriculaComissionadoGdf ?? '').trim()
+                                  ? item.policial.matriculaComissionadoGdf!.trim()
+                                  : item.policial.matricula
+                              )}
+                              size="small"
+                              sx={{ height: '20px', fontSize: '0.65rem' }}
+                            />
+                            {item.policial.equipe && (
+                              <Chip
+                                label={`Equipe ${item.policial.equipe}`}
+                                size="small"
+                                sx={{ height: '20px', fontSize: '0.65rem', backgroundColor: '#e0f2fe', color: '#0369a1' }}
+                              />
+                            )}
+                            {item.policial.funcao && (
+                              <Typography variant="caption" component="span" color="text.secondary">
+                                {formatNome(item.policial.funcao.nome)}
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : (
+                          <Box sx={{ pl: 7, mt: 0.5 }}>
+                            <Typography variant="caption" color="text.secondary" component="span">
+                              Matrícula: {formatMatricula(
+                                item.policial.status === 'COMISSIONADO' && (item.policial.matriculaComissionadoGdf ?? '').trim()
+                                  ? item.policial.matriculaComissionadoGdf!.trim()
+                                  : item.policial.matricula
+                              )}
+                            </Typography>
+                            {item.motivo && (
+                              <Alert severity="warning" sx={{ mt: 1, py: 0.5, '& .MuiAlert-message': { fontSize: '0.8rem' } }}>
+                                {item.motivo}
+                              </Alert>
+                            )}
+                          </Box>
                         )}
                       </Box>
                     </ListItem>
@@ -3721,7 +3804,9 @@ export function MostrarEquipeSection({
                 </List>
               ) : (
                 <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 3 }}>
-                  Nenhum policial disponível para o horário selecionado conforme as regras do SVG.
+                  {buscaSvg.trim()
+                    ? 'Nenhum policial encontrado com esse nome ou matrícula.'
+                    : 'Nenhum policial disponível para o horário selecionado conforme as regras do SVG.'}
                 </Typography>
               )}
             </DialogContent>

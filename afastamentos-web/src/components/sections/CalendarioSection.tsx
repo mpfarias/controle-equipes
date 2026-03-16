@@ -22,7 +22,8 @@ import {
 import { Close as CloseIcon } from '@mui/icons-material';
 import { api } from '../../api';
 import { formatEquipeLabel } from '../../constants';
-import { formatNome } from '../../utils/dateUtils';
+import { formatNome, formatMatricula } from '../../utils/dateUtils';
+import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 
 interface CalendarioSectionProps {
   currentUser: Usuario;
@@ -257,7 +258,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       const motoristasDisponiveis = todosMotoristas.filter((p) => !idsAfastados.has(p.id));
 
       setModalTitle(`Motoristas - Equipe ${formatEquipeLabel(equipeDia)} - ${dataStr}`);
-      setPoliciaisModal(motoristasDisponiveis);
+      setPoliciaisModal(sortPorPatenteENome(motoristasDisponiveis));
     } catch (error) {
       console.error('Erro ao carregar motoristas:', error);
       setPoliciaisModal([]);
@@ -309,7 +310,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       // Filtrar apenas os policiais disponíveis (não afastados), já sem motoristas
       const policiaisDisponiveis = policiaisEscalaDiaNoite.filter((p) => !idsAfastados.has(p.id));
 
-      setPoliciaisModal(policiaisDisponiveis);
+      setPoliciaisModal(sortPorPatenteENome(policiaisDisponiveis));
     } catch (error) {
       console.error('Erro ao carregar policiais da equipe:', error);
       setPoliciaisModal([]);
@@ -673,7 +674,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                     secondary={
                       <Box component="span" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
                         <Typography variant="caption" component="span" color="text.secondary">
-                          Matrícula: {policial.matricula}
+                          Matrícula: {formatMatricula(policial.matricula)}
                         </Typography>
                         {policial.status && (
                           <Chip

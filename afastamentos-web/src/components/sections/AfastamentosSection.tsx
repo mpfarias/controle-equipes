@@ -7,7 +7,8 @@ import type {
   Usuario,
 } from '../../types';
 import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
-import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome } from '../../utils/dateUtils';
+import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome, formatMatricula } from '../../utils/dateUtils';
+import { sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
@@ -82,6 +83,8 @@ export function AfastamentosSection({
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
   const [dataFimFocada, setDataFimFocada] = useState(false);
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [itensPorPagina, setItensPorPagina] = useState(20);
 
   // Preencher formulário de cadastro quando vier initialCadastro (ex.: "Marcar férias agora" no modal do dashboard)
   useEffect(() => {
@@ -749,10 +752,10 @@ export function AfastamentosSection({
     const conflitos = verificarConflitos(form.dataInicio, dataFimParaValidacao || null, policialId);
     
     if (conflitos.length > 0) {
-      // Mostrar modal de conflitos informando sobre outros policiais afastados
+      // Mostrar modal de conflitos informando sobre outros policiais afastados (ordenado por patente e nome)
       setConflitosModal({
         open: true,
-        conflitos,
+        conflitos: sortAfastamentosPorPatenteENome(conflitos),
         dataVerificada: dataFimParaValidacao ? `${form.dataInicio} e ${dataFimParaValidacao}` : form.dataInicio,
       });
       return;
@@ -996,19 +999,17 @@ export function AfastamentosSection({
   );
 
   // Policiais para o select de cadastro: com previsão de férias no topo somente quando motivo for "Férias";
-  // caso contrário, ordem normal por nome (como vem do banco)
+  // ordenação por patente e nome
   const policiaisOrdenados = useMemo(() => {
-    const ordenarPorNome = (a: Policial, b: Policial) =>
-      a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
     if (motivoEhFerias) {
       const comPrevisao = policiais.filter((p) => p.mesPrevisaoFerias != null);
       const semPrevisao = policiais.filter((p) => p.mesPrevisaoFerias == null);
       return [
-        ...comPrevisao.sort(ordenarPorNome),
-        ...semPrevisao.sort(ordenarPorNome),
+        ...sortPorPatenteENome(comPrevisao),
+        ...sortPorPatenteENome(semPrevisao),
       ];
     }
-    return [...policiais].sort(ordenarPorNome);
+    return sortPorPatenteENome(policiais);
   }, [policiais, motivoEhFerias]);
 
   const normalizedSearch = searchTerm.trim().toUpperCase();
@@ -1134,14 +1135,38 @@ export function AfastamentosSection({
       : filtradoPorMotivo;
 
     // Filtrar por busca de nome
-    if (!normalizedSearch) {
-      return filtradoPorMotivoOutro;
-    }
+    const filtradoFinal = normalizedSearch
+      ? filtradoPorMotivoOutro.filter((afastamento) =>
+          afastamento.policial.nome.includes(normalizedSearch),
+        )
+      : filtradoPorMotivoOutro;
 
-    return filtradoPorMotivoOutro.filter((afastamento) =>
-      afastamento.policial.nome.includes(normalizedSearch),
-    );
+    // Ordenar por patente e nome do policial
+    return sortAfastamentosPorPatenteENome(filtradoFinal);
   }, [afastamentos, motivoFiltro, motivoFiltroOutro, normalizedSearch, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes]);
+
+  const totalPaginas = useMemo(
+    () => Math.max(1, Math.ceil(afastamentosFiltrados.length / itensPorPagina)),
+    [afastamentosFiltrados.length, itensPorPagina],
+  );
+
+  const afastamentosPaginados = useMemo(() => {
+    const inicio = (paginaAtual - 1) * itensPorPagina;
+    return afastamentosFiltrados.slice(inicio, inicio + itensPorPagina);
+  }, [afastamentosFiltrados, paginaAtual, itensPorPagina]);
+
+  const registroInicio = afastamentosFiltrados.length === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
+  const registroFim = afastamentosFiltrados.length === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, afastamentosFiltrados.length);
+
+  useEffect(() => {
+    if (paginaAtual > totalPaginas && totalPaginas > 0) {
+      setPaginaAtual(totalPaginas);
+    }
+  }, [paginaAtual, totalPaginas]);
+
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [motivoFiltro, motivoFiltroOutro, searchTerm, selectedMonth, dataInicioFiltro, dataFimFiltro]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -1241,8 +1266,8 @@ export function AfastamentosSection({
               options={policiaisOrdenados}
               getOptionLabel={(option) =>
                 motivoEhFerias && option.mesPrevisaoFerias == null
-                  ? `${option.nome} - ${option.matricula} (sem previsão de férias)`
-                  : `${option.nome} - ${option.matricula}`
+                  ? `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`
+                  : `${option.nome} - ${formatMatricula(option.matricula)}`
               }
               getOptionDisabled={(option) =>
                 motivoEhFerias ? option.mesPrevisaoFerias == null : false
@@ -1624,6 +1649,21 @@ export function AfastamentosSection({
             title="Filtrar por mês"
           />
           <span className="badge badge-muted">{descricaoPeriodo}</span>
+          <select
+            value={itensPorPagina}
+            onChange={(e) => {
+              setItensPorPagina(Number(e.target.value));
+              setPaginaAtual(1);
+            }}
+            className="search-input"
+            style={{ maxWidth: '140px' }}
+            aria-label="Itens por página"
+          >
+            <option value={10}>10 / página</option>
+            <option value={20}>20 / página</option>
+            <option value={50}>50 / página</option>
+            <option value={100}>100 / página</option>
+          </select>
           {(dataInicioFiltro || dataFimFiltro || selectedMonth) && (
             <Button
               variant="outlined"
@@ -1655,6 +1695,7 @@ export function AfastamentosSection({
               : 'Nenhum afastamento cadastrado.'}
           </p>
         ) : (
+          <>
           <table className="table">
             <thead>
               <tr>
@@ -1668,7 +1709,7 @@ export function AfastamentosSection({
               </tr>
             </thead>
             <tbody>
-              {afastamentosFiltrados.map((afastamento) => (
+              {afastamentosPaginados.map((afastamento) => (
                 <tr key={afastamento.id}>
                   <td>
                     <button
@@ -1689,7 +1730,7 @@ export function AfastamentosSection({
                       {afastamento.policial.nome}
                     </button>
                   </td>
-                  <td>{afastamento.policial.matricula}</td>
+                  <td>{formatMatricula(afastamento.policial.matricula)}</td>
                   <td>
                     <div>{formatNome(afastamento.motivo.nome)}</div>
                   </td>
@@ -1792,6 +1833,66 @@ export function AfastamentosSection({
               ))}
             </tbody>
           </table>
+          {totalPaginas > 1 && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: '16px',
+                padding: '12px',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '8px',
+                border: '1px solid #e9ecef',
+              }}
+            >
+              <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+                Mostrando {registroInicio} a {registroFim} de {afastamentosFiltrados.length} registro(s)
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setPaginaAtual(1)}
+                  disabled={paginaAtual === 1}
+                  style={{ padding: '6px 12px' }}
+                >
+                  ««
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setPaginaAtual((prev) => Math.max(1, prev - 1))}
+                  disabled={paginaAtual === 1}
+                  style={{ padding: '6px 12px' }}
+                >
+                  ‹ Anterior
+                </button>
+                <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+                  Página {paginaAtual} de {totalPaginas}
+                </span>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setPaginaAtual((prev) => Math.min(totalPaginas, prev + 1))}
+                  disabled={paginaAtual === totalPaginas}
+                  style={{ padding: '6px 12px' }}
+                >
+                  Próxima ›
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setPaginaAtual(totalPaginas)}
+                  disabled={paginaAtual === totalPaginas}
+                  style={{ padding: '6px 12px' }}
+                >
+                  »»
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
 
@@ -1845,7 +1946,7 @@ export function AfastamentosSection({
                   {detalhesAfastamentoModal.afastamento.policial.nome}
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#64748b' }}>
-                  Matrícula: {detalhesAfastamentoModal.afastamento.policial.matricula}
+                  Matrícula: {formatMatricula(detalhesAfastamentoModal.afastamento.policial.matricula)}
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#64748b' }}>
                   Equipe: {formatEquipeLabel(detalhesAfastamentoModal.afastamento.policial.equipe)}
@@ -2287,7 +2388,7 @@ export function AfastamentosSection({
                     <ListItem key={p.id}>
                       <ListItemText
                         primary={(p.nome ?? '').toUpperCase()}
-                        secondary={p.matricula}
+                        secondary={formatMatricula(p.matricula)}
                       />
                     </ListItem>
                   ))}
@@ -2335,7 +2436,7 @@ export function AfastamentosSection({
                     <tr key={afastamento.id}>
                       <td>
                         <div>{afastamento.policial.nome}</div>
-                        <small>{afastamento.policial.matricula}</small>
+                        <small>{formatMatricula(afastamento.policial.matricula)}</small>
                       </td>
                       <td>
                         {afastamento.policial.funcao?.nome || '-'}
@@ -2474,7 +2575,7 @@ export function AfastamentosSection({
                   </Typography>
                 </Box>
                 <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
-                  {policialSelecionado.matricula}
+                  {formatMatricula(policialSelecionado.matricula)}
                 </Typography>
               </Paper>
 
@@ -2698,7 +2799,7 @@ export function AfastamentosSection({
                     Policial
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                    {editAfastamentoModal.afastamento.policial.nome} - {editAfastamentoModal.afastamento.policial.matricula}
+                    {editAfastamentoModal.afastamento.policial.nome} - {formatMatricula(editAfastamentoModal.afastamento.policial.matricula)}
                   </Typography>
                 </Box>
 
@@ -2930,7 +3031,7 @@ export function AfastamentosSection({
                   Policial
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 500 }}>
-                  {policialParaMesPrevisao.nome} - {policialParaMesPrevisao.matricula}
+                  {policialParaMesPrevisao.nome} - {formatMatricula(policialParaMesPrevisao.matricula)}
                 </Typography>
               </Box>
               

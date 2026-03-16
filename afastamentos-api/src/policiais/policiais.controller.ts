@@ -123,6 +123,26 @@ export class PoliciaisController {
     return this.policiaisService.deleteRestricaoMedicaOption(id, user.id);
   }
 
+  @Get('efetivo-por-posto')
+  getEfetivoPorPosto(@Query('equipe') equipe?: string) {
+    return this.policiaisService.getEfetivoPorPosto(equipe ?? undefined);
+  }
+
+  @Get('por-posto/:posto')
+  getPoliciaisPorPosto(
+    @Param('posto') posto: string,
+    @Query('equipe') equipe?: string,
+  ) {
+    const postoValido = ['oficial', 'praca', 'civil', 'outros'].includes(posto);
+    if (!postoValido) {
+      throw new BadRequestException('Posto inválido. Use: oficial, praca, civil ou outros.');
+    }
+    return this.policiaisService.findPoliciaisPorPosto(
+      posto as 'oficial' | 'praca' | 'civil' | 'outros',
+      equipe ?? undefined,
+    );
+  }
+
   @Get('ferias-programadas-sem-afastamento')
   getFeriasProgramadasSemAfastamento(@Query('equipe') equipe?: string) {
     return this.policiaisService.findPoliciaisComFeriasProgramadasSemAfastamento(equipe ?? undefined);

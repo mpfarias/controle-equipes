@@ -45,6 +45,7 @@ const usuarioSelect = {
       descricao: true,
     },
   },
+  fotoUrl: true,
   createdById: true,
   createdByName: true,
   createdAt: true,
@@ -111,6 +112,7 @@ export class UsuariosService {
         equipe,
         nivel: { connect: { id: data.nivelId } },
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
+        fotoUrl: data.fotoUrl ?? null,
         status: UsuarioStatus.ATIVO,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
@@ -869,6 +871,10 @@ export class UsuariosService {
       } else {
         updateData.funcao = { connect: { id: data.funcaoId } };
       }
+    }
+
+    if (data.fotoUrl !== undefined) {
+      updateData.fotoUrl = data.fotoUrl;
     }
 
     if (data.senha) {

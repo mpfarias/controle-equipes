@@ -9,7 +9,7 @@
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
     "start:api": "cd afastamentos-api && npm run start:dev",
-    "start:bogas": "cd afastamentos-web && npm run dev",
+    "start:web": "cd afastamentos-web && npm run dev",
     "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install",
     "setup:db": "cd afastamentos-api && npm run db:setup"
   }

@@ -453,7 +453,7 @@ export const api = {
 
   async updateUsuario(
     id: number,
-    payload: Partial<CreateUsuarioInput>,
+    payload: Partial<CreateUsuarioInput> & { fotoUrl?: string | null },
   ): Promise<Usuario> {
     const data = await request<Usuario>(`/usuarios/${id}`, {
       method: 'PATCH',
@@ -547,10 +547,12 @@ export const api = {
     pageSize?: number;
     includeAfastamentos?: boolean;
     includeRestricoes?: boolean;
+    equipe?: string;
   }): Promise<Policial[]> {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.append('page', String(params.page));
     if (params?.pageSize) searchParams.append('pageSize', String(params.pageSize));
+    if (params?.equipe) searchParams.append('equipe', params.equipe);
     if (params?.includeAfastamentos !== undefined) {
       searchParams.append('includeAfastamentos', String(params.includeAfastamentos));
     }
@@ -636,6 +638,33 @@ export const api = {
 
   async getPolicial(id: number): Promise<Policial> {
     return request(`/policiais/${id}`);
+  },
+
+  /** Lista de policiais filtrados por posto (oficial, praca, civil, outros). */
+  async getPoliciaisPorPosto(
+    posto: 'oficial' | 'praca' | 'civil' | 'outros',
+    equipe?: string,
+  ): Promise<Policial[]> {
+    const params = new URLSearchParams();
+    if (equipe) params.append('equipe', equipe);
+    const query = params.toString();
+    return request<Policial[]>(`/policiais/por-posto/${posto}${query ? `?${query}` : ''}`);
+  },
+
+  /** Contagem de efetivo por posto/graduação (Oficiais, Praças, Civis, Outros). */
+  async getEfetivoPorPosto(equipe?: string): Promise<{
+    oficiais: number;
+    pracas: number;
+    civis: number;
+    outros: number;
+    total: number;
+  }> {
+    const params = new URLSearchParams();
+    if (equipe) params.append('equipe', equipe);
+    const query = params.toString();
+    return request<{ oficiais: number; pracas: number; civis: number; outros: number; total: number }>(
+      `/policiais/efetivo-por-posto${query ? `?${query}` : ''}`,
+    );
   },
 
   /** Policiais com férias programadas (mês atual/próximo) que ainda não têm afastamento de Férias cadastrado. */

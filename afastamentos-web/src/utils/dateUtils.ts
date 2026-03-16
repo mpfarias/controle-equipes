@@ -62,6 +62,24 @@ export function formatPeriodo(dataInicio: string, dataFim?: string | null): stri
 }
 
 /**
+ * Formata matrícula com pontos a cada 3 dígitos e barra antes do último.
+ * Ex.: 65210 → 6.521/0, 1966901 → 196.690/1, 21975684 → 2.197.568/4
+ * Aceita X como último caractere: 12345X → 12.345/X
+ */
+export function formatMatricula(value: string | null | undefined): string {
+  if (!value) return '';
+  const str = String(value).trim();
+  if (str.length <= 1) return str;
+  const last = str.slice(-1);
+  const rest = str.slice(0, -1);
+  // Resto deve ser só dígitos; último pode ser dígito ou X
+  if (!/^\d+$/.test(rest)) return str;
+  const lastDisplay = last.toUpperCase() === 'X' ? 'X' : last;
+  const formatted = rest.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return formatted + '/' + lastDisplay;
+}
+
+/**
  * Formata um nome para ter apenas a primeira letra maiúscula
  * Exemplo: "FÉRIAS" -> "Férias", "MOTORISTA DE DIA" -> "Motorista de dia"
  */

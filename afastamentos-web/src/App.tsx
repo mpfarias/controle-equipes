@@ -1,7 +1,11 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken, removeToken } from './api.ts';
 import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
 import { TABS, type TabKey, type TabChangeOptions } from './constants';
+import { formatMatricula } from './utils/dateUtils';
+import { Avatar, IconButton, Menu, MenuItem } from '@mui/material';
+import { Logout, PhotoCamera } from '@mui/icons-material';
+import { ImageCropper } from './components/common/ImageCropper';
 import {
   LoginView,
   ForgotPasswordView,
@@ -48,6 +52,13 @@ export default function App() {
   const [permissoesCarregando, setPermissoesCarregando] = useState(false);
   /** Preencher formulário de cadastro ao abrir "Gerenciar afastamentos" (ex.: policial + motivo Férias). Consumida ao montar AfastamentosSection. */
   const [afastamentosPreencherCadastro, setAfastamentosPreencherCadastro] = useState<{ policialId: number; motivoNome: string } | null>(null);
+  const [avatarMenuAnchor, setAvatarMenuAnchor] = useState<HTMLElement | null>(null);
+  const [fotoModalOpen, setFotoModalOpen] = useState(false);
+  const [imageForCrop, setImageForCrop] = useState('');
+  const [showImageCropper, setShowImageCropper] = useState(false);
+  const [fotoError, setFotoError] = useState<string | null>(null);
+  const [fotoSubmitting, setFotoSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -157,9 +168,71 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    setAvatarMenuAnchor(null);
     // Registrar logout no backend antes de limpar o estado
     await api.logout();
     setCurrentUser(null);
+  };
+
+  const getIniciaisUsuario = (nome: string): string => {
+    const partes = nome.trim().split(/\s+/).filter(Boolean);
+    if (partes.length === 0) return '?';
+    if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
+    return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
+  };
+
+  const openFotoModal = () => {
+    setAvatarMenuAnchor(null);
+    setFotoModalOpen(true);
+    setFotoError(null);
+    setShowImageCropper(false);
+    setImageForCrop('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const closeFotoModal = () => {
+    setFotoModalOpen(false);
+    setShowImageCropper(false);
+    setImageForCrop('');
+    setFotoError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleFileSelectUsuario = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        setFotoError('Por favor, selecione uma imagem válida.');
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setFotoError('A imagem deve ter no máximo 5MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageSrc = e.target?.result as string;
+        setImageForCrop(imageSrc);
+        setShowImageCropper(true);
+        setFotoError(null);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCropCompleteUsuario = async (croppedImageUrl: string) => {
+    if (!currentUser || fotoSubmitting) return;
+    try {
+      setFotoSubmitting(true);
+      setFotoError(null);
+      const updated = await api.updateUsuario(currentUser.id, { fotoUrl: croppedImageUrl });
+      setCurrentUser(updated);
+      closeFotoModal();
+    } catch (err) {
+      setFotoError(err instanceof Error ? err.message : 'Não foi possível salvar a foto.');
+    } finally {
+      setFotoSubmitting(false);
+    }
   };
 
   const openConfirm = useCallback((config: ConfirmConfig) => {
@@ -262,9 +335,13 @@ export default function App() {
           />
         )}
         <footer className="app-footer">
-          <p>Desenvolvido por:</p>
-          <p>2º SGT M. Farias - COPOM - {new Date().getFullYear()}</p>
-          2º SGT Gadelha - COPOM - {new Date().getFullYear()}
+          <span className="app-footer__label">Desenvolvido por</span>
+          <div className="app-footer__credits">
+            <span className="app-footer__name">2º SGT M. Farias</span>
+            <span className="app-footer__separator">·</span>
+            <span className="app-footer__name">2º SGT Gadelha</span>
+          </div>
+          <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
       </div>
     );
@@ -281,17 +358,120 @@ export default function App() {
         </div>
         <div className="header-actions">
           <span>
-            {currentUser.nome} — {currentUser.matricula}
+            {currentUser.nome} — {formatMatricula(currentUser.matricula)}
           </span>
-          <button
-            type="button"
-            className="logout-button"
-            onClick={handleLogout}
+          <IconButton
+            onClick={(e) => setAvatarMenuAnchor(e.currentTarget)}
+            aria-label="Menu do usuário"
+            aria-controls={avatarMenuAnchor ? 'user-menu' : undefined}
+            aria-haspopup="true"
+            aria-expanded={avatarMenuAnchor ? 'true' : undefined}
+            sx={{ p: 0 }}
           >
-            Sair
-          </button>
+            <Avatar
+              src={currentUser.fotoUrl ?? undefined}
+              sx={{
+                width: 40,
+                height: 40,
+                bgcolor: 'var(--sentinela-blue)',
+                fontSize: '1rem',
+              }}
+            >
+              {getIniciaisUsuario(currentUser.nome)}
+            </Avatar>
+          </IconButton>
+          <Menu
+            id="user-menu"
+            anchorEl={avatarMenuAnchor}
+            open={Boolean(avatarMenuAnchor)}
+            onClose={() => setAvatarMenuAnchor(null)}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{ paper: { sx: { mt: 1.5 } } }}
+          >
+            <MenuItem onClick={openFotoModal}>
+              <PhotoCamera sx={{ mr: 1.5, fontSize: 20 }} />
+              Carregar foto
+            </MenuItem>
+            <MenuItem onClick={handleLogout}>
+              <Logout sx={{ mr: 1.5, fontSize: 20 }} />
+              Sair
+            </MenuItem>
+          </Menu>
         </div>
       </header>
+
+      {fotoModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={closeFotoModal}>
+          <div className="modal" style={{ maxWidth: showImageCropper ? '800px' : '420px' }} onClick={(e) => e.stopPropagation()}>
+            <h3>Carregar foto</h3>
+            {fotoError && (
+              <div className="feedback error">
+                {fotoError}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setFotoError(null)}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {showImageCropper ? (
+              <ImageCropper
+                imageSrc={imageForCrop}
+                onCropComplete={handleCropCompleteUsuario}
+                onCancel={() => {
+                  setShowImageCropper(false);
+                  setImageForCrop('');
+                  if (fileInputRef.current) fileInputRef.current.value = '';
+                }}
+              />
+            ) : (
+              <>
+                <p style={{ marginBottom: 16, color: 'var(--text-secondary)' }}>
+                  Selecione uma imagem do seu dispositivo (máx. 5MB).
+                </p>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => fileInputRef.current?.click()}
+                  onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 48,
+                    backgroundColor: 'var(--bg-main)',
+                    border: '2px dashed var(--border-soft)',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <PhotoCamera sx={{ fontSize: 48, color: 'var(--text-secondary)', mb: 1 }} />
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                    Clique para selecionar uma imagem
+                  </span>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelectUsuario}
+                  style={{ display: 'none' }}
+                />
+                <div className="modal-actions" style={{ marginTop: 24 }}>
+                  <button type="button" className="secondary" onClick={closeFotoModal}>
+                    Cancelar
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {permissoesCarregando ? (
         <p className="empty-state">Carregando permissões...</p>
@@ -387,8 +567,13 @@ export default function App() {
         onConfirm={handleConfirmDialog}
       />
       <footer className="app-footer">
-        Desenvolvido por:<p>2º SGT M. Farias - COPOM - {new Date().getFullYear()}</p>
-        <p> 2º SGT Gadelha - COPOM - {new Date().getFullYear()}</p>
+        <span className="app-footer__label">Desenvolvido por</span>
+        <div className="app-footer__credits">
+          <span className="app-footer__name">2º SGT M. Farias</span>
+          <span className="app-footer__separator">·</span>
+          <span className="app-footer__name">2º SGT Gadelha</span>
+        </div>
+        <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
       </footer>
     </div>
   );

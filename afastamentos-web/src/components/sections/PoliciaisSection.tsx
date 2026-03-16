@@ -12,7 +12,8 @@ import type {
   Usuario,
 } from '../../types';
 import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
-import { formatNome } from '../../utils/dateUtils';
+import { formatNome, formatMatricula } from '../../utils/dateUtils';
+import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
@@ -254,10 +255,10 @@ export function PoliciaisSection({
           jaCadastrado: policial.jaCadastrado ?? false,
         }));
         
-        // Abrir modal de validação
+        // Abrir modal de validação (ordenado por patente e nome)
         setValidacaoModal({
           open: true,
-          policiais: policiaisComStatus,
+          policiais: sortPorPatenteENome(policiaisComStatus),
           loading: false,
           funcoesCriadas: response.funcoesCriadas || [],
         });
@@ -1069,7 +1070,7 @@ export function PoliciaisSection({
                     const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
                     return (
                       <tr key={idx}>
-                        <td>{policial.matricula}</td>
+                        <td>{formatMatricula(policial.matricula)}</td>
                         <td>{policial.nome}</td>
                         {jaCadastrado ? (
                           <td colSpan={3} style={{ color: '#64748b', fontStyle: 'italic' }}>
@@ -1201,7 +1202,7 @@ export function PoliciaisSection({
                 <strong>Nome:</strong> {reativarModal.policial.nome}
               </p>
               <p style={{ margin: '4px 0 0', fontSize: '0.9rem' }}>
-                <strong>Matrícula:</strong> {reativarModal.policial.matricula}
+                <strong>Matrícula:</strong> {formatMatricula(reativarModal.policial.matricula)}
               </p>
               <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
                 Deseja reativar este policial com os dados informados?

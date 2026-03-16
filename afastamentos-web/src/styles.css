@@ -1,10 +1,57 @@
+/* ===== Design System - Sistema Sentinela ===== */
+
 :root {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    sans-serif;
+  /* Brand */
+  --sentinela-blue: #0F2A44;
+  --sentinela-navy: #081B2C;
+  --sentinela-orange: #FF7A1A;
+  --sentinela-orange-glow: #FF9A3C;
+
+  /* UI */
+  --bg-main: #F4F7FA;
+  --bg-dark: #0B1F33;
+  --card-bg: #FFFFFF;
+  --border-soft: #D6E0EA;
+
+  /* Text */
+  --text-primary: #1B2B38;
+  --text-secondary: #5C6F82;
+
+  /* Status */
+  --success: #2E8B57;
+  --warning: #FF7A1A;
+  --error: #D64545;
+  --info: #2C7BE5;
+
+  /* Typography */
+  font-family: 'Roboto', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #0f172a;
-  background-color: #f8fafc;
+  color: var(--text-primary);
+  background-color: var(--bg-main);
+
+  /* Primary/Secondary button colors (light theme) */
+  --btn-primary-bg: var(--sentinela-blue);
+  --btn-primary-hover: #0a1f35;
+  --btn-accent-bg: var(--sentinela-orange);
+  --btn-accent-hover: #e66d0f;
+}
+
+/* Tema escuro (modo operacional) */
+[data-theme="dark"] {
+  --bg-main: var(--bg-dark);
+  --card-bg: #122a42;
+  --border-soft: #1e3a52;
+  --text-primary: #e8eef4;
+  --text-secondary: #94a8b8;
+  --btn-primary-bg: #1a3a5c;
+  --btn-primary-hover: var(--sentinela-blue);
+  --btn-accent-bg: var(--sentinela-orange-glow);
+  --btn-accent-hover: var(--sentinela-orange);
+}
+
+[data-theme="dark"] .app-footer {
+  background: rgba(18, 42, 66, 0.7);
 }
 
 *,
@@ -13,12 +60,24 @@
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
+  background-color: var(--bg-main);
+  background-image: linear-gradient(rgba(244, 247, 250, 0.5), rgba(244, 247, 250, 0.5)), url('/bg.png');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 #root {
   min-height: 100vh;
+  background-color: transparent;
 }
 
 .app-container {
@@ -57,13 +116,14 @@ header {
 
 header h1 {
   margin: 0;
-  font-size: 1.9rem;
-  color: #1e293b;
+  font-size: clamp(1.5rem, 2vw, 1.75rem);
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 header p {
   margin: 4px 0 0;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .header-actions {
@@ -71,13 +131,22 @@ header p {
   align-items: center;
   gap: 12px;
   font-size: 0.9rem;
-  color: #475569;
+  color: var(--text-secondary);
+}
+
+.header-actions .MuiIconButton-root {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.header-actions .MuiIconButton-root:hover {
+  transform: scale(1.05);
+  opacity: 0.9;
 }
 
 .logout-button {
   background: transparent;
-  border: 1px solid #1d4ed8;
-  color: #1d4ed8;
+  border: 1px solid var(--sentinela-blue);
+  color: var(--sentinela-blue);
   padding: 8px 14px;
   border-radius: 8px;
   cursor: pointer;
@@ -86,16 +155,57 @@ header p {
 }
 
 .logout-button:hover {
-  background: #1d4ed8;
+  background: var(--btn-primary-hover);
   color: white;
+  border-color: var(--btn-primary-hover);
 }
 
 .app-footer {
   margin-top: auto;
-  padding-top: 12px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   text-align: center;
-  font-size: 0.85rem;
-  color: #64748b;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.app-footer__label {
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0.9;
+}
+
+.app-footer__credits {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.app-footer__name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.app-footer__separator {
+  color: var(--border-soft);
+  font-weight: 300;
+  user-select: none;
+}
+
+.app-footer__meta {
+  font-size: 0.75rem;
+  opacity: 0.85;
 }
 
 .login-card {
@@ -113,9 +223,9 @@ nav {
 nav button {
   padding: 10px 16px;
   border-radius: 8px;
-  border: 1px solid #94a3b8;
-  background: white;
-  color: #1e293b;
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s ease-in-out;
   font-size: 0.95rem;
@@ -123,16 +233,17 @@ nav button {
 
 nav button.active,
 nav button:hover {
-  background: #1d4ed8;
+  background: var(--sentinela-blue);
   color: white;
-  border-color: #1d4ed8;
+  border-color: var(--sentinela-blue);
 }
 
 section {
-  background: white;
-  border-radius: 16px;
+  background: var(--card-bg);
+  border-radius: 8px;
   padding: 24px;
-  box-shadow: 0 10px 30px -20px rgba(15, 23, 42, 0.4);
+  box-shadow: 0 1px 3px rgba(15, 42, 68, 0.08);
+  border: 1px solid var(--border-soft);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -140,8 +251,9 @@ section {
 
 section h2 {
   margin: 0;
-  font-size: 1.4rem;
-  color: #0f172a;
+  font-size: clamp(1.125rem, 1.5vw, 1.375rem);
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 form {
@@ -186,7 +298,7 @@ form .grid.three-columns label select {
   flex-direction: column;
   gap: 6px;
   font-size: 0.9rem;
-  color: #475569;
+  color: var(--text-secondary);
   min-width: 0;
   padding: 0;
   margin: 0;
@@ -202,7 +314,7 @@ form .grid.three-columns label select {
 .form-cadastro-policial .form-field-label {
   display: block;
   font-size: 0.9rem;
-  color: #475569;
+  color: var(--text-secondary);
   margin-top: 4px;
   margin-bottom: 0;
 }
@@ -235,7 +347,7 @@ label {
   display: flex;
   flex-direction: column;
   font-size: 0.9rem;
-  color: #475569;
+  color: var(--text-secondary);
   gap: 6px;
 }
 
@@ -244,8 +356,10 @@ select,
 textarea {
   padding: 10px 12px;
   border-radius: 8px;
-  border: 1px solid #cbd5f5;
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
   font-size: 0.95rem;
+  color: var(--text-primary);
   transition: border-color 0.2s ease-in-out;
 }
 
@@ -253,40 +367,65 @@ input:focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: #1d4ed8;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  border-color: var(--sentinela-orange);
+  box-shadow: 0 0 0 3px rgba(255, 122, 26, 0.2);
 }
 
 input.input-error {
-  border-color: #ef4444;
+  border-color: var(--error);
 }
 
 input.input-error:focus {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.2);
+  border-color: var(--error);
+  box-shadow: 0 0 0 3px rgba(214, 69, 69, 0.2);
 }
 
 .field-error {
   font-size: 0.85rem;
-  color: #dc2626;
+  color: var(--error);
   margin-top: 2px;
 }
 
 button.primary {
   align-self: flex-start;
-  background: #1d4ed8;
-  border: 1px solid #1d4ed8;
+  background: var(--sentinela-blue);
+  border: 1px solid var(--sentinela-blue);
   color: white;
   padding: 10px 18px;
   border-radius: 8px;
   font-size: 0.95rem;
   cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+button.primary:hover {
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+}
+
+/* Botão de ação importante (laranja) */
+button.accent,
+button.primary-accent {
+  background: var(--sentinela-orange);
+  border: 1px solid var(--sentinela-orange);
+  color: white;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+button.accent:hover,
+button.primary-accent:hover {
+  background: var(--btn-accent-hover);
+  border-color: var(--btn-accent-hover);
 }
 
 button.success {
   align-self: flex-start;
-  background: #16a34a;
-  border: 1px solid #16a34a;
+  background: var(--success);
+  border: 1px solid var(--success);
   color: white;
   padding: 10px 18px;
   border-radius: 8px;
@@ -296,14 +435,14 @@ button.success {
 }
 
 button.success:hover {
-  background: #15803d;
-  border-color: #15803d;
+  background: #267a4a;
+  border-color: #267a4a;
 }
 
 button.danger {
   background: transparent;
-  border: 1px solid #ef4444;
-  color: #b91c1c;
+  border: 1px solid var(--error);
+  color: var(--error);
   padding: 6px 12px;
   border-radius: 8px;
   cursor: pointer;
@@ -312,14 +451,14 @@ button.danger {
 }
 
 button.danger:hover {
-  background: #fee2e2;
-  border-color: #dc2626;
-  color: #991b1b;
+  background: rgba(214, 69, 69, 0.12);
+  border-color: var(--error);
+  color: var(--error);
 }
 
 button.danger-delete {
-  background: #dc2626;
-  border: 1px solid #dc2626;
+  background: var(--error);
+  border: 1px solid var(--error);
   color: white;
   padding: 6px 12px;
   border-radius: 8px;
@@ -330,8 +469,8 @@ button.danger-delete {
 }
 
 button.danger-delete:hover {
-  background: #b91c1c;
-  border-color: #991b1b;
+  background: #c03d3d;
+  border-color: #c03d3d;
 }
 
 button:disabled {
@@ -345,20 +484,21 @@ button:disabled {
 }
 
 .table thead {
-  background: #e2e8f0;
+  background: rgba(15, 42, 68, 0.06);
   text-align: left;
 }
 
 .table th,
 .table td {
   padding: 10px 12px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border-soft);
   font-size: 0.9rem;
   vertical-align: middle;
+  color: var(--text-primary);
 }
 
 .table tbody tr:hover {
-  background: #f8fafc;
+  background: rgba(15, 42, 68, 0.03);
 }
 
 .badge {
@@ -368,38 +508,38 @@ button:disabled {
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
-  background: #e0f2fe;
-  color: #0369a1;
+  background: rgba(44, 123, 229, 0.15);
+  color: var(--info);
 }
 
 .badge-muted {
-  background: #e2e8f0;
-  color: #1e293b;
+  background: rgba(92, 111, 130, 0.15);
+  color: var(--text-primary);
 }
 
 .policial-status-ativo {
-  background: #dcfce7;
-  color: #166534;
+  background: rgba(46, 139, 87, 0.15);
+  color: var(--success);
 }
 
 .policial-status-comissionado {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(214, 69, 69, 0.12);
+  color: var(--error);
 }
 
 .policial-status-designado {
-  background: #fef9c3;
-  color: #92400e;
+  background: rgba(255, 122, 26, 0.15);
+  color: var(--warning);
 }
 
 .policial-status-pttc {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: rgba(44, 123, 229, 0.15);
+  color: var(--info);
 }
 
 .policial-status-desativado {
-  background: #fee2e2;
-  color: #991b1b;
+  background: rgba(214, 69, 69, 0.12);
+  color: var(--error);
 }
 
 .feedback {
@@ -410,15 +550,15 @@ button:disabled {
 }
 
 .feedback.error {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #fecaca;
+  background: rgba(214, 69, 69, 0.12);
+  color: var(--error);
+  border: 1px solid rgba(214, 69, 69, 0.3);
 }
 
 .feedback.success {
-  background: #dcfce7;
-  color: #166534;
-  border: 1px solid #bbf7d0;
+  background: rgba(46, 139, 87, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(46, 139, 87, 0.3);
   padding-right: 36px;
 }
 
@@ -454,10 +594,10 @@ button:disabled {
 
 .empty-state {
   padding: 16px;
-  background: #eff6ff;
+  background: rgba(44, 123, 229, 0.08);
   border-radius: 12px;
   font-size: 0.9rem;
-  color: #1d4ed8;
+  color: var(--info);
 }
 
 .section-header {
@@ -483,31 +623,31 @@ button:disabled {
 
 .management-card {
   text-align: left;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
   padding: 16px 18px;
-  background: #ffffff;
+  background: var(--card-bg);
   cursor: pointer;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .management-card:hover {
   transform: translateY(-2px);
-  border-color: #93c5fd;
-  box-shadow: 0 8px 18px rgba(30, 64, 175, 0.12);
+  border-color: var(--sentinela-orange);
+  box-shadow: 0 8px 18px rgba(255, 122, 26, 0.15);
 }
 
 .management-card-title {
   display: block;
   font-weight: 600;
-  color: #0f172a;
+  color: var(--text-primary);
   margin-bottom: 6px;
 }
 
 .management-card-description {
   display: block;
   font-size: 0.9rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .table-actions {
@@ -534,9 +674,9 @@ button:disabled {
 .management-panel__content {
   margin-top: 4px;
   padding: 12px 16px 4px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border-soft);
   border-radius: 12px;
-  background: #f8fafc;
+  background: var(--bg-main);
 }
 
 .management-panel__actions {
@@ -584,7 +724,7 @@ button:disabled {
 
 .permissions-header__label {
   font-weight: 600;
-  color: #334155;
+  color: var(--text-primary);
 }
 
 .permissions-header__screens {
@@ -597,12 +737,12 @@ button:disabled {
 }
 
 .permissions-screen {
-  background: #e2e8f0;
+  background: rgba(92, 111, 130, 0.2);
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 0.85rem;
   text-align: center;
-  color: #0f172a;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -621,7 +761,7 @@ button:disabled {
 
 .permissions-action {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-primary);
   padding: 6px 0;
 }
 
@@ -635,8 +775,8 @@ button:disabled {
 }
 
 .permissions-cell {
-  background: #f8fafc;
-  border: 1px dashed #e2e8f0;
+  background: var(--bg-main);
+  border: 1px dashed var(--border-soft);
   border-radius: 8px;
 }
 
@@ -645,7 +785,7 @@ button:disabled {
   align-items: center;
   gap: 12px;
   font-size: 0.85rem;
-  color: #475569;
+  color: var(--text-secondary);
 }
 
 .switch {
@@ -656,7 +796,7 @@ button:disabled {
 }
 
 .switch input {
-  accent-color: #1d4ed8;
+  accent-color: var(--sentinela-orange);
   width: 16px;
   height: 16px;
 }
@@ -664,13 +804,13 @@ button:disabled {
 .subtitle {
   margin: 4px 0 0;
   font-size: 0.9rem;
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 .ghost {
   background: transparent;
-  border: 1px solid #94a3b8;
-  color: #1e293b;
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
   padding: 8px 16px;
   border-radius: 999px;
   cursor: pointer;
@@ -679,8 +819,8 @@ button:disabled {
 }
 
 .ghost:hover {
-  border-color: #1d4ed8;
-  color: #1d4ed8;
+  border-color: var(--sentinela-orange);
+  color: var(--sentinela-orange);
 }
 
 .tabs {
@@ -689,7 +829,7 @@ button:disabled {
   gap: 12px;
   padding: 0;
   margin: 0;
-  border-bottom: 1px solid #cbd5f5;
+  border-bottom: 1px solid var(--border-soft);
 }
 
 .tabs li {
@@ -702,19 +842,19 @@ button:disabled {
   border: none;
   padding: 12px 18px;
   font-size: 0.95rem;
-  color: #475569;
+  color: var(--text-secondary);
   cursor: pointer;
   border-bottom: 3px solid transparent;
   transition: color 0.2s ease-in-out, border-color 0.2s ease-in-out;
 }
 
 .tab:hover {
-  color: #1d4ed8;
+  color: var(--sentinela-blue);
 }
 
 .tab.active {
-  color: #1d4ed8;
-  border-color: #1d4ed8;
+  color: var(--sentinela-blue);
+  border-color: var(--sentinela-blue);
   font-weight: 600;
 }
 
@@ -727,8 +867,8 @@ button:disabled {
 
 button.secondary {
   background: transparent;
-  border: 1px solid #64748b;
-  color: #1e293b;
+  border: 1px solid var(--border-soft);
+  color: var(--text-primary);
   padding: 6px 12px;
   border-radius: 8px;
   font-size: 0.85rem;
@@ -737,8 +877,8 @@ button.secondary {
 }
 
 button.secondary:hover {
-  border-color: #1d4ed8;
-  color: #1d4ed8;
+  border-color: var(--sentinela-orange);
+  color: var(--sentinela-orange);
 }
 
 .actions {
@@ -749,8 +889,8 @@ button.secondary:hover {
 }
 
 .action-button {
-  background: #1d4ed8;
-  border: 1px solid #1d4ed8;
+  background: var(--sentinela-blue);
+  border: 1px solid var(--sentinela-blue);
   color: #ffffff;
   padding: 6px 12px;
   border-radius: 8px;
@@ -760,30 +900,41 @@ button.secondary:hover {
 }
 
 .action-button:hover {
-  background: #153aa6;
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
 }
 
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 42, 68, 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
   z-index: 1400;
+  overflow-y: auto;
+}
+
+/* Modal sobre modal (ex.: ImageCropper sobre Editar usuário) */
+.modal-backdrop-top {
+  z-index: 1600;
 }
 
 .modal {
-  background: #ffffff;
-  border-radius: 16px;
+  background: var(--card-bg);
+  border-radius: 8px;
   padding: 24px;
   max-width: 420px;
   width: 100%;
+  max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
   gap: 16px;
-  box-shadow: 0 20px 45px -25px rgba(15, 23, 42, 0.6);
+  box-shadow: 0 20px 45px -25px rgba(15, 42, 68, 0.4);
+  border: 1px solid var(--border-soft);
+  overflow-y: auto;
+  margin: auto;
 }
 
 .modal.permissions-modal {
@@ -799,12 +950,13 @@ button.secondary:hover {
 .modal h3 {
   margin: 0;
   font-size: 1.2rem;
-  color: #0f172a;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .modal p {
   margin: 0;
-  color: #475569;
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -833,16 +985,18 @@ button.secondary:hover {
 .search-input {
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid #cbd5f5;
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
   font-size: 0.9rem;
   min-width: 220px;
+  color: var(--text-primary);
   transition: border-color 0.2s ease-in-out;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: #1d4ed8;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+  border-color: var(--sentinela-orange);
+  box-shadow: 0 0 0 3px rgba(255, 122, 26, 0.2);
 }
 
 .password-input-wrapper {
@@ -868,13 +1022,13 @@ button.secondary:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #64748b;
+  color: var(--text-secondary);
   transition: color 0.2s ease-in-out;
   z-index: 1;
 }
 
 .password-input-wrapper .password-toggle:hover {
-  color: #1d4ed8;
+  color: var(--sentinela-orange);
 }
 
 .tooltip-container {
@@ -889,8 +1043,8 @@ button.secondary:hover {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background-color: #cbd5e1;
-  color: #475569;
+  background-color: rgba(92, 111, 130, 0.3);
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: bold;
   cursor: help;
@@ -898,8 +1052,8 @@ button.secondary:hover {
 }
 
 .tooltip-icon:hover {
-  background-color: #94a3b8;
-  color: #1e293b;
+  background-color: var(--sentinela-blue);
+  color: white;
 }
 
 .tooltip-text {
@@ -909,7 +1063,7 @@ button.secondary:hover {
   bottom: 125%;
   left: 50%;
   transform: translateX(-50%);
-  background-color: #1e293b;
+  background-color: var(--sentinela-navy);
   color: #f8fafc;
   text-align: center;
   padding: 8px 12px;
@@ -932,7 +1086,7 @@ button.secondary:hover {
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
-  border-top-color: #1e293b;
+  border-top-color: var(--sentinela-navy);
 }
 
 .tooltip-container:hover .tooltip-text {
@@ -942,7 +1096,7 @@ button.secondary:hover {
 
 .password-input-wrapper .password-toggle:focus {
   outline: none;
-  color: #1d4ed8;
+  color: var(--sentinela-orange);
 }
 
 /* Estilos para impressão do efetivo disponível */

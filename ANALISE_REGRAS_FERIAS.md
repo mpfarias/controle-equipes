@@ -108,7 +108,7 @@ O sistema possui duas formas principais de gerenciar férias:
 - ✅ **Máximo:** 30 dias por ano
 - ✅ **Máximo:** 3 períodos por ano
 - ✅ **Intervalo entre períodos:** Mínimo de **30 dias** entre períodos
-- ✅ **Validação adicional:** Deve ser possível dividir os dias restantes em períodos válidos (mínimo 10 dias cada)
+- ✅ **Parcelamento:** Permite 2 ou 3 períodos com qualquer contagem de dias, desde que cada período tenha no mínimo 10 dias (ex.: 13+17, 14+16, 11+19, 10+10+10)
 
 #### Policiais DESATIVADOS
 - ❌ **Não podem tirar férias**

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../../api';
+import { formatMatricula } from '../../utils/dateUtils';
 import type { AuditLog, Usuario, RelatorioLog, ErroLog, AcessoLog } from '../../types';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canView } from '../../utils/permissions';
@@ -126,7 +127,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
     const data = `${dia}/${mes}/${ano}`;
     const hora = `${horas}:${minutos}`;
     
-    const rodape = `Relatório gerado por ${currentUser.nome} - ${currentUser.matricula} - ${data} às ${hora}`;
+    const rodape = `Relatório gerado por ${currentUser.nome} - ${formatMatricula(currentUser.matricula)} - ${data} às ${hora}`;
     
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
@@ -188,7 +189,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
           acao: 'Gerar Relatório',
           entidade: 'Relatório',
           entityId: log.tipoRelatorio,
-          usuario: log.userName || log.matricula || 'Sistema',
+          usuario: log.userName || formatMatricula(log.matricula) || 'Sistema',
         })),
       ].sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
 
@@ -441,7 +442,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
         const hora = `${horas}:${minutos}`;
         
         const quemCadastrou = usuario.createdByName || 'Sistema';
-        const usuarioCadastrado = `${usuario.nome} (${usuario.matricula})`;
+        const usuarioCadastrado = `${usuario.nome} (${formatMatricula(usuario.matricula)})`;
         const nivel = usuario.nivel?.nome || '-';
         const funcao = usuario.funcao?.nome || '-';
 
@@ -726,7 +727,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
         const metodo = erro.metodo || '-';
         const endpoint = erro.endpoint || '-';
         const mensagem = erro.mensagem || '-';
-        const usuario = erro.userName || erro.matricula || '-';
+        const usuario = erro.userName || formatMatricula(erro.matricula) || '-';
 
         xPosition = margin;
         
@@ -890,7 +891,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
         }
         
         const usuario = acesso.userName || '-';
-        const matricula = acesso.matricula || '-';
+        const matricula = formatMatricula(acesso.matricula) || '-';
         const ip = acesso.ip || '-';
         
         // Calcular tempo de sessão diretamente das datas para garantir precisão

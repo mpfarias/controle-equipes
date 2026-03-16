@@ -1682,6 +1682,135 @@ export class PoliciaisService {
     return meses[mes - 1] || `Mês ${mes}`;
   }
 
+  /**
+   * Retorna contagem de efetivo por posto/graduação (Oficiais, Praças, Civis).
+   * Oficiais: CEL, TC, MAJ, CAP, 2º TEN, 1º TEN, ASP
+   * Praças: ST, 1º SGT, 2º SGT, 3º SGT, CB, SD (inclui SUBTEN)
+   * Civis: CIVIL
+   */
+  async getEfetivoPorPosto(equipe?: string): Promise<{
+    oficiais: number;
+    pracas: number;
+    civis: number;
+    outros: number;
+    total: number;
+  }> {
+    const desativadoStatusId = await this.resolveStatusId('DESATIVADO');
+    const where: Prisma.PolicialWhereInput = {
+      statusId: { not: desativadoStatusId },
+    };
+    if (equipe) {
+      where.equipe = equipe;
+    }
+    const policiais = await this.prisma.policial.findMany({
+      where,
+      select: { nome: true },
+    });
+
+    const PATENTE_OFICIAIS = [
+      /\bCEL\b/i,
+      /\bTC\b/i,
+      /\bMAJ\b/i,
+      /\bCAP\b/i,
+      /\b2[º°ªo.]?\s*TEN\b/i,
+      /\b1[º°ªo.]?\s*TEN\b/i,
+      /\bASP\b/i,
+    ];
+    const PATENTE_PRACAS = [
+      /\bST\b/i,
+      /\bSUB\s*TEN\b/i,
+      /\bSUBTEN\b/i,
+      /\b1[º°ªo.]?\s*SGT\b/i,
+      /\b2[º°ªo.]?\s*SGT\b/i,
+      /\b3[º°ªo.]?\s*SGT\b/i,
+      /\bCB\b/i,
+      /\bSD\b/i,
+    ];
+
+    const postos = { oficiais: 0, pracas: 0, civis: 0, outros: 0 };
+    for (const p of policiais) {
+      const n = String(p.nome ?? '').trim();
+      if (/\bCIVIL\b/i.test(n)) {
+        postos.civis++;
+      } else if (PATENTE_OFICIAIS.some((re) => re.test(n))) {
+        postos.oficiais++;
+      } else if (PATENTE_PRACAS.some((re) => re.test(n))) {
+        postos.pracas++;
+      } else {
+        postos.outros++;
+      }
+    }
+
+    return {
+      ...postos,
+      total: policiais.length,
+    };
+  }
+
+  /**
+   * Retorna lista de policiais filtrados por posto/graduação.
+   * posto: 'oficial' | 'praca' | 'civil' | 'outros'
+   */
+  async findPoliciaisPorPosto(
+    posto: 'oficial' | 'praca' | 'civil' | 'outros',
+    equipe?: string,
+  ): Promise<PolicialResponse[]> {
+    const desativadoStatusId = await this.resolveStatusId('DESATIVADO');
+    const where: Prisma.PolicialWhereInput = {
+      statusId: { not: desativadoStatusId },
+    };
+    if (equipe) {
+      where.equipe = equipe;
+    }
+    const anoAtual = new Date().getFullYear();
+    const policiais = await this.prisma.policial.findMany({
+      where,
+      include: {
+        funcao: true,
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    const PATENTE_OFICIAIS = [
+      /\bCEL\b/i,
+      /\bTC\b/i,
+      /\bMAJ\b/i,
+      /\bCAP\b/i,
+      /\b2[º°ªo.]?\s*TEN\b/i,
+      /\b1[º°ªo.]?\s*TEN\b/i,
+      /\bASP\b/i,
+    ];
+    const PATENTE_PRACAS = [
+      /\bST\b/i,
+      /\bSUB\s*TEN\b/i,
+      /\bSUBTEN\b/i,
+      /\b1[º°ªo.]?\s*SGT\b/i,
+      /\b2[º°ªo.]?\s*SGT\b/i,
+      /\b3[º°ªo.]?\s*SGT\b/i,
+      /\bCB\b/i,
+      /\bSD\b/i,
+    ];
+
+    const filtrarPorPosto = (p: { nome: string }) => {
+      const n = String(p.nome ?? '').trim();
+      if (posto === 'civil') return /\bCIVIL\b/i.test(n);
+      if (posto === 'oficial') return PATENTE_OFICIAIS.some((re) => re.test(n));
+      if (posto === 'praca') return PATENTE_PRACAS.some((re) => re.test(n));
+      if (posto === 'outros') {
+        return (
+          !/\bCIVIL\b/i.test(n) &&
+          !PATENTE_OFICIAIS.some((re) => re.test(n)) &&
+          !PATENTE_PRACAS.some((re) => re.test(n))
+        );
+      }
+      return false;
+    };
+
+    const filtrados = policiais.filter(filtrarPorPosto);
+    return filtrados.map((p) => this.mapFeriasPrevisao(p as PolicialWithRelations & { ferias?: FeriasPolicialEntity[] }));
+  }
+
   async listStatusPolicial(): Promise<{ id: number; nome: string; descricao: string | null; createdAt: Date; updatedAt: Date }[]> {
     return this.prisma.statusPolicial.findMany({
       orderBy: { nome: 'asc' },

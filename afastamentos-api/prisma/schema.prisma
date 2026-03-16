@@ -133,6 +133,7 @@ model Usuario {
   nivel                 UsuarioNivel? @relation(fields: [nivelId], references: [id])
   funcaoId              Int?
   funcao                Funcao?       @relation(fields: [funcaoId], references: [id])
+  fotoUrl               String?
   createdById           Int?
   createdByName         String?
   updatedById           Int?

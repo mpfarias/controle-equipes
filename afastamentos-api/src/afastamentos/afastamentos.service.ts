@@ -617,20 +617,22 @@ export class AfastamentosService {
         }
       }
 
-      // Validar se é possível dividir os dias restantes em períodos válidos (mínimo 10 dias cada)
-      // Só validar se ainda há períodos disponíveis após este cadastro
+      // Validar se os dias restantes permitem pelo menos um período válido (mínimo 10 dias)
+      // Regra: permite toda e qualquer combinação válida em 2 ou 3 períodos, desde que:
+      // - total não ultrapasse 30 dias/ano
+      // - cada período tenha no mínimo 10 dias
+      // Ex.: 10+20, 11+19, 12+18, 13+17, 14+16, 15+15, 10+10+10, etc.
       const totalDiasAposCadastro = totalDias + diasSolicitados;
       const diasRestantes = 30 - totalDiasAposCadastro;
-      const periodosRestantes = 3 - totalPeriodosAposCadastro; // Períodos que ainda podem ser cadastrados
+      const periodosRestantes = 3 - totalPeriodosAposCadastro;
       
       if (periodosRestantes > 0 && diasRestantes > 0) {
-        // Ainda há períodos disponíveis e dias restantes
-        // Verificar se é possível dividir os dias restantes em períodos de pelo menos 10 dias
-        const minimoParaProximosPeriodos = periodosRestantes * 10;
+        // Os dias restantes devem permitir pelo menos um período de 10 dias (podem ser usados em um único período)
+        const minimoParaUmPeriodo = 10;
         
-        if (diasRestantes < minimoParaProximosPeriodos) {
+        if (diasRestantes < minimoParaUmPeriodo) {
           throw new BadRequestException(
-            `Para policiais comissionados, não é possível dividir as férias em períodos válidos. Com ${totalDiasAposCadastro} dias já utilizados (${totalPeriodosAposCadastro} período(s)), restam ${diasRestantes} dias para ${periodosRestantes} período(s) restante(s), mas cada período precisa ter no mínimo 10 dias. É necessário ajustar o período atual para permitir a divisão correta das férias.`,
+            `Para policiais comissionados, não é possível dividir as férias em períodos válidos. Com ${totalDiasAposCadastro} dias já utilizados (${totalPeriodosAposCadastro} período(s)), restam ${diasRestantes} dias, mas cada período precisa ter no mínimo 10 dias. É necessário ajustar o período atual.`,
           );
         }
       }

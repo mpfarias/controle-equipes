@@ -10,7 +10,8 @@ import type {
   FuncaoOption,
 } from '../../types';
 import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
-import { formatPeriodo, formatDate, formatNome } from '../../utils/dateUtils';
+import { formatPeriodo, formatDate, formatNome, formatMatricula } from '../../utils/dateUtils';
+import { sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { Button, Box, Checkbox, Collapse, Typography, Paper, Grid, Divider } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -418,7 +419,8 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
       );
     }
 
-    return resultado;
+    // Ordenar por patente e nome do policial
+    return sortAfastamentosPorPatenteENome(resultado);
   }, [afastamentos, searchTerm, motivosSelecionados, motivoOutroFiltro, statusSelecionados, equipesSelecionadas, funcoesSelecionadas, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes, converterDataLocal]);
 
   const descricaoPeriodo = useMemo(() => {
@@ -1016,7 +1018,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
               <tr key={afastamento.id}>
                 <td>
                   <div>{afastamento.policial.nome}</div>
-                  <small>{afastamento.policial.matricula}</small>
+                  <small>{formatMatricula(afastamento.policial.matricula)}</small>
                 </td>
                 <td>
                   <span>{formatEquipeLabel(afastamento.policial.equipe)}</span>

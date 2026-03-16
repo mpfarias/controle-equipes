@@ -59,5 +59,9 @@ export class CreateUsuarioDto {
   @IsInt()
   @Min(1)
   funcaoId?: number;
+
+  @IsOptional()
+  @IsString()
+  fotoUrl?: string | null;
 }
 
