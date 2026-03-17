@@ -80,7 +80,7 @@ export function LoginView({ onSuccess, onForgotPassword }: LoginViewProps) {
           borderRadius: 3,
           p: { xs: 3, md: 4 },
           color: 'white',
-          backgroundColor: '#0b1f4b',
+          backgroundColor: 'var(--sentinela-navy)',
           backgroundImage:
             "linear-gradient(135deg, rgba(11, 31, 75, 0.92) 0%, rgba(30, 58, 138, 0.9) 45%, rgba(37, 99, 235, 0.88) 100%), url('/pmdf-logo.webp')",
           backgroundRepeat: 'no-repeat',

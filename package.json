@@ -12,6 +12,8 @@
     "start:web": "cd afastamentos-web && npm run dev",
     "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install",
     "setup:db": "cd afastamentos-api && npm run db:setup"
+  },
+  "devDependencies": {
+    "baseline-browser-mapping": "^2.10.8"
   }
 }
-

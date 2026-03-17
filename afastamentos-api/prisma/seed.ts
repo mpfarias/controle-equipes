@@ -102,11 +102,19 @@ async function main() {
 
   // Criar motivos de afastamento
   console.log('📋 Criando motivos de afastamento...');
+  // Renomear LTSP para Dispensa Médica se existir (não criar nova opção)
+  const ltspExistente = await prisma.motivoAfastamento.findUnique({ where: { nome: 'LTSP' } });
+  if (ltspExistente) {
+    await prisma.motivoAfastamento.update({
+      where: { id: ltspExistente.id },
+      data: { nome: 'Dispensa Médica', descricao: 'Licença para Tratamento de Saúde da Pessoa' },
+    });
+  }
   const motivos = [
     { nome: 'Férias', descricao: 'Período de descanso anual' },
     { nome: 'Abono', descricao: 'Dispensa de serviço remunerada' },
     { nome: 'Dispensa recompensa', descricao: 'Dispensa por mérito' },
-    { nome: 'LTSP', descricao: 'Licença para Tratamento de Saúde da Pessoa' },
+    { nome: 'Dispensa Médica', descricao: 'Licença para Tratamento de Saúde da Pessoa' },
     { nome: 'Aniversário', descricao: 'Dispensa no dia do aniversário' },
     { nome: 'Prisão', descricao: 'Afastamento por prisão' },
     { nome: 'Licença Casamento', descricao: 'Licença por casamento' },

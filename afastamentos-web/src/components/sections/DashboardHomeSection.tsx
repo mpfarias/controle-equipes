@@ -461,7 +461,11 @@ export function DashboardHomeSection({
           );
         }
         
-        setTotalPoliciaisCadastrados(policiaisAtivos.length);
+        // Usar totalDisponiveis da API (exclui DESATIVADOS no banco) - mais confiável que filtrar a página
+        const totalParaExibir = usuarioEhCpmulher
+          ? policiaisAtivos.length
+          : (data.totalDisponiveis ?? policiaisAtivos.length);
+        setTotalPoliciaisCadastrados(totalParaExibir);
 
         // Contar por status (Ativos, PTTC, Designados, Comissionados)
         const counts: Record<string, number> = { ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 };
@@ -922,7 +926,7 @@ export function DashboardHomeSection({
         title: 'Policiais Disponíveis',
         description: 'Policiais disponíveis para trabalho no mês atual',
         tab: 'equipe' as TabKey,
-        color: '#10b981',
+        color: '#86C99E',
         showCount: true,
         countValue: totalPoliciaisDisponiveis,
         loadingCount: loadingAfastamentos || loadingPoliciais,
@@ -1511,14 +1515,14 @@ export function DashboardHomeSection({
           const qtdProximoMes = ordenados.filter((p) => p.anoPrevisaoFerias === anoProximo && p.mesPrevisaoFerias === proximoMesNum).length;
           return (
             <>
-            <Alert severity="warning" sx={{ mb: 2 }}>
+            <Alert severity="warning" sx={{ mb: 2, '& a, & .MuiLink-root': { color: '#fff !important', textDecoration: 'underline' } }}>
               Existem policiais com férias programadas para os meses de {nomeMesAtual} e {nomeProximoMes}, mas não estão marcados.{' '}
               {onTabChange && (
                 <Link
                   component="button"
                   variant="body2"
                   onClick={() => setModalVerPoliciaisOpen(true)}
-                  sx={{ fontWeight: 600 }}
+                  sx={{ fontWeight: 600, color: '#fff !important' }}
                 >
                   Ver policiais
                 </Link>
@@ -1615,14 +1619,14 @@ export function DashboardHomeSection({
           }));
           return (
             <>
-            <Alert severity="info" sx={{ mb: 2 }}>
+            <Alert severity="info" sx={{ mb: 2, '& a, & .MuiLink-root': { color: '#fff !important', textDecoration: 'underline' } }}>
               Existem policiais com férias programadas em {textoMeses}, mas não foram marcadas.{' '}
               {onTabChange && (
                 <Link
                   component="button"
                   variant="body2"
                   onClick={() => setModalVerPoliciaisAtrasadosOpen(true)}
-                  sx={{ fontWeight: 600 }}
+                  sx={{ fontWeight: 600, color: '#fff !important' }}
                 >
                   Ver policiais
                 </Link>
@@ -2081,7 +2085,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#ef4444', 
+                                    color: 'var(--error)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2111,7 +2115,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#10b981', 
+                                    color: 'var(--alert-success-text)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2191,7 +2195,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#ef4444', 
+                                    color: 'var(--error)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2221,7 +2225,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#10b981', 
+                                    color: 'var(--alert-success-text)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2301,7 +2305,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#ef4444', 
+                                    color: 'var(--error)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2331,7 +2335,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#10b981', 
+                                    color: 'var(--alert-success-text)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2413,7 +2417,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#ef4444', 
+                                    color: 'var(--error)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2443,7 +2447,7 @@ export function DashboardHomeSection({
                                   variant="h5" 
                                   sx={{ 
                                     fontWeight: 700, 
-                                    color: '#10b981', 
+                                    color: 'var(--alert-success-text)', 
                                     fontSize: '1.75rem'
                                   }}
                                 >
@@ -2980,15 +2984,15 @@ export function DashboardHomeSection({
                             size="small"
                             sx={{
                               backgroundColor: 
-                                policial.status === 'ATIVO' ? '#dcfce7' :
-                                policial.status === 'COMISSIONADO' ? '#fee2e2' :
-                                policial.status === 'DESIGNADO' ? '#fef9c3' :
-                                policial.status === 'PTTC' ? '#dbeafe' : '#fee2e2',
+                                policial.status === 'ATIVO' ? 'var(--alert-success-bg)' :
+                                policial.status === 'COMISSIONADO' ? 'var(--alert-error-bg)' :
+                                policial.status === 'DESIGNADO' ? 'var(--alert-warning-bg)' :
+                                policial.status === 'PTTC' ? 'var(--alert-info-bg)' : 'var(--alert-error-bg)',
                               color: 
-                                policial.status === 'ATIVO' ? '#166534' :
-                                policial.status === 'COMISSIONADO' ? '#991b1b' :
-                                policial.status === 'DESIGNADO' ? '#92400e' :
-                                policial.status === 'PTTC' ? '#1d4ed8' : '#991b1b',
+                                policial.status === 'ATIVO' ? 'var(--alert-success-text)' :
+                                policial.status === 'COMISSIONADO' ? 'var(--error)' :
+                                policial.status === 'DESIGNADO' ? 'var(--alert-warning-text)' :
+                                policial.status === 'PTTC' ? 'var(--accent-muted)' : 'var(--error)',
                             }}
                           />
                           {formatEquipeLabel(policial.equipe) !== '—' && policial.equipe && (
@@ -3110,15 +3114,15 @@ export function DashboardHomeSection({
                             size="small"
                             sx={{
                               backgroundColor:
-                                policial.status === 'ATIVO' ? '#dcfce7' :
-                                policial.status === 'COMISSIONADO' ? '#fee2e2' :
-                                policial.status === 'DESIGNADO' ? '#fef9c3' :
-                                policial.status === 'PTTC' ? '#dbeafe' : '#fee2e2',
+                                policial.status === 'ATIVO' ? 'var(--alert-success-bg)' :
+                                policial.status === 'COMISSIONADO' ? 'var(--alert-error-bg)' :
+                                policial.status === 'DESIGNADO' ? 'var(--alert-warning-bg)' :
+                                policial.status === 'PTTC' ? 'var(--alert-info-bg)' : 'var(--alert-error-bg)',
                               color:
-                                policial.status === 'ATIVO' ? '#166534' :
-                                policial.status === 'COMISSIONADO' ? '#991b1b' :
-                                policial.status === 'DESIGNADO' ? '#92400e' :
-                                policial.status === 'PTTC' ? '#1d4ed8' : '#991b1b',
+                                policial.status === 'ATIVO' ? 'var(--alert-success-text)' :
+                                policial.status === 'COMISSIONADO' ? 'var(--error)' :
+                                policial.status === 'DESIGNADO' ? 'var(--alert-warning-text)' :
+                                policial.status === 'PTTC' ? 'var(--accent-muted)' : 'var(--error)',
                             }}
                           />
                           {formatEquipeLabel(policial.equipe) !== '—' && policial.equipe && (
@@ -3194,15 +3198,15 @@ export function DashboardHomeSection({
                             size="small"
                             sx={{
                               backgroundColor:
-                                policial.status === 'ATIVO' ? '#dcfce7' :
-                                policial.status === 'COMISSIONADO' ? '#fee2e2' :
-                                policial.status === 'DESIGNADO' ? '#fef9c3' :
-                                policial.status === 'PTTC' ? '#dbeafe' : '#fee2e2',
+                                policial.status === 'ATIVO' ? 'var(--alert-success-bg)' :
+                                policial.status === 'COMISSIONADO' ? 'var(--alert-error-bg)' :
+                                policial.status === 'DESIGNADO' ? 'var(--alert-warning-bg)' :
+                                policial.status === 'PTTC' ? 'var(--alert-info-bg)' : 'var(--alert-error-bg)',
                               color:
-                                policial.status === 'ATIVO' ? '#166534' :
-                                policial.status === 'COMISSIONADO' ? '#991b1b' :
-                                policial.status === 'DESIGNADO' ? '#92400e' :
-                                policial.status === 'PTTC' ? '#1d4ed8' : '#991b1b',
+                                policial.status === 'ATIVO' ? 'var(--alert-success-text)' :
+                                policial.status === 'COMISSIONADO' ? 'var(--error)' :
+                                policial.status === 'DESIGNADO' ? 'var(--alert-warning-text)' :
+                                policial.status === 'PTTC' ? 'var(--accent-muted)' : 'var(--error)',
                             }}
                           />
                           {formatEquipeLabel(policial.equipe) !== '—' && policial.equipe && (

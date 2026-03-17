@@ -981,7 +981,7 @@ export function PoliciaisSection({
             <h3 style={{ flexShrink: 0 }}>Validar Dados Extraídos</h3>
             
             {validacaoModal.funcoesCriadas.length > 0 && (
-              <div className="feedback" style={{ marginBottom: '16px', backgroundColor: '#dbeafe', borderColor: '#3b82f6', color: '#1e40af', flexShrink: 0 }}>
+              <div className="feedback" style={{ marginBottom: '16px', backgroundColor: 'var(--alert-info-bg)', borderColor: 'var(--info)', color: 'var(--alert-info-text)', flexShrink: 0 }}>
                 <strong>Funções criadas automaticamente:</strong>
                 <ul style={{ margin: '8px 0 0', paddingLeft: '20px' }}>
                   {validacaoModal.funcoesCriadas.map((funcao, idx) => (
@@ -993,7 +993,7 @@ export function PoliciaisSection({
 
             {validacaoModal.policiais.length === 0 ? (
               <div style={{ flex: '1 1 auto', minHeight: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
-                <div className="feedback" style={{ backgroundColor: '#f0f9ff', borderColor: '#3b82f6', color: '#1e40af', textAlign: 'center' }}>
+                <div className="feedback" style={{ backgroundColor: 'var(--alert-info-bg)', borderColor: 'var(--accent-muted)', color: 'var(--alert-info-text)', textAlign: 'center' }}>
                   <strong>Todos os policiais da lista estão cadastrados</strong>
                 </div>
               </div>
@@ -1073,7 +1073,7 @@ export function PoliciaisSection({
                         <td>{formatMatricula(policial.matricula)}</td>
                         <td>{policial.nome}</td>
                         {jaCadastrado ? (
-                          <td colSpan={3} style={{ color: '#64748b', fontStyle: 'italic' }}>
+                          <td colSpan={3} style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                             Policial já cadastrado
                           </td>
                         ) : (
@@ -1150,7 +1150,7 @@ export function PoliciaisSection({
                                     ))}
                                 </select>
                               ) : (
-                                <span style={{ color: '#64748b', fontSize: '0.9rem' }}>-</span>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>-</span>
                               )}
                             </td>
                           </>
@@ -1196,7 +1196,7 @@ export function PoliciaisSection({
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal" style={{ maxWidth: '500px' }}>
             <h3>Policial já cadastrado</h3>
-            <div className="feedback" style={{ marginBottom: '16px', backgroundColor: '#fef3c7', borderColor: '#f59e0b', color: '#92400e' }}>
+            <div className="feedback" style={{ marginBottom: '16px', backgroundColor: 'var(--alert-warning-bg)', borderColor: 'var(--warning)', color: 'var(--alert-warning-text)' }}>
               <strong>Este policial já existe no sistema, porém está desativado.</strong>
               <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
                 <strong>Nome:</strong> {reativarModal.policial.nome}

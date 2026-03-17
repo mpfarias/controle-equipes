@@ -13,15 +13,15 @@ import {
 } from '../../constants/svgRegras';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert } from '@mui/material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox } from '@mui/material';
 import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf, Search } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
-import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
+import { theme } from '../../constants/theme';
 
 interface MostrarEquipeSectionProps {
   currentUser: Usuario;
@@ -45,6 +45,7 @@ export function MostrarEquipeSection({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [editingPolicial, setEditingPolicial] = useState<Policial | null>(
     null,
   );
@@ -131,6 +132,8 @@ export function MostrarEquipeSection({
   const [filtroEquipe, setFiltroEquipe] = useState<Equipe | ''>('');
   const [filtroStatus, setFiltroStatus] = useState<PolicialStatus | ''>('');
   const [filtroFuncao, setFiltroFuncao] = useState<number | ''>('');
+  const [excluirMotoristas, setExcluirMotoristas] = useState(true);
+  const [excluirDesativados, setExcluirDesativados] = useState(true);
   const [tabAtiva, setTabAtiva] = useState<number>(0);
   const [dataEfetivo, setDataEfetivo] = useState<string>('');
   const [efetivoDisponivel, setEfetivoDisponivel] = useState<Policial[]>([]);
@@ -727,17 +730,17 @@ export function MostrarEquipeSection({
   const getPolicialStatusChipSx = (status: PolicialStatus) => {
     switch (status) {
       case 'ATIVO':
-        return { backgroundColor: '#dcfce7', color: '#166534' };
+        return { backgroundColor: theme.statusAtivoBg, color: theme.statusAtivoText };
       case 'COMISSIONADO':
-        return { backgroundColor: '#fee2e2', color: '#991b1b' };
+        return { backgroundColor: theme.statusComissionadoBg, color: theme.statusComissionadoText };
       case 'DESIGNADO':
-        return { backgroundColor: '#fef9c3', color: '#92400e' };
+        return { backgroundColor: theme.statusDesignadoBg, color: theme.statusDesignadoText };
       case 'PTTC':
-        return { backgroundColor: '#dbeafe', color: '#1d4ed8' };
+        return { backgroundColor: theme.statusPttcBg, color: theme.statusPttcText };
       case 'DESATIVADO':
-        return { backgroundColor: '#fee2e2', color: '#991b1b' };
+        return { backgroundColor: theme.statusDesativadoBg, color: theme.statusDesativadoText };
       default:
-        return { backgroundColor: '#e2e8f0', color: '#1e293b' };
+        return { backgroundColor: theme.statusMutedBg, color: theme.statusMutedText };
     }
   };
 
@@ -797,6 +800,12 @@ export function MostrarEquipeSection({
     }
   }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds]);
 
+  // Debounce da busca para evitar muitas requisições ao digitar (evita ThrottlerException)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+ 
   const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
       setLoading(true);
@@ -822,7 +831,11 @@ export function MostrarEquipeSection({
       // pois a patente está embutida no campo nome e o backend ordena apenas alfabeticamente
       const buscarTodosParaOrdenacaoPorPatente =
         !buscarTodosParaFiltro && (ordenacao === null || ordenacao?.campo === 'nome');
-      const buscarTodos = buscarTodosParaFiltro || buscarTodosParaOrdenacaoPorPatente;
+      // Quando excluir motoristas está marcado, precisamos buscar todos para filtrar e contar corretamente
+      const buscarTodosParaExcluirMotoristas = excluirMotoristas;
+      // Quando excluir desativados está marcado, precisamos buscar todos para filtrar e contar corretamente
+      const buscarTodosParaExcluirDesativados = excluirDesativados;
+      const buscarTodos = buscarTodosParaFiltro || buscarTodosParaOrdenacaoPorPatente || buscarTodosParaExcluirMotoristas || buscarTodosParaExcluirDesativados;
 
       const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
         page: buscarTodos ? 1 : page,
@@ -830,7 +843,7 @@ export function MostrarEquipeSection({
         includeAfastamentos: false,
         includeRestricoes: true,
       };
-      const busca = searchTerm.trim();
+      const busca = debouncedSearchTerm.trim();
       if (busca) {
         params.search = busca;
       }
@@ -894,7 +907,7 @@ export function MostrarEquipeSection({
     } finally {
       setLoading(false);
     }
-  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds, filtroEquipe, filtroFuncao, filtroStatus, ordenacao, searchTerm]);
+  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds, filtroEquipe, filtroFuncao, filtroStatus, ordenacao, debouncedSearchTerm, excluirMotoristas, excluirDesativados]);
 
   const carregarFuncoes = useCallback(async () => {
     try {
@@ -959,7 +972,7 @@ export function MostrarEquipeSection({
 
   useEffect(() => {
     void carregarPoliciais(paginaAtual, itensPorPagina);
-  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey, filtroEquipe, filtroStatus, filtroFuncao, searchTerm]);
+  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey, filtroEquipe, filtroStatus, filtroFuncao, debouncedSearchTerm]);
 
   useEffect(() => {
     void carregarFuncoes();
@@ -1293,7 +1306,11 @@ export function MostrarEquipeSection({
     // Quando a paginação é no servidor, os dados já vêm ordenados do backend (desativados por último).
     // Aplicar a mesma ordenação no cliente para garantir que a página exibida mostre desativados no final.
     if (paginacaoNoServidor) {
-      return [...policiaisDaEquipe].sort((a, b) => {
+      let base = policiaisDaEquipe;
+      if (excluirDesativados) {
+        base = base.filter((p) => p.status !== 'DESATIVADO');
+      }
+      return [...base].sort((a, b) => {
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
         if (aDesativado && !bDesativado) return 1;
@@ -1368,6 +1385,19 @@ export function MostrarEquipeSection({
       resultado = resultado.filter((policial) => policial.funcaoId === filtroFuncao);
     }
 
+    // Excluir motoristas da lista quando checkbox marcado (não afeta contagem total)
+    if (excluirMotoristas) {
+      resultado = resultado.filter((policial) => {
+        const nomeFuncao = policial.funcao?.nome?.toUpperCase() ?? '';
+        return !nomeFuncao.includes('MOTORISTA DE DIA');
+      });
+    }
+
+    // Excluir desativados da lista quando checkbox marcado (mantém fora de qualquer contagem)
+    if (excluirDesativados) {
+      resultado = resultado.filter((policial) => policial.status !== 'DESATIVADO');
+    }
+
     // Aplicar ordenação (desativados sempre por último)
     if (ordenacao) {
       resultado = [...resultado].sort((a, b) => {
@@ -1415,7 +1445,7 @@ export function MostrarEquipeSection({
     }
 
     return resultado;
-  }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, ordenacao, paginacaoNoServidor]);
+  }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, excluirMotoristas, excluirDesativados, ordenacao, paginacaoNoServidor]);
 
   // Recalcular total e paginação baseado nos dados filtrados
   const totalPoliciaisFiltrado = useMemo(() => {
@@ -1502,7 +1532,7 @@ export function MostrarEquipeSection({
       includeAfastamentos: false,
       includeRestricoes: true,
     };
-    const busca = searchTerm.trim();
+    const busca = debouncedSearchTerm.trim();
     if (busca) params.search = busca;
     if (!usuarioEhCpmulher) {
       if (!usuarioPodeVerTodos && currentUser.equipe) {
@@ -1527,8 +1557,17 @@ export function MostrarEquipeSection({
         (p) => p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
       );
     }
-    // Apenas policiais disponíveis (status diferente de DESATIVADO)
-    listaPdf = listaPdf.filter((p) => p.status !== 'DESATIVADO');
+    // Excluir desativados quando checkbox marcado (consistente com a lista na tela)
+    if (excluirDesativados) {
+      listaPdf = listaPdf.filter((p) => p.status !== 'DESATIVADO');
+    }
+    // Excluir motoristas quando checkbox marcado (consistente com a lista na tela)
+    if (excluirMotoristas) {
+      listaPdf = listaPdf.filter((p) => {
+        const nomeFuncao = p.funcao?.nome?.toUpperCase() ?? '';
+        return !nomeFuncao.includes('MOTORISTA DE DIA');
+      });
+    }
     const totalRegistros = listaPdf.length;
 
     const doc = new jsPDF('p', 'mm', 'a4');
@@ -1604,10 +1643,12 @@ export function MostrarEquipeSection({
     currentUser.matricula,
     usuarioEhCpmulher,
     funcoesCpmulherIds,
-    searchTerm,
+    debouncedSearchTerm,
     filtroEquipe,
     filtroStatus,
     filtroFuncao,
+    excluirMotoristas,
+    excluirDesativados,
     ordenacao,
   ]);
 
@@ -1685,18 +1726,18 @@ export function MostrarEquipeSection({
           style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
           title="Gerar PDF com a lista exibida na tela"
         >
-          <PictureAsPdf sx={{ fontSize: 20, color: '#dc2626' }} />
+          <PictureAsPdf sx={{ fontSize: 20, color: 'var(--error)' }} />
           Gerar PDF
         </button>
         <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-          <span style={{ fontSize: '0.9rem', color: '#64748b' }}>Itens por página:</span>
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Itens por página:</span>
           <select
             value={itensPorPagina}
             onChange={(event) => {
               setItensPorPagina(Number(event.target.value));
               setPaginaAtual(1);
             }}
-            style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #d1d5db' }}
+            style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-soft)', backgroundColor: 'var(--card-bg)', color: 'var(--text-primary)' }}
           >
             <option value={10}>10</option>
             <option value={20}>20</option>
@@ -1711,9 +1752,9 @@ export function MostrarEquipeSection({
       <div style={{ 
         marginBottom: '16px', 
         padding: '12px 16px', 
-        backgroundColor: '#f0f9ff', 
+        backgroundColor: 'var(--card-bg)', 
         borderRadius: '8px', 
-        border: '1px solid #bae6fd',
+        border: '1px solid var(--border-soft)',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px'
@@ -1727,7 +1768,7 @@ export function MostrarEquipeSection({
           <Chip 
             label={totalPoliciaisDisponiveis} 
             size="small" 
-            sx={{ fontWeight: 600, backgroundColor: '#3b82f6', color: 'white' }}
+            sx={{ fontWeight: 600, backgroundColor: 'var(--accent-muted)', color: 'white' }}
           />
           <Typography variant="body2" sx={{ color: 'text.primary' }}>
             policiais disponíveis.
@@ -1741,14 +1782,54 @@ export function MostrarEquipeSection({
             <Chip 
               label={paginacaoNoServidor ? totalPoliciais : totalPoliciaisFiltrado} 
               size="small" 
-              sx={{ fontWeight: 600, backgroundColor: '#10b981', color: 'white' }}
+              sx={{ fontWeight: 600, backgroundColor: 'var(--alert-success-bg)', color: 'var(--alert-success-text)' }}
             />
           </Box>
         )}
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 1, alignItems: 'flex-start' }}>
+          <Box
+            component="label"
+            sx={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 1,
+              cursor: 'pointer',
+              width: 'fit-content',
+            }}
+          >
+            <Checkbox
+              checked={excluirMotoristas}
+              onChange={(event) => setExcluirMotoristas(event.target.checked)}
+              size="small"
+              sx={{ p: 0.5, flexShrink: 0 }}
+            />
+            <Typography variant="body2" component="span" sx={{ flexShrink: 0 }}>Excluir motoristas</Typography>
+          </Box>
+          <Box
+            component="label"
+            sx={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 1,
+              cursor: 'pointer',
+              width: 'fit-content',
+            }}
+          >
+            <Checkbox
+              checked={excluirDesativados}
+              onChange={(event) => setExcluirDesativados(event.target.checked)}
+              size="small"
+              sx={{ p: 0.5, flexShrink: 0 }}
+            />
+            <Typography variant="body2" component="span" sx={{ flexShrink: 0 }}>Excluir desativados</Typography>
+          </Box>
+        </Box>
       </div>
 
       {filtrosAberto && (
-        <div style={{ marginBottom: '16px', padding: '16px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e9ecef' }}>
+        <div style={{ marginBottom: '16px', padding: '16px', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: '8px', border: '1px solid var(--border-soft)' }}>
           <div className="grid two-columns" style={{ gap: '16px' }}>
             <label>
               Por equipe
@@ -1769,7 +1850,14 @@ export function MostrarEquipeSection({
               Por condição
               <select
                 value={filtroStatus}
-                onChange={(event) => setFiltroStatus(event.target.value ? (event.target.value as PolicialStatus) : '')}
+                onChange={(event) => {
+                  const novoValor = event.target.value ? (event.target.value as PolicialStatus) : '';
+                  setFiltroStatus(novoValor);
+                  // Ao selecionar "Desativado", desmarcar o checkbox automaticamente
+                  if (novoValor === 'DESATIVADO') {
+                    setExcluirDesativados(false);
+                  }
+                }}
                 style={{ width: '100%', marginTop: '8px' }}
               >
                 <option value="">Todas as condições</option>
@@ -1784,7 +1872,17 @@ export function MostrarEquipeSection({
               Por função
               <select
                 value={filtroFuncao}
-                onChange={(event) => setFiltroFuncao(event.target.value ? Number(event.target.value) : '')}
+                onChange={(event) => {
+                  const novoValor = event.target.value ? Number(event.target.value) : '';
+                  setFiltroFuncao(novoValor);
+                  // Ao selecionar "Motorista de dia", desmarcar o checkbox automaticamente
+                  if (novoValor) {
+                    const funcaoSelecionada = funcoesOrdenadas.find((f) => f.id === novoValor);
+                    if (funcaoSelecionada?.nome?.toUpperCase().includes('MOTORISTA DE DIA')) {
+                      setExcluirMotoristas(false);
+                    }
+                  }
+                }}
                 style={{ width: '100%', marginTop: '8px' }}
               >
                 <option value="">Todas as funções</option>
@@ -1838,18 +1936,19 @@ export function MostrarEquipeSection({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
+                      color: 'var(--text-primary)',
                     }}
                     title={ordenacao?.campo === 'nome' ? `Ordenar por nome (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por nome'}
                   >
                     Policial
                     {ordenacao?.campo === 'nome' ? (
                       ordenacao.direcao === 'asc' ? (
-                        <ArrowUpward sx={{ fontSize: 18 }} />
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       ) : (
-                        <ArrowDownward sx={{ fontSize: 18 }} />
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       )
                     ) : (
-                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
                     )}
                   </button>
                 </th>
@@ -1869,18 +1968,19 @@ export function MostrarEquipeSection({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
+                      color: 'var(--text-primary)',
                     }}
                     title={ordenacao?.campo === 'matricula' ? `Ordenar por matrícula (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por matrícula'}
                   >
                     Matrícula
                     {ordenacao?.campo === 'matricula' ? (
                       ordenacao.direcao === 'asc' ? (
-                        <ArrowUpward sx={{ fontSize: 18 }} />
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       ) : (
-                        <ArrowDownward sx={{ fontSize: 18 }} />
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       )
                     ) : (
-                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
                     )}
                   </button>
                 </th>
@@ -1900,18 +2000,19 @@ export function MostrarEquipeSection({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
+                      color: 'var(--text-primary)',
                     }}
                     title={ordenacao?.campo === 'status' ? `Ordenar por status (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por status'}
                   >
                     Status
                     {ordenacao?.campo === 'status' ? (
                       ordenacao.direcao === 'asc' ? (
-                        <ArrowUpward sx={{ fontSize: 18 }} />
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       ) : (
-                        <ArrowDownward sx={{ fontSize: 18 }} />
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       )
                     ) : (
-                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
                     )}
                   </button>
                 </th>
@@ -1931,18 +2032,19 @@ export function MostrarEquipeSection({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
+                      color: 'var(--text-primary)',
                     }}
                     title={ordenacao?.campo === 'funcao' ? `Ordenar por função (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por função'}
                   >
                     Função
                     {ordenacao?.campo === 'funcao' ? (
                       ordenacao.direcao === 'asc' ? (
-                        <ArrowUpward sx={{ fontSize: 18 }} />
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       ) : (
-                        <ArrowDownward sx={{ fontSize: 18 }} />
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       )
                     ) : (
-                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
                     )}
                   </button>
                 </th>
@@ -1962,22 +2064,23 @@ export function MostrarEquipeSection({
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: 4,
+                      color: 'var(--text-primary)',
                     }}
                     title={ordenacao?.campo === 'equipe' ? `Ordenar por equipe (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter` : 'Ordenar por equipe'}
                   >
                     Equipe
                     {ordenacao?.campo === 'equipe' ? (
                       ordenacao.direcao === 'asc' ? (
-                        <ArrowUpward sx={{ fontSize: 18 }} />
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       ) : (
-                        <ArrowDownward sx={{ fontSize: 18 }} />
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
                       )
                     ) : (
-                      <SwapVert sx={{ fontSize: 18, color: 'text.secondary', opacity: 0.7 }} />
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
                     )}
                   </button>
                 </th>
-                <th>Ações</th>
+                <th style={{ color: 'var(--text-primary)' }}>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -1986,7 +2089,7 @@ export function MostrarEquipeSection({
                 key={policial.id}
                 style={
                   policial.status === 'DESATIVADO'
-                    ? { backgroundColor: '#fecaca' }
+                    ? { backgroundColor: theme.alertErrorBg }
                     : undefined
                 }
               >
@@ -2020,7 +2123,7 @@ export function MostrarEquipeSection({
                       }
                     }}
                     style={{
-                      color: '#3b82f6',
+                      color: 'var(--accent-muted)',
                       textDecoration: 'none',
                       cursor: 'pointer',
                       fontWeight: 500,
@@ -2037,7 +2140,7 @@ export function MostrarEquipeSection({
                       {policial.restricaoMedica && (
                         <span
                           style={{
-                            color: '#ef4444',
+                            color: 'var(--error)',
                             fontSize: '1.1rem',
                             fontWeight: 'bold',
                             lineHeight: 1,
@@ -2071,12 +2174,12 @@ export function MostrarEquipeSection({
                   {policial.funcao?.nome ? (
                     formatNome(policial.funcao.nome)
                   ) : (
-                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>-</span>
+                    <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>-</span>
                   )}
                 </td>
                 <td>
                   {formatEquipeLabel(policial.equipe) === '—' ? (
-                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>—</span>
+                    <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
                   ) : (
                     policial.equipe
                   )}
@@ -2090,9 +2193,9 @@ export function MostrarEquipeSection({
                           title="Editar"
                           size="small"
                           sx={{
-                            color: '#3b82f6',
+                            color: 'var(--accent-muted)',
                             '&:hover': {
-                              backgroundColor: '#eff6ff',
+                              backgroundColor: theme.alertInfoBg,
                             },
                           }}
                         >
@@ -2106,9 +2209,9 @@ export function MostrarEquipeSection({
                             title="Reativar"
                             size="small"
                             sx={{
-                              color: '#10b981',
+                              color: theme.statusAtivoText,
                               '&:hover': {
-                                backgroundColor: '#d1fae5',
+                                backgroundColor: theme.alertSuccessBg,
                               },
                             }}
                           >
@@ -2122,9 +2225,9 @@ export function MostrarEquipeSection({
                             title="Desativar"
                             size="small"
                             sx={{
-                              color: '#ef4444',
+                              color: theme.statusComissionadoText,
                               '&:hover': {
-                                backgroundColor: '#fef2f2',
+                                backgroundColor: theme.alertErrorBg,
                               },
                             }}
                           >
@@ -2137,19 +2240,19 @@ export function MostrarEquipeSection({
                           onClick={() => handleOpenDeleteModal(policial)}
                           title="Excluir permanentemente"
                           size="small"
-                          sx={{
-                            color: '#dc2626',
-                            '&:hover': {
-                              backgroundColor: '#fee2e2',
-                            },
-                          }}
+                            sx={{
+                              color: theme.statusComissionadoText,
+                              '&:hover': {
+                                backgroundColor: theme.alertErrorBg,
+                              },
+                            }}
                         >
                           <Delete fontSize="small" />
                         </IconButton>
                       )}
                     </div>
                   ) : (
-                    <span style={{ color: '#64748b', fontStyle: 'italic' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>
                       Somente visualização
                     </span>
                   )}
@@ -2168,11 +2271,11 @@ export function MostrarEquipeSection({
             alignItems: 'center', 
             marginTop: '16px',
             padding: '12px',
-            backgroundColor: '#f8f9fa',
+            backgroundColor: 'rgba(0,0,0,0.15)',
             borderRadius: '8px',
-            border: '1px solid #e9ecef'
+            border: '1px solid var(--border-soft)'
           }}>
-            <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+            <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               Mostrando {registroInicio} a {registroFim} de {totalParaExibir} registro(s)
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2194,7 +2297,7 @@ export function MostrarEquipeSection({
               >
                 ‹ Anterior
               </button>
-              <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+              <span style={{ padding: '0 12px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                 Página {paginaAtual} de {totalPaginasParaExibir}
               </span>
               <button
@@ -2226,17 +2329,9 @@ export function MostrarEquipeSection({
           <div className="modal" style={{ maxWidth: showImageCropper ? '800px' : '500px' }}>
             <h3>Editar policial</h3>
             {editError && (
-              <div className="feedback error">
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setEditError(null)}>
                 {editError}
-                <button
-                  type="button"
-                  className="feedback-close"
-                  onClick={() => setEditError(null)}
-                  aria-label="Fechar"
-                >
-                  ×
-                </button>
-              </div>
+              </Alert>
             )}
             
             {showImageCropper ? (
@@ -2332,15 +2427,15 @@ export function MostrarEquipeSection({
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: '#f5f5f5',
+                        backgroundColor: 'rgba(0,0,0,0.15)',
                         cursor: 'pointer',
                         '&:hover': {
-                          backgroundColor: '#eeeeee',
+                          backgroundColor: 'rgba(0,0,0,0.25)',
                         },
                       }}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      <AddPhotoAlternate sx={{ fontSize: 48, color: '#9e9e9e', marginBottom: 1 }} />
+                      <AddPhotoAlternate sx={{ fontSize: 48, color: 'var(--text-secondary)', marginBottom: 1 }} />
                       <Typography variant="caption" color="text.secondary">
                         Adicionar foto
                       </Typography>
@@ -2357,39 +2452,38 @@ export function MostrarEquipeSection({
               </Box>
               
               <form onSubmit={handleEditSubmit}>
-              <label>
-                Nome
-                <input
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <TextField
+                  label="NOME"
                   value={editForm.nome}
-                  onChange={createNormalizedInputHandler((value) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      nome: value,
-                    }))
-                  )}
-                  onKeyDown={handleKeyDownNormalized}
-                  required
-                />
-              </label>
-              <label>
-                Matrícula
-                <input
-                  value={editForm.matricula}
                   onChange={(event) =>
-                  setEditForm((prev) => ({
-                    ...prev,
-                    matricula: event.target.value
-                      .replace(/[^0-9xX]/g, '')
-                      .toUpperCase(),
-                  }))
+                    setEditForm((prev) => ({ ...prev, nome: event.target.value.toUpperCase() }))
                   }
                   required
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  inputProps={{ style: { textTransform: 'uppercase' } }}
                 />
-              </label>
-              <div className="grid two-columns">
-                <label>
-                  Status
-                  <select
+                <TextField
+                  label="MATRÍCULA"
+                  value={editForm.matricula}
+                  onChange={(event) =>
+                    setEditForm((prev) => ({
+                      ...prev,
+                      matricula: event.target.value.replace(/[^0-9xX]/g, '').toUpperCase(),
+                    }))
+                  }
+                  required
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  inputProps={{ style: { textTransform: 'uppercase' } }}
+                />
+                <FormControl fullWidth variant="outlined" size="small" required>
+                  <InputLabel>STATUS</InputLabel>
+                  <Select
+                    MenuProps={{ sx: { zIndex: 1500 } }}
                     value={editForm.status}
                     onChange={(event) =>
                       setEditForm((prev) => ({
@@ -2397,20 +2491,18 @@ export function MostrarEquipeSection({
                         status: event.target.value as PolicialStatus,
                       }))
                     }
-                    required
+                    label="STATUS"
                   >
                     {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
-                      <option key={option.value} value={option.value}>
+                      <MenuItem key={option.value} value={option.value}>
                         {option.label}
-                      </option>
+                      </MenuItem>
                     ))}
-                  </select>
-                </label>
-              </div>
-              {editForm.status === 'COMISSIONADO' && (
-                <label>
-                  Matrícula Comissionado
-                  <input
+                  </Select>
+                </FormControl>
+                {editForm.status === 'COMISSIONADO' && (
+                  <TextField
+                    label="MATRÍCULA COMISSIONADO"
                     value={editForm.matriculaComissionadoGdf}
                     onChange={(event) =>
                       setEditForm((prev) => ({
@@ -2420,15 +2512,19 @@ export function MostrarEquipeSection({
                           .toUpperCase(),
                       }))
                     }
+                    fullWidth
+                    variant="outlined"
+                    size="small"
+                    inputProps={{ style: { textTransform: 'uppercase' } }}
                   />
-                </label>
-              )}
-              <label>
-                Função
-                <select
-                  value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
-                  required
-                  onChange={(event) => {
+                )}
+                <FormControl fullWidth variant="outlined" size="small" required>
+                  <InputLabel>FUNÇÃO</InputLabel>
+                  <Select
+                    MenuProps={{ sx: { zIndex: 1500 } }}
+                    value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
+                    label="FUNÇÃO"
+                    onChange={(event) => {
                     const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
                     const funcaoSelecionada = novoFuncaoId ? funcoes.find(f => f.id === novoFuncaoId) : null;
                     
@@ -2455,15 +2551,15 @@ export function MostrarEquipeSection({
                       }));
                     }
                   }}
-                >
-                  <option value="">Selecione uma função</option>
-                  {funcoesOrdenadas.map((funcao) => (
-                    <option key={funcao.id} value={funcao.id}>
-                      {formatNome(funcao.nome)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  >
+                    <MenuItem value="">Selecione uma função</MenuItem>
+                    {funcoesOrdenadas.map((funcao) => (
+                      <MenuItem key={funcao.id} value={funcao.id}>
+                        {formatNome(funcao.nome)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               
               {/* Campo Equipe - Mostrar apenas se a função selecionada permitir */}
               {(() => {
@@ -2494,9 +2590,10 @@ export function MostrarEquipeSection({
                 })();
                 
                 return mostrarEquipe ? (
-                  <label>
-                    Equipe
-                    <select
+                  <FormControl fullWidth variant="outlined" size="small" required>
+                    <InputLabel>EQUIPE</InputLabel>
+                    <Select
+                      MenuProps={{ sx: { zIndex: 1500 } }}
                       value={editForm.equipe || ''}
                       onChange={(event) =>
                         setEditForm((prev) => ({
@@ -2504,32 +2601,37 @@ export function MostrarEquipeSection({
                           equipe: event.target.value ? (event.target.value as Equipe) : undefined,
                         }))
                       }
-                      required
+                      label="EQUIPE"
                     >
-                      <option value="">Selecione uma equipe</option>
+                      <MenuItem value="">Selecione uma equipe</MenuItem>
                       {equipesDisponiveis.map((option) => (
-                        <option key={option.id} value={option.nome}>
+                        <MenuItem key={option.id} value={option.nome}>
                           {formatNome(option.nome)}
-                        </option>
+                        </MenuItem>
                       ))}
-                    </select>
-                  </label>
+                    </Select>
+                  </FormControl>
                 ) : null;
               })()}
               
-              <div className="modal-actions">
-                <button
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
+                <Button
                   type="button"
-                  className="secondary"
+                  variant="outlined"
                   onClick={closeEditModal}
                   disabled={editSubmitting}
                 >
                   Cancelar
-                </button>
-                <button className="primary" type="submit" disabled={editSubmitting}>
+                </Button>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={editSubmitting}
+                >
                   {editSubmitting ? 'Salvando...' : 'Salvar alterações'}
-                </button>
-              </div>
+                </Button>
+              </Box>
             </form>
             </>
             )}
@@ -2551,7 +2653,7 @@ export function MostrarEquipeSection({
                 width: '90%',
                 maxWidth: '1400px',
                 maxHeight: '85vh',
-                backgroundColor: 'white',
+                backgroundColor: 'var(--card-bg)',
                 borderRadius: 2,
                 boxShadow: 24,
                 display: 'flex',
@@ -2561,7 +2663,7 @@ export function MostrarEquipeSection({
             >
               {/* Header */}
               <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                   Informações do Policial
                 </Typography>
                 {viewingPolicial.restricaoMedica && (
@@ -2585,22 +2687,11 @@ export function MostrarEquipeSection({
                           loading: false,
                         });
                       }}
+                      className="danger-delete"
                       style={{
-                        backgroundColor: '#ef4444',
-                        border: '1px solid #ef4444',
-                        color: '#ffffff',
                         padding: '6px 12px',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
                         fontSize: '0.875rem',
                         fontWeight: 500,
-                        transition: 'background-color 0.2s ease-in-out',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#dc2626';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#ef4444';
                       }}
                     >
                       Retirar restrição
@@ -2646,7 +2737,7 @@ export function MostrarEquipeSection({
                     {/* Informações do Policial */}
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
                       <Box>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Nome
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5, fontWeight: 500 }}>
@@ -2657,7 +2748,7 @@ export function MostrarEquipeSection({
                       <Divider />
 
                       <Box>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Matrícula
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5 }}>
@@ -2672,7 +2763,7 @@ export function MostrarEquipeSection({
                       <Divider />
 
                       <Box>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Status
                         </Typography>
                         <Box sx={{ mt: 0.5 }}>
@@ -2693,7 +2784,7 @@ export function MostrarEquipeSection({
                         <>
                           <Divider />
                           <Box>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                               Função
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 0.5 }}>
@@ -2706,7 +2797,7 @@ export function MostrarEquipeSection({
                       <>
                         <Divider />
                         <Box>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                             Equipe
                           </Typography>
                           <Typography variant="body1" sx={{ mt: 0.5 }}>
@@ -2718,8 +2809,8 @@ export function MostrarEquipeSection({
                       {(viewingPolicial.dataDesativacaoAPartirDe || viewingPolicial.observacoesDesativacao || viewingPolicial.desativadoPorNome || viewingPolicial.desativadoEm) && (
                         <>
                           <Divider />
-                          <Box sx={{ p: 1.5, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1, display: 'block' }}>
+                          <Box sx={{ p: 1.5, backgroundColor: theme.alertErrorBg, borderRadius: 1, border: '1px solid rgba(214,69,69,0.4)' }}>
+                            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1, display: 'block' }}>
                               Desativação
                             </Typography>
                             {viewingPolicial.dataDesativacaoAPartirDe && (
@@ -2750,13 +2841,13 @@ export function MostrarEquipeSection({
                         <>
                           <Divider />
                           <Box>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1, display: 'block' }}>
+                            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, mb: 1, display: 'block' }}>
                               Restrições Médicas
                             </Typography>
                             
                             {/* Restrição Ativa */}
                             {viewingPolicial.restricaoMedica && (
-                              <Box sx={{ mb: 2, p: 1.5, backgroundColor: '#fef2f2', borderRadius: 1, border: '1px solid #fecaca' }}>
+                              <Box sx={{ mb: 2, p: 1.5, backgroundColor: theme.alertErrorBg, borderRadius: 1, border: '1px solid rgba(214,69,69,0.4)' }}>
                                 <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main', mb: 0.5 }}>
                                   Ativa: {viewingPolicial.restricaoMedica.nome}
                                 </Typography>
@@ -2778,7 +2869,7 @@ export function MostrarEquipeSection({
                                   {viewingPolicial.restricoesMedicasHistorico.map((historico) => (
                                     <Box 
                                       key={historico.id}
-                                      sx={{ p: 1.5, backgroundColor: '#f9fafb', borderRadius: 1, border: '1px solid #e5e7eb' }}
+                                      sx={{ p: 1.5, backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 1, border: '1px solid var(--border-soft)' }}
                                     >
                                       <Typography variant="body2" sx={{ fontSize: '0.875rem', color: 'text.secondary', mb: 0.75, fontWeight: 500 }}>
                                         {formatNome(historico.restricaoMedica.nome)}
@@ -2809,7 +2900,7 @@ export function MostrarEquipeSection({
                   {/* Coluna Central - Lista de Afastamentos */}
                   <Box sx={{ flex: { xs: '1 1 100%', lg: '0 0 35%' }, minWidth: 0 }}>
                     <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                      <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: 'primary.main', fontSize: '1.1rem' }}>
+                      <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary', fontSize: '1.1rem' }}>
                         Afastamentos
                       </Typography>
 
@@ -2870,7 +2961,7 @@ export function MostrarEquipeSection({
                   {/* Coluna Direita - Resumo de Dias por Tipo */}
                   <Box sx={{ flex: { xs: '1 1 100%', lg: '0 0 28%' }, minWidth: 0 }}>
                     <Paper elevation={2} sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-                      <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: 'primary.main', fontSize: '1.1rem' }}>
+                      <Typography variant="h6" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary', fontSize: '1.1rem' }}>
                         Resumo de Afastamentos
                       </Typography>
                       
@@ -2900,7 +2991,7 @@ export function MostrarEquipeSection({
                                   <Typography variant="body2" sx={{ fontWeight: 500, fontSize: '0.85rem' }}>
                                     {motivo}
                                   </Typography>
-                                  <Typography variant="body2" sx={{ fontWeight: 600, color: 'primary.main', fontSize: '0.85rem' }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary', fontSize: '0.85rem' }}>
                                     {totalDias} {totalDias === 1 ? 'dia' : 'dias'}
                                   </Typography>
                                 </Box>
@@ -2919,22 +3010,11 @@ export function MostrarEquipeSection({
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <button
                   type="button"
+                  className="secondary"
                   style={{
-                    backgroundColor: '#ef4444',
-                    border: '1px solid #ef4444',
-                    color: '#ffffff',
                     padding: '8px 16px',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
                     fontSize: '0.9rem',
                     fontWeight: 500,
-                    transition: 'background-color 0.2s ease-in-out',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#dc2626';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#ef4444';
                   }}
                   onClick={() => {
                     if (!viewingPolicial) return;
@@ -2994,7 +3074,7 @@ export function MostrarEquipeSection({
               position: 'relative',
               width: '90%',
               maxWidth: '500px',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--card-bg)',
               borderRadius: 2,
               boxShadow: 24,
               display: 'flex',
@@ -3003,7 +3083,7 @@ export function MostrarEquipeSection({
             }}
           >
             <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                 Inserir Restrição
               </Typography>
               <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
@@ -3013,7 +3093,7 @@ export function MostrarEquipeSection({
 
             <Box sx={{ p: 3 }}>
               {restricaoModal.error && (
-                <Box sx={{ mb: 2, p: 2, backgroundColor: 'error.light', borderRadius: 1, color: 'error.dark' }}>
+                <Box sx={{ mb: 2, p: 2, backgroundColor: theme.alertErrorBg, borderRadius: 1, color: theme.error }}>
                   {restricaoModal.error}
                 </Box>
               )}
@@ -3040,9 +3120,10 @@ export function MostrarEquipeSection({
                       width: '100%',
                       padding: '8px 12px',
                       fontSize: '1rem',
-                      border: '1px solid #cbd5e1',
+                      border: '1px solid var(--border-soft)',
                       borderRadius: '8px',
-                      backgroundColor: 'white',
+                      backgroundColor: 'var(--card-bg)',
+                      color: 'var(--text-primary)',
                     }}
                   >
                     <option value="">Nenhuma restrição</option>
@@ -3066,9 +3147,9 @@ export function MostrarEquipeSection({
                       width: '100%',
                       padding: '8px 12px',
                       fontSize: '1rem',
-                      border: '1px solid #cbd5e1',
+                      border: '1px solid var(--border-soft)',
                       borderRadius: '8px',
-                      backgroundColor: 'white',
+                      backgroundColor: 'var(--card-bg)',
                       resize: 'vertical',
                       minHeight: '80px',
                     }}
@@ -3141,7 +3222,7 @@ export function MostrarEquipeSection({
               position: 'relative',
               width: '90%',
               maxWidth: '500px',
-              backgroundColor: 'white',
+              backgroundColor: 'var(--card-bg)',
               borderRadius: 2,
               boxShadow: 24,
               display: 'flex',
@@ -3150,7 +3231,7 @@ export function MostrarEquipeSection({
             }}
           >
             <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
-              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'primary.main' }}>
+              <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                 Retirar Restrição
               </Typography>
               <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
@@ -3164,7 +3245,7 @@ export function MostrarEquipeSection({
               </Typography>
 
               {removeRestricaoModal.error && (
-                <Box sx={{ mb: 2, p: 2, backgroundColor: 'error.light', borderRadius: 1, color: 'error.dark' }}>
+                <Box sx={{ mb: 2, p: 2, backgroundColor: theme.alertErrorBg, borderRadius: 1, color: theme.error }}>
                   {removeRestricaoModal.error}
                 </Box>
               )}
@@ -3186,7 +3267,7 @@ export function MostrarEquipeSection({
                     width: '100%',
                     padding: '8px 12px',
                     fontSize: '1rem',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border-soft)',
                     borderRadius: '8px',
                   }}
                   autoFocus
@@ -3332,7 +3413,7 @@ export function MostrarEquipeSection({
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={handleCloseDeleteModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3>Excluir Permanentemente</h3>
-            <p style={{ marginBottom: '24px', color: '#ef4444', fontWeight: 500 }}>
+            <p style={{ marginBottom: '24px', color: 'var(--error)', fontWeight: 500 }}>
               ⚠️ Esta ação não pode ser desfeita!
             </p>
             <p style={{ marginBottom: '24px' }}>
@@ -3475,7 +3556,7 @@ export function MostrarEquipeSection({
                       display: 'block',
                       marginBottom: 3,
                       paddingBottom: 2,
-                      borderBottom: '2px solid #1976d2',
+                      borderBottom: '2px solid var(--accent-muted)',
                     },
                     '& .print-date': {
                       fontSize: '0.875rem',
@@ -3490,17 +3571,17 @@ export function MostrarEquipeSection({
                       borderCollapse: 'collapse',
                     },
                     '& .print-table th, & .print-table td': {
-                      border: '1px solid #ddd',
+                      border: '1px solid var(--border-soft)',
                       padding: '8px 12px',
                       textAlign: 'left',
                       fontSize: '0.875rem',
                     },
                     '& .print-table th': {
-                      backgroundColor: '#f5f5f5',
+                      backgroundColor: 'var(--card-bg)',
                       fontWeight: 600,
                     },
                     '& .print-table tr:nth-of-type(even)': {
-                      backgroundColor: '#fafafa',
+                      backgroundColor: 'rgba(0,0,0,0.1)',
                     },
                   },
                 }}
@@ -3510,7 +3591,7 @@ export function MostrarEquipeSection({
                   <Typography variant="h4" sx={{ fontWeight: 600, mb: 1 }}>
                     Efetivo Disponível
                   </Typography>
-                  <Typography variant="h6" sx={{ color: '#1976d2', mb: 0.5 }}>
+                  <Typography variant="h6" sx={{ color: 'var(--accent-muted)', mb: 0.5 }}>
                     COPOM - Centro de Operações da Polícia Militar
                   </Typography>
                   <Typography className="print-date" variant="body2">
@@ -3542,8 +3623,8 @@ export function MostrarEquipeSection({
                                       sx={{
                                         height: '20px',
                                         fontSize: '0.65rem',
-                                        backgroundColor: '#e0f2fe',
-                                        color: '#0369a1',
+                                        backgroundColor: theme.alertInfoBg,
+                                        color: 'var(--accent-muted)',
                                       }}
                                     />
                                   )}
@@ -3773,7 +3854,7 @@ export function MostrarEquipeSection({
                               <Chip
                                 label={`Equipe ${item.policial.equipe}`}
                                 size="small"
-                                sx={{ height: '20px', fontSize: '0.65rem', backgroundColor: '#e0f2fe', color: '#0369a1' }}
+                                sx={{ height: '20px', fontSize: '0.65rem', backgroundColor: theme.alertInfoBg, color: theme.statusPttcText }}
                               />
                             )}
                             {item.policial.funcao && (

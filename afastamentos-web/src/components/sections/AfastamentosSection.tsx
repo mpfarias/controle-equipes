@@ -12,6 +12,7 @@ import { sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../util
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
+import { theme } from '../../constants/theme';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { Alert, Autocomplete, TextField, Button, Checkbox, Box, Typography, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Paper, Chip, Tooltip, FormControl, InputLabel, Select, MenuItem, List, ListItem, ListItemText } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
@@ -26,6 +27,20 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import BlockIcon from '@mui/icons-material/Block';
 import DeleteIcon from '@mui/icons-material/Delete';
+
+const formFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '8px',
+    fontSize: '0.95rem',
+    '& fieldset': { borderColor: 'var(--border-soft)' },
+    '&:hover fieldset': { borderColor: 'var(--border-soft)' },
+    '&.Mui-focused fieldset': {
+      borderColor: 'var(--accent-muted)',
+      boxShadow: '0 0 0 3px rgba(107, 155, 196, 0.2)',
+    },
+    '& input, & textarea': { padding: '10px 12px' },
+  },
+};
 
 interface AfastamentosSectionProps {
   currentUser: Usuario;
@@ -1259,87 +1274,60 @@ export function AfastamentosSection({
       {tabAtiva === 0 && (
         <>
         <form onSubmit={handleSubmit}>
-        <div className="grid two-columns">
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            Policial
-            <Autocomplete
-              options={policiaisOrdenados}
-              getOptionLabel={(option) =>
-                motivoEhFerias && option.mesPrevisaoFerias == null
-                  ? `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`
-                  : `${option.nome} - ${formatMatricula(option.matricula)}`
-              }
-              getOptionDisabled={(option) =>
-                motivoEhFerias ? option.mesPrevisaoFerias == null : false
-              }
-              value={policiaisOrdenados.find(c => c.id.toString() === form.policialId) || null}
-              onChange={(_event, newValue) => {
-                setForm((prev) => ({
-                  ...prev,
-                  policialId: newValue ? newValue.id.toString() : '',
-                }));
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+          <Autocomplete
+            options={policiaisOrdenados}
+            getOptionLabel={(option) =>
+              motivoEhFerias && option.mesPrevisaoFerias == null
+                ? `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`
+                : `${option.nome} - ${formatMatricula(option.matricula)}`
+            }
+            getOptionDisabled={(option) =>
+              motivoEhFerias ? option.mesPrevisaoFerias == null : false
+            }
+            value={policiaisOrdenados.find((c) => c.id.toString() === form.policialId) || null}
+            onChange={(_event, newValue) => {
+              setForm((prev) => ({
+                ...prev,
+                policialId: newValue ? newValue.id.toString() : '',
+              }));
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Policial"
+                placeholder="Digite o nome ou matrícula para buscar"
+                required={!form.policialId}
+                size="small"
+                sx={formFieldSx}
+              />
+            )}
+            filterOptions={(options, { inputValue }) => {
+              const term = inputValue.toLowerCase();
+              return options.filter(
+                (o) =>
+                  o.nome.toLowerCase().includes(term) ||
+                  o.matricula.toLowerCase().includes(term)
+              );
+            }}
+            noOptionsText="Nenhum policial encontrado"
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            sx={{ '& .MuiAutocomplete-root': { height: 'auto' } }}
+          />
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="motivo-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Motivo
+            </Typography>
+            <FormControl fullWidth required size="small" variant="outlined" sx={formFieldSx}>
+              <Select
+                id="motivo-select"
+                value={form.motivoId || ''}
+                displayEmpty
+              renderValue={(v) => {
+                if (!v) return 'Selecione';
+                const m = motivosOrdenados.find((mot) => mot.id === v);
+                return m ? formatNome(m.nome) : 'Selecione';
               }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  placeholder="Digite o nome ou matrícula para buscar"
-                  required={!form.policialId}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      borderRadius: '8px',
-                      fontSize: '0.95rem',
-                      padding: '0 !important',
-                      minHeight: 'auto',
-                      height: 'auto',
-                      '& fieldset': {
-                        borderColor: '#cbd5f5',
-                      },
-                      '&:hover fieldset': {
-                        borderColor: '#cbd5f5',
-                      },
-                      '&.Mui-focused fieldset': {
-                        borderColor: '#1d4ed8',
-                        boxShadow: '0 0 0 3px rgba(37, 99, 235, 0.2)',
-                      },
-                      '& input': {
-                        padding: '10px 12px !important',
-                        height: 'auto',
-                      },
-                      '& .MuiAutocomplete-endAdornment': {
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        right: '8px',
-                      },
-                    },
-                  }}
-                />
-              )}
-              filterOptions={(options, { inputValue }) => {
-                const searchTerm = inputValue.toLowerCase();
-                return options.filter(
-                  (option) =>
-                    option.nome.toLowerCase().includes(searchTerm) ||
-                    option.matricula.toLowerCase().includes(searchTerm)
-                );
-              }}
-              noOptionsText="Nenhum policial encontrado"
-              isOptionEqualToValue={(option, value) => option.id === value.id}
-              sx={{
-                '& .MuiAutocomplete-root': {
-                  height: 'auto',
-                },
-                '& .MuiAutocomplete-inputRoot': {
-                  padding: '0 !important',
-                  height: 'auto',
-                  minHeight: 'auto',
-                },
-              }}
-            />
-          </label>
-          <label>
-            Motivo
-            <select
-              value={form.motivoId || ''}
               onChange={(event) => {
                 const motivoId = Number(event.target.value);
                 const motivoSelecionado = motivos.find((motivo) => motivo.id === motivoId);
@@ -1351,11 +1339,9 @@ export function AfastamentosSection({
                   setMotivoOutroTexto('');
                 }
                 
-                // Se mudou para "Férias" e há um policial selecionado, verificar se tem previsão
                 if (motivoEhFerias && form.policialId) {
                   const policialSelecionado = policiais.find((p) => p.id.toString() === form.policialId);
                   if (policialSelecionado && policialSelecionado.mesPrevisaoFerias == null) {
-                    // Limpar a seleção do policial e mostrar aviso
                     setForm((prev) => ({
                       ...prev,
                       motivoId,
@@ -1371,133 +1357,147 @@ export function AfastamentosSection({
                   motivoId,
                 }));
               }}
-              required
+              MenuProps={{ sx: { zIndex: 1500 } }}
             >
-              <option value="">Selecione</option>
+              <MenuItem value="">
+                <em>Selecione</em>
+              </MenuItem>
               {motivosOrdenados.map((motivo) => (
-                <option key={motivo.id} value={motivo.id}>
+                <MenuItem key={motivo.id} value={motivo.id}>
                   {formatNome(motivo.nome)}
-                </option>
+                </MenuItem>
               ))}
-            </select>
-          </label>
+            </Select>
+          </FormControl>
+          </Box>
           {(() => {
             const motivoSelecionado = motivos.find((motivo) => motivo.id === form.motivoId);
             const motivoNome = motivoSelecionado?.nome?.toLowerCase() ?? '';
             const motivoEhOutro = motivoNome === 'outro' || motivoNome === 'outros';
-            if (!motivoEhOutro) {
-              return null;
-            }
+            if (!motivoEhOutro) return null;
             return (
-              <label>
-                Especifique o motivo
-                <input
-                  value={motivoOutroTexto}
-                  onChange={createNormalizedInputHandler(setMotivoOutroTexto)}
-                  onKeyDown={handleKeyDownNormalized}
-                  placeholder="Descreva o motivo"
-                  required
-                />
-              </label>
+              <TextField
+                label="Especifique o motivo"
+                value={motivoOutroTexto}
+                onChange={createNormalizedInputHandler(setMotivoOutroTexto)}
+                slotProps={{
+                  input: {
+                    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                      handleKeyDownNormalized(e),
+                  },
+                }}
+                placeholder="Descreva o motivo"
+                required
+                fullWidth
+                size="small"
+                variant="outlined"
+                sx={{ gridColumn: { md: '1 / -1' }, ...formFieldSx }}
+              />
             );
           })()}
-        </div>
-        <label>
-          SEI nº
-          <input
-            inputMode="numeric"
-            pattern="\d*"
-            value={form.seiNumero}
-            onChange={(event) =>
-              setForm((prev) => ({
-                ...prev,
-                seiNumero: event.target.value.replace(/\D/g, ''),
-              }))
-            }
-            placeholder="Somente números"
-            required
-          />
-        </label>
-        <label>
-          Descrição (opcional)
-          <textarea
-            rows={3}
-            value={form.descricao}
-            onChange={(event) => {
-              const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
-              setForm((prev) => ({ ...prev, descricao: normalized }));
-            }}
-            onKeyDown={handleKeyDownNormalized}
-            placeholder="Detalhes adicionais..."
-          />
-        </label>
-        <div className="grid two-columns">
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <label>
-              Data de início
-              <input
-                type="date"
-                value={form.dataInicio}
-                onChange={(event) => {
-                  setForm((prev) => ({ ...prev, dataInicio: event.target.value }));
-                  // Resetar o estado de foco quando a data de início mudar para permitir pré-seleção novamente
-                  if (!form.dataFim) {
-                    setDataFimFocada(false);
-                  }
-                }}
-                required
-              />
-            </label>
-            <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 1 }}>
+        </Box>
+        <TextField
+          label="SEI nº"
+          value={form.seiNumero}
+          onChange={(e) =>
+            setForm((prev) => ({ ...prev, seiNumero: e.target.value.replace(/\D/g, '') }))
+          }
+          placeholder="Somente números"
+          required
+          fullWidth
+          size="small"
+          variant="outlined"
+          inputProps={{ inputMode: 'numeric', pattern: '\\d*' }}
+          sx={formFieldSx}
+        />
+        <TextField
+          label="Descrição (opcional)"
+          value={form.descricao}
+          onChange={(e) => {
+            const v = e.target.value;
+            const normalized = v.toLowerCase().charAt(0).toUpperCase() + v.toLowerCase().slice(1);
+            setForm((prev) => ({ ...prev, descricao: normalized }));
+          }}
+          slotProps={{
+            input: {
+              onKeyDown: (e: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+                handleKeyDownNormalized(e),
+            },
+          }}
+          placeholder="Detalhes adicionais..."
+          fullWidth
+          size="small"
+          variant="outlined"
+          multiline
+          rows={3}
+          sx={formFieldSx}
+        />
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <TextField
+              label="Data de início"
+              type="date"
+              value={form.dataInicio}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, dataInicio: e.target.value }));
+                if (!form.dataFim) setDataFimFocada(false);
+              }}
+              required
+              fullWidth
+              size="small"
+              variant="outlined"
+              InputLabelProps={{ shrink: true }}
+              sx={formFieldSx}
+            />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Checkbox
                 checked={calcularPeriodo}
-                onChange={(event) => setCalcularPeriodo(event.target.checked)}
+                onChange={(e) => setCalcularPeriodo(e.target.checked)}
                 size="small"
               />
-              <span style={{ fontSize: '0.95rem' }}>Calcular período</span>
+              <Typography component="span" sx={{ fontSize: '0.95rem' }}>
+                Calcular período
+              </Typography>
             </Box>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <div style={{ flex: 1 }}>
-                <label>
-                  {calcularPeriodo ? 'Insira a quantidade de dias' : 'Data de término'}
-                  {calcularPeriodo ? (
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      pattern="\d*"
-                      min="1"
-                      value={quantidadeDias}
-                      onChange={(event) => {
-                        const value = event.target.value.replace(/\D/g, '');
-                        setQuantidadeDias(value);
-                      }}
-                      placeholder="Digite o número de dias"
-                    />
-                  ) : (
-                    <input
-                      type="date"
-                      value={form.dataFim}
-                      min={form.dataInicio || undefined}
-                      onChange={(event) => {
-                        setForm((prev) => ({ ...prev, dataFim: event.target.value }));
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+              <TextField
+                label={calcularPeriodo ? 'Quantidade de dias' : 'Data de término'}
+                type={calcularPeriodo ? 'number' : 'date'}
+                value={calcularPeriodo ? quantidadeDias : form.dataFim}
+                onChange={
+                  calcularPeriodo
+                    ? (e) => setQuantidadeDias(e.target.value.replace(/\D/g, ''))
+                    : (e) => {
+                        setForm((prev) => ({ ...prev, dataFim: e.target.value }));
                         setDataFimFocada(true);
-                      }}
-                      onFocus={(event) => {
-                        // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
+                      }
+                }
+                onFocus={
+                  !calcularPeriodo
+                    ? (e) => {
                         if (!form.dataFim && form.dataInicio && !dataFimFocada) {
-                          const input = event.currentTarget;
-                          // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
-                          input.value = form.dataInicio;
+                          (e.target as HTMLInputElement).value = form.dataInicio;
                           setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
                           setDataFimFocada(true);
                         }
-                      }}
-                    />
-                  )}
-                </label>
-              </div>
+                      }
+                    : undefined
+                }
+                placeholder={calcularPeriodo ? 'Nº de dias' : undefined}
+                fullWidth
+                size="small"
+                variant="outlined"
+                inputProps={
+                  calcularPeriodo
+                    ? { min: 1, inputMode: 'numeric' }
+                    : { min: form.dataInicio || undefined }
+                }
+                InputLabelProps={!calcularPeriodo ? { shrink: true } : undefined}
+                required={!calcularPeriodo}
+                sx={{ flex: 1, ...formFieldSx }}
+              />
               <Button
                 variant="outlined"
                 size="small"
@@ -1507,15 +1507,11 @@ export function AfastamentosSection({
                   setCalcularPeriodo(false);
                   setDataFimFocada(false);
                 }}
-                sx={{
-                  textTransform: 'none',
-                  mt: '20px',
-                  height: '40px',
-                }}
+                sx={{ textTransform: 'none', mt: '28px', height: '40px', flexShrink: 0 }}
               >
                 Limpar
               </Button>
-            </div>
+            </Box>
             {calcularPeriodo && dataTerminoCalculada && (
               <Typography 
                 variant="body2" 
@@ -1542,13 +1538,22 @@ export function AfastamentosSection({
                 Período: {diasCalculados} {diasCalculados === 1 ? 'dia' : 'dias'}
               </Typography>
             )}
-          </div>
-        </div>
-        <div className="form-actions">
-          <button className="primary" type="submit" disabled={submitting}>
+          </Box>
+        </Box>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5 }}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={submitting}
+            sx={{
+              textTransform: 'none',
+              bgcolor: 'var(--sentinela-blue)',
+              '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
+            }}
+          >
             {submitting ? 'Salvando...' : 'Cadastrar afastamento'}
-          </button>
-        </div>
+          </Button>
+        </Box>
       </form>
 
       <div>
@@ -1721,7 +1726,7 @@ export function AfastamentosSection({
                         border: 'none',
                         padding: 0,
                         margin: 0,
-                        color: '#3b82f6',
+                        color: 'var(--accent-muted)',
                         cursor: 'pointer',
                         fontWeight: 600,
                         textAlign: 'left',
@@ -1753,7 +1758,7 @@ export function AfastamentosSection({
                             onClick={() => handleOpenEditAfastamento(afastamento)}
                             sx={{
                               border: '1px solid',
-                              borderColor: 'primary.main',
+                              borderColor: 'var(--accent-muted)',
                               '&:hover': {
                                 backgroundColor: 'primary.light',
                                 color: 'white',
@@ -1818,7 +1823,7 @@ export function AfastamentosSection({
                               border: '1px solid',
                               borderColor: 'error.main',
                               '&:hover': {
-                                backgroundColor: 'error.light',
+                                backgroundColor: theme.alertErrorBg,
                                 color: 'white',
                               },
                             }}
@@ -1841,12 +1846,12 @@ export function AfastamentosSection({
                 alignItems: 'center',
                 marginTop: '16px',
                 padding: '12px',
-                backgroundColor: '#f8f9fa',
+                backgroundColor: 'rgba(0,0,0,0.15)',
                 borderRadius: '8px',
-                border: '1px solid #e9ecef',
+                border: '1px solid var(--border-soft)',
               }}
             >
-              <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+              <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                 Mostrando {registroInicio} a {registroFim} de {afastamentosFiltrados.length} registro(s)
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1868,7 +1873,7 @@ export function AfastamentosSection({
                 >
                   ‹ Anterior
                 </button>
-                <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+                <span style={{ padding: '0 12px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                   Página {paginaAtual} de {totalPaginas}
                 </span>
                 <button
@@ -1911,7 +1916,7 @@ export function AfastamentosSection({
       >
         <DialogTitle
           sx={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: `linear-gradient(135deg, ${theme.accentMuted} 0%, ${theme.sentinelaBlue} 100%)`,
             color: 'white',
             py: 2.5,
             px: 3,
@@ -1939,25 +1944,25 @@ export function AfastamentosSection({
           {detalhesAfastamentoModal.afastamento && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Box>
-                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                   Policial
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 600 }}>
                   {detalhesAfastamentoModal.afastamento.policial.nome}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
                   Matrícula: {formatMatricula(detalhesAfastamentoModal.afastamento.policial.matricula)}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
                   Equipe: {formatEquipeLabel(detalhesAfastamentoModal.afastamento.policial.equipe)}
                 </Typography>
-                <Typography variant="body2" sx={{ color: '#64748b' }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
                   Função: {detalhesAfastamentoModal.afastamento.policial.funcao?.nome ?? '—'}
                 </Typography>
               </Box>
 
               <Box>
-                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                   Motivo
                 </Typography>
                 <Typography variant="body1">
@@ -1967,7 +1972,7 @@ export function AfastamentosSection({
 
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                     SEI nº
                   </Typography>
                   <Typography variant="body1">
@@ -1975,7 +1980,7 @@ export function AfastamentosSection({
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                     Status
                   </Typography>
                   <Chip
@@ -1987,7 +1992,7 @@ export function AfastamentosSection({
               </Box>
 
               <Box>
-                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                   Período
                 </Typography>
                 <Typography variant="body1">
@@ -1999,7 +2004,7 @@ export function AfastamentosSection({
               </Box>
 
               <Box>
-                <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                   Observação
                 </Typography>
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
@@ -2009,7 +2014,7 @@ export function AfastamentosSection({
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #e9ecef' }}>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid var(--border-soft)' }}>
           <Button onClick={handleCloseDetalhesAfastamento} variant="contained">
             Fechar
           </Button>
@@ -2124,9 +2129,9 @@ export function AfastamentosSection({
           <div style={{ 
             marginBottom: '16px', 
             fontSize: '0.9rem', 
-            color: '#64748b',
+            color: 'var(--text-secondary)',
             padding: '8px 12px',
-            backgroundColor: '#f8f9fa',
+            backgroundColor: 'rgba(0,0,0,0.15)',
             borderRadius: '6px'
           }}>
             {loadingPrevisao ? (
@@ -2189,7 +2194,7 @@ export function AfastamentosSection({
                             {new Date(2000, policial.mesPrevisaoFerias - 1).toLocaleDateString('pt-BR', { month: 'long' })}
                           </span>
                         ) : (
-                          <span style={{ color: '#64748b', fontStyle: 'italic' }}>Não definido</span>
+                          <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Não definido</span>
                         )}
                       </td>
                       <td>
@@ -2221,7 +2226,7 @@ export function AfastamentosSection({
                                     ? 'grey.400' 
                                     : policial.feriasConfirmadas 
                                       ? 'warning.main' 
-                                      : 'primary.main',
+                                      : 'var(--accent-muted)',
                                   '&:hover': {
                                     backgroundColor: policial.feriasReprogramadas 
                                       ? 'transparent' 
@@ -2309,11 +2314,11 @@ export function AfastamentosSection({
                     alignItems: 'center', 
                     marginTop: '16px',
                     padding: '12px',
-                    backgroundColor: '#f8f9fa',
+                    backgroundColor: 'rgba(0,0,0,0.15)',
                     borderRadius: '8px',
-                    border: '1px solid #e9ecef'
+                    border: '1px solid var(--border-soft)'
                   }}>
-                    <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+                    <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                       Mostrando {registroInicio} a {registroFim} de {totalPoliciaisPrevisao} registro(s)
                     </div>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2335,7 +2340,7 @@ export function AfastamentosSection({
                       >
                         ‹ Anterior
                       </button>
-                      <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+                      <span style={{ padding: '0 12px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
                         Página {paginaAtualPrevisao} de {totalPaginasPrevisao}
                       </span>
                       <button
@@ -2412,7 +2417,7 @@ export function AfastamentosSection({
             <p>
               Existem {conflitosModal.conflitos.length} policial(is) já afastado(s) no período selecionado:
             </p>
-            <div style={{ margin: '8px 0 16px', padding: '12px', backgroundColor: '#f1f5f9', borderRadius: '6px', color: '#475569' }}>
+            <div style={{ margin: '8px 0 16px', padding: '12px', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: '6px', color: 'var(--text-secondary)' }}>
               <strong>Período do novo afastamento:</strong>
               <div style={{ marginTop: '4px' }}>
                 {formatPeriodo(form.dataInicio, form.dataFim || null)}
@@ -2469,7 +2474,7 @@ export function AfastamentosSection({
                 </tbody>
               </table>
             </div>
-            <p style={{ marginTop: '16px', color: '#64748b', fontSize: '0.9rem' }}>
+            <p style={{ marginTop: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
               Deseja cadastrar o afastamento mesmo assim?
             </p>
             <div className="modal-actions">
@@ -2509,7 +2514,7 @@ export function AfastamentosSection({
       >
         <DialogTitle
           sx={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: `linear-gradient(135deg, ${theme.accentMuted} 0%, ${theme.sentinelaBlue} 100%)`,
             color: 'white',
             py: 2.5,
             px: 3,
@@ -2543,18 +2548,18 @@ export function AfastamentosSection({
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: 'rgba(0,0,0,0.15)',
                   borderRadius: 2,
-                  border: '1px solid #e9ecef',
+                  border: '1px solid var(--border-soft)',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <PersonIcon sx={{ color: '#667eea', fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                  <PersonIcon sx={{ color: 'var(--accent-muted)', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
                     Nome
                   </Typography>
                 </Box>
-                <Typography variant="h6" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5 }}>
+                <Typography variant="h6" sx={{ fontWeight: 500, color: 'var(--text-primary)', ml: 4.5 }}>
                   {policialSelecionado.nome}
                 </Typography>
               </Paper>
@@ -2563,18 +2568,18 @@ export function AfastamentosSection({
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: 'rgba(0,0,0,0.15)',
                   borderRadius: 2,
-                  border: '1px solid #e9ecef',
+                  border: '1px solid var(--border-soft)',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <BadgeIcon sx={{ color: '#667eea', fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                  <BadgeIcon sx={{ color: 'var(--accent-muted)', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
                     Matrícula
                   </Typography>
                 </Box>
-                <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
+                <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--text-primary)', ml: 4.5, fontSize: '1.1rem' }}>
                   {formatMatricula(policialSelecionado.matricula)}
                 </Typography>
               </Paper>
@@ -2583,14 +2588,14 @@ export function AfastamentosSection({
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: 'rgba(0,0,0,0.15)',
                   borderRadius: 2,
-                  border: '1px solid #e9ecef',
+                  border: '1px solid var(--border-soft)',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <BadgeIcon sx={{ color: '#667eea', fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                  <BadgeIcon sx={{ color: 'var(--accent-muted)', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
                     Status
                   </Typography>
                 </Box>
@@ -2601,8 +2606,8 @@ export function AfastamentosSection({
                     )?.label ?? policialSelecionado.status}
                     sx={{
                       fontWeight: 500,
-                      backgroundColor: '#e0e7ff',
-                      color: '#4338ca',
+                      backgroundColor: 'var(--alert-info-bg)',
+                      color: 'var(--alert-info-text)',
                     }}
                   />
                 </Box>
@@ -2612,18 +2617,18 @@ export function AfastamentosSection({
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: 'rgba(0,0,0,0.15)',
                   borderRadius: 2,
-                  border: '1px solid #e9ecef',
+                  border: '1px solid var(--border-soft)',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <GroupsIcon sx={{ color: '#667eea', fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                  <GroupsIcon sx={{ color: 'var(--accent-muted)', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
                     Equipe
                   </Typography>
                 </Box>
-                <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
+                <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--text-primary)', ml: 4.5, fontSize: '1.1rem' }}>
                   {formatEquipeLabel(policialSelecionado.equipe)}
                 </Typography>
               </Paper>
@@ -2632,18 +2637,18 @@ export function AfastamentosSection({
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: 'rgba(0,0,0,0.15)',
                   borderRadius: 2,
-                  border: '1px solid #e9ecef',
+                  border: '1px solid var(--border-soft)',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <WorkIcon sx={{ color: '#667eea', fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                  <WorkIcon sx={{ color: 'var(--accent-muted)', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
                     Função
                   </Typography>
                 </Box>
-                <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', ml: 4.5, fontSize: '1.1rem' }}>
+                <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--text-primary)', ml: 4.5, fontSize: '1.1rem' }}>
                   {policialSelecionado.funcao?.nome || '-'}
                 </Typography>
               </Paper>
@@ -2653,14 +2658,14 @@ export function AfastamentosSection({
                 elevation={0}
                 sx={{
                   p: 2.5,
-                  backgroundColor: '#f8f9fa',
+                  backgroundColor: 'rgba(0,0,0,0.15)',
                   borderRadius: 2,
-                  border: '1px solid #e9ecef',
+                  border: '1px solid var(--border-soft)',
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <CalendarTodayIcon sx={{ color: '#667eea', fontSize: 20 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: '#64748b', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
+                  <CalendarTodayIcon sx={{ color: 'var(--accent-muted)', fontSize: 20 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: 0.5 }}>
                     Previsão de Férias
                   </Typography>
                 </Box>
@@ -2669,10 +2674,10 @@ export function AfastamentosSection({
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                       {/* Mês atual (ou original se não foi reprogramado) */}
                       <Box>
-                        <Typography variant="body2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
+                        <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
                           {policialSelecionado.feriasReprogramadas ? 'Mês Atual (Reprogramado)' : 'Mês Previsto'}
                         </Typography>
-                        <Typography variant="body1" sx={{ fontWeight: 500, color: '#1e293b', fontSize: '1.1rem' }}>
+                        <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--text-primary)', fontSize: '1.1rem' }}>
                           {new Date(2000, policialSelecionado.mesPrevisaoFerias - 1).toLocaleDateString('pt-BR', { month: 'long' })}
                           {policialSelecionado.anoPrevisaoFerias && ` de ${policialSelecionado.anoPrevisaoFerias}`}
                         </Typography>
@@ -2681,10 +2686,10 @@ export function AfastamentosSection({
                       {/* Mês original (se foi reprogramado) */}
                       {policialSelecionado.feriasReprogramadas && policialSelecionado.mesPrevisaoFeriasOriginal && (
                         <Box>
-                          <Typography variant="body2" sx={{ color: '#64748b', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
+                          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
                             Mês Original (Antes da Reprogramação)
                           </Typography>
-                          <Typography variant="body1" sx={{ fontWeight: 500, color: '#92400e', fontSize: '1.1rem' }}>
+                          <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--alert-warning-text)', fontSize: '1.1rem' }}>
                             {new Date(2000, policialSelecionado.mesPrevisaoFeriasOriginal - 1).toLocaleDateString('pt-BR', { month: 'long' })}
                             {policialSelecionado.anoPrevisaoFeriasOriginal && ` de ${policialSelecionado.anoPrevisaoFeriasOriginal}`}
                           </Typography>
@@ -2699,11 +2704,11 @@ export function AfastamentosSection({
                             size="small"
                             sx={{
                               fontWeight: 500,
-                              backgroundColor: '#d1fae5',
-                              color: '#065f46',
+                              backgroundColor: 'var(--alert-success-bg)',
+                              color: 'var(--alert-success-text)',
                               width: 'fit-content',
                             }}
-                            icon={<CheckCircleIcon sx={{ fontSize: 16, color: '#065f46' }} />}
+                            icon={<CheckCircleIcon sx={{ fontSize: 16, color: 'var(--alert-success-text)' }} />}
                           />
                         )}
                         {policialSelecionado.feriasReprogramadas && (
@@ -2712,17 +2717,17 @@ export function AfastamentosSection({
                             size="small"
                             sx={{
                               fontWeight: 500,
-                              backgroundColor: '#fef3c7',
-                              color: '#92400e',
+                              backgroundColor: 'var(--alert-warning-bg)',
+                              color: 'var(--alert-warning-text)',
                               width: 'fit-content',
                             }}
-                            icon={<CalendarTodayIcon sx={{ fontSize: 16, color: '#92400e' }} />}
+                            icon={<CalendarTodayIcon sx={{ fontSize: 16, color: 'var(--alert-warning-text)' }} />}
                           />
                         )}
                       </Box>
                     </Box>
                   ) : (
-                    <Typography variant="body1" sx={{ fontWeight: 500, color: '#64748b', fontStyle: 'italic', fontSize: '1.1rem' }}>
+                    <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '1.1rem' }}>
                       Não definido
                     </Typography>
                   )}
@@ -2731,7 +2736,7 @@ export function AfastamentosSection({
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #e9ecef' }}>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid var(--border-soft)' }}>
           <Button
             onClick={() => setModalPolicialOpen(false)}
             variant="contained"
@@ -2740,9 +2745,9 @@ export function AfastamentosSection({
               borderRadius: 1.5,
               px: 3,
               py: 1,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: `linear-gradient(135deg, ${theme.accentMuted} 0%, ${theme.sentinelaBlue} 100%)`,
               '&:hover': {
-                background: 'linear-gradient(135deg, #5568d3 0%, #6a4190 100%)',
+                background: `linear-gradient(135deg, var(--accent-muted) 0%, var(--sentinela-blue) 100%)`,
               },
             }}
           >
@@ -2766,7 +2771,7 @@ export function AfastamentosSection({
       >
         <DialogTitle
           sx={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: `linear-gradient(135deg, ${theme.accentMuted} 0%, ${theme.sentinelaBlue} 100%)`,
             color: 'white',
             py: 2.5,
             px: 3,
@@ -2795,7 +2800,7 @@ export function AfastamentosSection({
             <form onSubmit={handleSubmitEditAfastamento}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
                 <Box>
-                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#64748b', fontWeight: 600 }}>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
                     Policial
                   </Typography>
                   <Typography variant="body1" sx={{ fontWeight: 500 }}>
@@ -2807,10 +2812,10 @@ export function AfastamentosSection({
                   <Box
                     sx={{
                       p: 1.5,
-                      backgroundColor: '#fef2f2',
+                      backgroundColor: 'var(--alert-error-bg)',
                       borderRadius: 1,
-                      border: '1px solid #fecaca',
-                      color: '#b91c1c',
+                      border: '1px solid rgba(214,69,69,0.4)',
+                      color: 'var(--error)',
                       fontSize: '0.875rem',
                     }}
                   >
@@ -2992,7 +2997,7 @@ export function AfastamentosSection({
       >
         <DialogTitle
           sx={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: `linear-gradient(135deg, ${theme.accentMuted} 0%, ${theme.sentinelaBlue} 100%)`,
             color: 'white',
             py: 2.5,
             px: 3,
@@ -3027,7 +3032,7 @@ export function AfastamentosSection({
           {policialParaMesPrevisao && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1, color: '#64748b', fontWeight: 600 }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'var(--text-secondary)', fontWeight: 600 }}>
                   Policial
                 </Typography>
                 <Typography variant="body1" sx={{ fontWeight: 500 }}>
@@ -3037,7 +3042,7 @@ export function AfastamentosSection({
               
               <Box>
                 <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" sx={{ color: '#64748b', mb: 1 }}>
+                  <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 1 }}>
                     Ano:{' '}
                     <strong>
                       {policialParaMesPrevisao?.anoPrevisaoFerias ?? new Date().getFullYear()}
@@ -3113,7 +3118,7 @@ export function AfastamentosSection({
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid #e9ecef' }}>
+        <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid var(--border-soft)' }}>
           <Button
             onClick={() => {
               setModalMesPrevisaoOpen(false);
@@ -3186,9 +3191,9 @@ export function AfastamentosSection({
               borderRadius: 1.5,
               px: 3,
               py: 1,
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              background: `linear-gradient(135deg, ${theme.accentMuted} 0%, ${theme.sentinelaBlue} 100%)`,
               '&:hover': {
-                background: 'linear-gradient(135deg, #5568d3 0%, #6a4190 100%)',
+                background: `linear-gradient(135deg, var(--accent-muted) 0%, var(--sentinela-blue) 100%)`,
               },
             }}
             disabled={salvandoMesPrevisao || !mesSelecionado || (policialParaMesPrevisao?.feriasConfirmadas && !documentoSei.trim())}

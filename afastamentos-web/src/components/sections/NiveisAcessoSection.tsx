@@ -373,7 +373,7 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
             Crie ou ajuste os níveis de acesso disponíveis no sistema.
           </p>
         </div>
-        <div style={{ fontSize: '0.9rem', color: '#475569' }}>
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
           Usuário: {currentUser.nome}
         </div>
       </div>
@@ -649,8 +649,8 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
                               sx={{
                                 height: 36,
                                 borderRadius: 1,
-                                border: '1px dashed #e2e8f0',
-                                bgcolor: '#f8fafc',
+                                border: '1px dashed var(--border-soft)',
+                                bgcolor: 'rgba(0,0,0,0.1)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',

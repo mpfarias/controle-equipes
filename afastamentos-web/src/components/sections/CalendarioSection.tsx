@@ -382,7 +382,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                   sx={{
                     p: 1.5,
                     textAlign: 'center',
-                    backgroundColor: '#f3f4f6',
+                    backgroundColor: 'rgba(0,0,0,0.15)',
                     fontWeight: 600,
                     fontSize: '0.875rem',
                   }}
@@ -405,8 +405,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                       p: 0,
                       minHeight: '120px',
                       height: '100%',
-                      backgroundColor: dia === null ? 'transparent' : '#ffffff',
-                      border: dia === null ? 'none' : '1px solid #e5e7eb',
+                      backgroundColor: dia === null ? 'transparent' : 'var(--card-bg)',
+                      border: dia === null ? 'none' : '1px solid var(--border-soft)',
                       cursor: dia === null ? 'default' : 'pointer',
                       transition: 'all 0.2s',
                       position: 'relative',
@@ -414,12 +414,12 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                       display: 'flex',
                       flexDirection: 'column',
                       '&:hover': dia !== null ? {
-                        backgroundColor: '#f9fafb',
-                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(0,0,0,0.1)',
+                        borderColor: 'var(--accent-muted)',
                       } : {},
                       ...(isHoje(dia) && {
-                        border: '2px solid #3b82f6',
-                        backgroundColor: '#eff6ff',
+                        border: '2px solid var(--accent-muted)',
+                        backgroundColor: 'var(--alert-info-bg)',
                       }),
                     }}
                   >
@@ -441,7 +441,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                             variant="body2"
                             sx={{
                               fontWeight: isHoje(dia) ? 700 : 500,
-                              color: isHoje(dia) ? '#3b82f6' : '#1f2937',
+                              color: isHoje(dia) ? 'var(--accent-muted)' : 'var(--text-primary)',
                               lineHeight: 1.2,
                               margin: 0,
                             }}
@@ -461,14 +461,14 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                 }}
                                 sx={{
                                   fontSize: '0.65rem',
-                                  color: '#059669',
+                                  color: 'var(--alert-success-text)',
                                   cursor: 'pointer',
                                   textDecoration: 'underline',
                                   background: 'none',
                                   border: 'none',
                                   padding: 0,
                                   fontFamily: 'inherit',
-                                  '&:hover': { color: '#047857' },
+                                  '&:hover': { color: 'var(--alert-success-text)' },
                                 }}
                               >
                                 Motoristas
@@ -501,7 +501,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   left: 0,
                                   width: '100%',
                                   height: '100%',
-                                  background: 'linear-gradient(to bottom right, transparent 0%, transparent 48%, #e5e7eb 49%, #e5e7eb 51%, transparent 52%, transparent 100%)',
+                                  background: 'linear-gradient(to bottom right, transparent 0%, transparent 48%, rgba(255,255,255,0.4) 49%, rgba(255,255,255,0.4) 51%, transparent 52%, transparent 100%)',
                                   pointerEvents: 'none',
                                 },
                               }}
@@ -516,7 +516,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   left: 0,
                                   width: '50%',
                                   height: '50%',
-                                  backgroundColor: '#dbeafe', // Azul claro para dia
+                                  backgroundColor: 'rgba(74, 107, 139, 0.4)', // Azul suave para dia
                                   display: 'flex',
                                   flexDirection: 'column',
                                   alignItems: 'center',
@@ -537,14 +537,14 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   sx={{
                                     fontWeight: 600,
                                     fontSize: '0.7rem',
-                                    color: '#1e40af',
+                                    color: '#E8EEF4',
                                     textAlign: 'center',
                                     lineHeight: 1.2,
                                     margin: 0,
                                     cursor: 'pointer',
                                     textDecoration: 'underline',
                                     '&:hover': {
-                                      color: '#1e3a8a',
+                                      color: '#fff',
                                     },
                                   }}
                                 >
@@ -554,7 +554,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   variant="caption"
                                   sx={{
                                     fontSize: '0.65rem',
-                                    color: '#3b82f6',
+                                    color: 'var(--alert-info-text)',
                                     textAlign: 'center',
                                     lineHeight: 1.2,
                                     margin: 0,
@@ -574,7 +574,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   right: 0,
                                   width: '50%',
                                   height: '50%',
-                                  backgroundColor: '#fef3c7', // Amarelo claro para noite
+                                  backgroundColor: 'rgba(139, 115, 74, 0.4)', // Âmbar suave para noite
                                   display: 'flex',
                                   flexDirection: 'column',
                                   alignItems: 'center',
@@ -595,14 +595,14 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   sx={{
                                     fontWeight: 600,
                                     fontSize: '0.7rem',
-                                    color: '#92400e',
+                                    color: '#E8EEF4',
                                     textAlign: 'center',
                                     lineHeight: 1.2,
                                     margin: 0,
                                     cursor: 'pointer',
                                     textDecoration: 'underline',
                                     '&:hover': {
-                                      color: '#78350f',
+                                      color: '#fff',
                                     },
                                   }}
                                 >
@@ -612,7 +612,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                                   variant="caption"
                                   sx={{
                                     fontSize: '0.65rem',
-                                    color: '#f59e0b',
+                                    color: 'var(--alert-warning-text)',
                                     textAlign: 'center',
                                     lineHeight: 1.2,
                                     margin: 0,
@@ -684,20 +684,20 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                               height: '20px',
                               fontSize: '0.65rem',
                               ...(policial.status === 'ATIVO' && {
-                                backgroundColor: '#dcfce7',
-                                color: '#166534',
+                                backgroundColor: 'var(--alert-success-bg)',
+                                color: 'var(--alert-success-text)',
                               }),
                               ...(policial.status === 'DESIGNADO' && {
-                                backgroundColor: '#fef9c3',
-                                color: '#92400e',
+                                backgroundColor: 'var(--alert-warning-bg)',
+                                color: 'var(--alert-warning-text)',
                               }),
                               ...(policial.status === 'COMISSIONADO' && {
-                                backgroundColor: '#fee2e2',
-                                color: '#991b1b',
+                                backgroundColor: 'var(--alert-error-bg)',
+                                color: 'var(--error)',
                               }),
                               ...(policial.status === 'PTTC' && {
-                                backgroundColor: '#dbeafe',
-                                color: '#1d4ed8',
+                                backgroundColor: 'var(--alert-info-bg)',
+                                color: 'var(--accent-muted)',
                               }),
                             }}
                           />

@@ -97,7 +97,7 @@ export function ImageCropper({ imageSrc, onCropComplete, onCancel }: ImageCroppe
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto' }}>
       <h4 style={{ marginBottom: '16px' }}>Enquadrar Foto</h4>
-      <p style={{ marginBottom: '16px', color: '#64748b', fontSize: '0.9rem' }}>
+      <p style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
         Ajuste o recorte para mostrar apenas o rosto do policial
       </p>
       

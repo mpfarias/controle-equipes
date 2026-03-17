@@ -20,9 +20,26 @@ import {
   Grid,
   Collapse,
   Button,
-  TextField
+  TextField,
+  FormControl,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { Edit, Delete, Block } from '@mui/icons-material';
+
+const formFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '8px',
+    fontSize: '0.95rem',
+    '& fieldset': { borderColor: 'var(--border-soft)' },
+    '&:hover fieldset': { borderColor: 'var(--border-soft)' },
+    '&.Mui-focused fieldset': {
+      borderColor: 'var(--accent-muted)',
+      boxShadow: '0 0 0 3px rgba(107, 155, 196, 0.2)',
+    },
+    '& input, & textarea': { padding: '10px 12px' },
+  },
+};
 
 interface GerarRestricaoAfastamentoSectionProps {
   openConfirm: (config: ConfirmConfig) => void;
@@ -366,96 +383,112 @@ export function GerarRestricaoAfastamentoSection({
       )}
 
       <form onSubmit={handleSubmit}>
-        <div className="form-container">
-          <label>
-            Tipo de restrição *
-            <select
-              value={form.tipoRestricaoId || ''}
-              onChange={(e) => handleTipoRestricaoChange(Number(e.target.value))}
-              required
-              disabled={editingId !== null}
-            >
-              <option value="">Selecione o tipo de restrição</option>
-              {tiposRestricaoOrdenados.map((tipo) => (
-                <option key={tipo.id} value={tipo.id}>
-                  {formatNome(tipo.nome)}
-                </option>
-              ))}
-            </select>
-          </label>
+        <Box sx={{ display: 'grid', gap: 2 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="tipo-restricao-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Tipo de restrição *
+            </Typography>
+            <FormControl fullWidth required size="small" variant="outlined" disabled={editingId !== null} sx={formFieldSx}>
+              <Select
+                id="tipo-restricao-select"
+                value={!form.tipoRestricaoId ? '' : form.tipoRestricaoId}
+                displayEmpty
+                renderValue={(v) => {
+                  if (!v) return 'Selecione o tipo de restrição';
+                  const t = tiposRestricaoOrdenados.find((tipo) => tipo.id === v);
+                  return t ? formatNome(t.nome) : 'Selecione o tipo de restrição';
+                }}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  handleTipoRestricaoChange(typeof val === 'string' && val === '' ? 0 : Number(val));
+                }}
+                MenuProps={{ sx: { zIndex: 1500 } }}
+              >
+                <MenuItem value="">
+                  <em>Selecione o tipo de restrição</em>
+                </MenuItem>
+                {tiposRestricaoOrdenados.map((tipo) => (
+                  <MenuItem key={tipo.id} value={tipo.id}>
+                    {formatNome(tipo.nome)}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
 
           {mostrarCampoOutro && (
-            <Box sx={{ mt: 2 }}>
-              <TextField
-                label="Especifique o tipo de restrição"
-                value={customTipoNome}
-                onChange={(e) => handleCustomTipoNomeChange(e.target.value)}
-                required
-                fullWidth
-                placeholder="Digite o nome do tipo de restrição"
-                helperText="Informe o tipo de restrição personalizado"
-              />
-            </Box>
+            <TextField
+              label="Especifique o tipo de restrição"
+              value={customTipoNome}
+              onChange={(e) => handleCustomTipoNomeChange(e.target.value)}
+              required
+              fullWidth
+              size="small"
+              variant="outlined"
+              placeholder="Digite o nome do tipo de restrição"
+              helperText="Informe o tipo de restrição personalizado"
+              sx={formFieldSx}
+            />
           )}
 
-          <div className="grid two-columns">
-            <label>
-              Data de início *
-              <input
-                type="date"
-                value={form.dataInicio}
-                onChange={(e) => handleDataInicioChange(e.target.value)}
-                required
-                disabled={
-                  editingId === null &&
-                  tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
-                }
-              />
-            </label>
-
-            <label>
-              Data de término *
-              <input
-                type="date"
-                value={form.dataFim}
-                onChange={(e) => {
-                  setForm((prev) => ({ ...prev, dataFim: e.target.value }));
+          <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+            <TextField
+              label="Data de início *"
+              type="date"
+              value={form.dataInicio}
+              onChange={(e) => handleDataInicioChange(e.target.value)}
+              required
+              fullWidth
+              size="small"
+              variant="outlined"
+              InputLabelProps={{ shrink: true }}
+              disabled={
+                editingId === null &&
+                tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
+              }
+              sx={formFieldSx}
+            />
+            <TextField
+              label="Data de término *"
+              type="date"
+              value={form.dataFim}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, dataFim: e.target.value }));
+                setDataFimFocada(true);
+              }}
+              required
+              fullWidth
+              size="small"
+              variant="outlined"
+              InputLabelProps={{ shrink: true }}
+              inputProps={{ min: form.dataInicio || undefined }}
+              disabled={
+                editingId === null &&
+                tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
+              }
+              onFocus={(e) => {
+                if (!form.dataFim && form.dataInicio && !dataFimFocada) {
+                  (e.target as HTMLInputElement).value = form.dataInicio;
+                  setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
                   setDataFimFocada(true);
-                }}
-                required
-                min={form.dataInicio || undefined}
-                disabled={
-                  editingId === null &&
-                  tiposRestricao.find((t) => t.id === form.tipoRestricaoId)?.nome === 'Mês de Dezembro'
                 }
-                onFocus={(event) => {
-                  // Quando o campo recebe foco e não tem valor, pré-selecionar a data de início
-                  if (!form.dataFim && form.dataInicio && !dataFimFocada) {
-                    const input = event.currentTarget;
-                    // Definir o valor diretamente no input para que o calendário abra com essa data pré-selecionada
-                    input.value = form.dataInicio;
-                    setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
-                    setDataFimFocada(true);
-                  }
-                }}
-              />
-            </label>
-          </div>
+              }}
+              sx={formFieldSx}
+            />
+          </Box>
 
-          <div style={{ 
-            padding: '12px', 
-            backgroundColor: '#f0f9ff', 
+          <Box sx={{
+            p: 1.5,
+            backgroundColor: 'var(--alert-info-bg)',
             borderRadius: '4px',
-            border: '1px solid #bae6fd',
-            marginTop: '16px',
-            marginBottom: '16px'
+            border: '1px solid var(--border-soft)',
           }}>
-            <p style={{ margin: 0, fontSize: '0.875rem', color: '#0369a1' }}>
-              <strong> Afastamentos restritos:</strong> Férias, Abono e Dispensa recompensa serão bloqueados automaticamente no período selecionado.
-            </p>
-          </div>
+            <Typography sx={{ margin: 0, fontSize: '0.875rem', color: 'var(--alert-info-text)' }}>
+              <strong>Afastamentos restritos:</strong> Férias, Abono e Dispensa recompensa serão bloqueados automaticamente no período selecionado.
+            </Typography>
+          </Box>
 
-          <Box sx={{ marginTop: '16px', marginBottom: '16px' }}>
+          <Box sx={{ mt: 2, mb: 2 }}>
             <Button
               variant="outlined"
               size="small"
@@ -476,12 +509,12 @@ export function GerarRestricaoAfastamentoSection({
                   p: 3,
                   mb: 2,
                   mt: 2,
-                  backgroundColor: '#ffffff',
+                  backgroundColor: 'var(--card-bg)',
                 }}
               >
                 <Grid container spacing={3} direction="column">
                   <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
-                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
                       Selecione os afastamentos adicionais que também serão bloqueados
                     </Typography>
                     <Box
@@ -553,28 +586,47 @@ export function GerarRestricaoAfastamentoSection({
             </Collapse>
           </Box>
 
-          <div className="form-actions">
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5 }}>
             {editingId ? (
               <>
-                <button
+                <Button
                   type="button"
-                  className="secondary"
+                  variant="outlined"
                   onClick={handleCancelEdit}
                   disabled={loading}
+                  sx={{ textTransform: 'none' }}
                 >
                   Cancelar
-                </button>
-                <button type="submit" className="primary" disabled={loading}>
+                </Button>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={loading}
+                  sx={{
+                    textTransform: 'none',
+                    bgcolor: 'var(--sentinela-blue)',
+                    '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
+                  }}
+                >
                   {loading ? 'Salvando...' : 'Atualizar restrição'}
-                </button>
+                </Button>
               </>
             ) : (
-              <button type="submit" className="primary" disabled={loading}>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={loading}
+                sx={{
+                  textTransform: 'none',
+                  bgcolor: 'var(--sentinela-blue)',
+                  '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
+                }}
+              >
                 {loading ? 'Salvando...' : 'Criar restrição'}
-              </button>
+              </Button>
             )}
-          </div>
-        </div>
+          </Box>
+        </Box>
       </form>
 
       <div style={{ marginTop: '2rem' }}>
@@ -601,7 +653,7 @@ export function GerarRestricaoAfastamentoSection({
                   <td>
                     <strong>{formatNome(restricao.tipoRestricao.nome)}</strong>
                     {restricao.tipoRestricao.descricao && (
-                      <div style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '4px' }}>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                         {restricao.tipoRestricao.descricao}
                       </div>
                     )}

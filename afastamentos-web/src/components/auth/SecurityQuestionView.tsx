@@ -112,9 +112,9 @@ export function SecurityQuestionView({
         <div
           className="feedback"
           style={{
-            backgroundColor: '#eff6ff',
-            borderColor: '#3b82f6',
-            color: '#1e40af',
+            backgroundColor: 'var(--alert-info-bg)',
+            borderColor: 'var(--accent-muted)',
+            color: 'var(--alert-info-text)',
             padding: '1rem',
             borderRadius: '4px',
             marginBottom: '1rem',

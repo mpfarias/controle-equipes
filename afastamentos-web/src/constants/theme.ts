@@ -11,20 +11,43 @@ export const theme = {
   sentinelaOrangeGlow: '#FF9A3C',
 
   /* UI */
-  bgMain: '#F4F7FA',
+  bgMain: '#1E232A',
   bgDark: '#0B1F33',
-  cardBg: '#FFFFFF',
-  borderSoft: '#D6E0EA',
+  cardBg: '#252B33',
+  borderSoft: '#3A4451',
 
   /* Text */
-  textPrimary: '#1B2B38',
-  textSecondary: '#5C6F82',
+  textPrimary: '#E8EEF4',
+  textSecondary: '#A8B8C8',
 
   /* Status */
   success: '#2E8B57',
   warning: '#FF7A1A',
   error: '#D64545',
   info: '#2C7BE5',
+
+  /* Status badges (dark theme - tons mais suaves e harmoniosos) */
+  statusAtivoBg: 'rgba(74, 131, 100, 0.25)',
+  statusAtivoText: '#86C99E',
+  statusComissionadoBg: 'rgba(139, 92, 92, 0.25)',
+  statusComissionadoText: '#D4A0A0',
+  statusDesignadoBg: 'rgba(139, 115, 74, 0.25)',
+  statusDesignadoText: '#D4B896',
+  statusPttcBg: 'rgba(74, 107, 139, 0.25)',
+  statusPttcText: '#8BA8C4',
+  statusDesativadoBg: 'rgba(139, 92, 92, 0.25)',
+  statusDesativadoText: '#D4A0A0',
+  statusMutedBg: 'rgba(107, 120, 139, 0.2)',
+  statusMutedText: '#94a3b8',
+
+  /* Alerts (dark theme - tons suaves) */
+  alertSuccessBg: 'rgba(74, 131, 100, 0.2)',
+  alertErrorBg: 'rgba(139, 92, 92, 0.2)',
+  alertWarningBg: 'rgba(139, 115, 74, 0.2)',
+  alertInfoBg: 'rgba(74, 107, 139, 0.2)',
+
+  /* Accent suave (checkbox, focus, links) */
+  accentMuted: '#6B9BC4',
 
   /* Typography */
   fontFamily: "'Roboto', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",

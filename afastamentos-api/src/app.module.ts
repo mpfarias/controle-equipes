@@ -24,7 +24,7 @@ import { HttpExceptionFilter } from './erros/http-exception.filter';
     ThrottlerModule.forRoot([
       {
         ttl: 60000, // 1 minuto
-        limit: 100, // 100 requisições por minuto (padrão)
+        limit: 300, // 300 requisições por minuto (evita ThrottlerException em buscas/autocomplete)
       },
     ]),
     HealthModule,

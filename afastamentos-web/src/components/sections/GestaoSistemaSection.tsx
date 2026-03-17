@@ -24,7 +24,7 @@ export function GestaoSistemaSection({
           <h2>Gestão do Sistema</h2>
           <p className="subtitle">Centralize as ações administrativas.</p>
         </div>
-        <div style={{ fontSize: '0.9rem', color: '#475569' }}>
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
           Usuário: {currentUser.nome}
         </div>
       </div>

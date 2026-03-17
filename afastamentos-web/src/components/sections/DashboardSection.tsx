@@ -625,13 +625,13 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             p: 3,
             mb: 3,
             mt: 2,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--card-bg)',
           }}
         >
           <Grid container spacing={3} direction="column">
             {/* Seção de Motivos */}
             <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
-              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
                 Filtrar por Motivos
               </Typography>
               <Box
@@ -726,7 +726,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             {/* Seção de Status */}
             <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
               <Divider sx={{ my: 2 }} />
-              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
                 Filtrar por Status do Policial
               </Typography>
               <Box
@@ -804,7 +804,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             {/* Seção de Equipes */}
             <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
               <Divider sx={{ my: 2 }} />
-              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
                 Filtrar por Equipes
               </Typography>
               <Box
@@ -881,7 +881,7 @@ export function DashboardSection({ currentUser }: DashboardSectionProps) {
             {/* Seção de Funções */}
             <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
               <Divider sx={{ my: 2 }} />
-              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'primary.main' }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
                 Filtrar por Função
               </Typography>
               <Box

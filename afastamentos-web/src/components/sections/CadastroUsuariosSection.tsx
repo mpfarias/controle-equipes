@@ -605,7 +605,7 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
           <h3>Cadastro de usuários</h3>
           <p className="subtitle">Gerencie as opções dos campos de cadastro.</p>
         </div>
-        <div style={{ fontSize: '0.9rem', color: '#475569' }}>
+        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
           Usuário: {currentUser.nome}
         </div>
       </div>

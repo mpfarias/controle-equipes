@@ -9,14 +9,33 @@ import type {
   Usuario,
   UsuarioNivelOption,
 } from '../../types';
+import type { Policial } from '../../types';
 import { formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
+import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { IconButton, Tooltip, Box, Card, CardMedia, CardActions, Typography } from '@mui/material';
-import { Edit, Block, CheckCircle, Delete, PhotoCamera, AddPhotoAlternate } from '@mui/icons-material';
+import {
+  IconButton,
+  Tooltip,
+  Box,
+  Card,
+  CardMedia,
+  CardActions,
+  Typography,
+  Autocomplete,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  InputAdornment,
+  Button,
+  Alert,
+} from '@mui/material';
+import { Edit, Block, CheckCircle, Delete, PhotoCamera, AddPhotoAlternate, Visibility, VisibilityOff } from '@mui/icons-material';
 
 interface UsuariosSectionProps {
   currentUser: Usuario;
@@ -58,6 +77,7 @@ export function UsuariosSection({
   };
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [usuarioNiveis, setUsuarioNiveis] = useState<UsuarioNivelOption[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
@@ -164,6 +184,31 @@ export function UsuariosSection({
       console.error('Erro ao carregar perguntas de segurança:', err);
     }
   }, []);
+
+  const carregarPoliciais = useCallback(async () => {
+    try {
+      const nivelNome = currentUser.nivel?.nome;
+      const usuarioPodeVerTodos =
+        nivelNome === 'ADMINISTRADOR' ||
+        nivelNome === 'SAD' ||
+        nivelNome === 'COMANDO' ||
+        currentUser.isAdmin === true;
+      const params: { includeAfastamentos?: boolean; includeRestricoes?: boolean; equipe?: string } = {
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      };
+      if (!usuarioPodeVerTodos && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      }
+      const data = await api.listPoliciais(params);
+      const filtrados = data.filter((p) => p.status !== 'DESATIVADO');
+      setPoliciais(filtrados);
+    } catch (err) {
+      console.error('Erro ao carregar policiais:', err);
+    }
+  }, [currentUser.equipe, currentUser.nivel?.nome, currentUser.isAdmin]);
+
+  const policiaisOrdenados = useMemo(() => sortPorPatenteENome(policiais), [policiais]);
 
   const funcoesAtivas = useMemo(() => {
     return funcoesParaSelecao(funcoes).filter((f) => f.ativo !== false);
@@ -289,7 +334,8 @@ export function UsuariosSection({
     void carregarFuncoes();
     void carregarEquipes();
     void carregarPerguntasSeguranca();
-  }, [carregarNiveis, carregarFuncoes, carregarEquipes, carregarPerguntasSeguranca]);
+    void carregarPoliciais();
+  }, [carregarNiveis, carregarFuncoes, carregarEquipes, carregarPerguntasSeguranca, carregarPoliciais]);
 
   useEffect(() => {
     if (equipesAtivasSemSemEquipe.length === 0) {
@@ -929,180 +975,195 @@ export function UsuariosSection({
       )}
 
       <form onSubmit={handleSubmit}>
-        <div className="grid three-columns">
-          <label>
-            Nome
-            <input
-              autoFocus
-              value={form.nome}
-              onChange={(event) => handleChange('nome', event.target.value.toUpperCase())}
-              placeholder="2º SGT MARIA SILVA"
-              required
-            />
-          </label>
-          <label>
-            Matrícula
-            <input
-              value={form.matricula}
-              onChange={(event) => handleChange('matricula', event.target.value)}
-              placeholder="Matrícula"
-              required
-              className={matriculaError ? 'input-error' : ''}
-              aria-invalid={matriculaError ? 'true' : 'false'}
-            />
-            {matriculaError && (
-              <span className="field-error">{matriculaError}</span>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
+          <Autocomplete
+            options={policiaisOrdenados}
+            getOptionLabel={(option) => `${option.nome} - ${formatMatricula(option.matricula)}`}
+            value={policiaisOrdenados.find((p) => p.nome === form.nome && p.matricula === form.matricula) ?? null}
+            onChange={(_event, newValue) => {
+              setForm((prev) => ({
+                ...prev,
+                nome: newValue ? newValue.nome : '',
+                matricula: newValue ? newValue.matricula : '',
+              }));
+              setMatriculaError(null);
+            }}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Nome"
+                placeholder="Digite o nome ou matrícula para buscar"
+                required={!form.nome}
+                variant="outlined"
+                size="small"
+              />
             )}
-          </label>
-          <label>
-            Nível
-            <select
+            filterOptions={(options, { inputValue }) => {
+              const term = inputValue.toLowerCase();
+              return options.filter(
+                (option) =>
+                  option.nome.toLowerCase().includes(term) ||
+                  option.matricula.toLowerCase().includes(term)
+              );
+            }}
+            noOptionsText="Nenhum policial encontrado"
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+          />
+          <TextField
+            label="Matrícula"
+            value={form.matricula}
+            onChange={(event) => handleChange('matricula', event.target.value)}
+            placeholder="Matrícula"
+            required
+            fullWidth
+            variant="outlined"
+            size="small"
+            error={!!matriculaError}
+            helperText={matriculaError}
+          />
+          <FormControl fullWidth variant="outlined" size="small" required>
+            <InputLabel>Nível</InputLabel>
+            <Select
               value={form.nivelId || ''}
               onChange={(event) =>
-                handleChange(
-                  'nivelId',
-                  event.target.value ? Number(event.target.value) : 0,
-                )
+                handleChange('nivelId', event.target.value ? Number(event.target.value) : 0)
               }
-              required
+              label="Nível"
             >
-              <option value="">Selecione um nível</option>
+              <MenuItem value="">Selecione um nível</MenuItem>
               {niveisDisponiveis.map((nivel) => (
-                <option key={nivel.id} value={nivel.id}>
+                <MenuItem key={nivel.id} value={nivel.id}>
                   {formatNome(nivel.nome)}
-                </option>
+                </MenuItem>
               ))}
-            </select>
-          </label>
-        </div>
-        <div className={isNivelOperacoes(form.nivelId) ? 'grid two-columns' : 'grid one-column'}>
+            </Select>
+          </FormControl>
+        </Box>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: isNivelOperacoes(form.nivelId) ? { xs: '1fr', md: '1fr 1fr' } : '1fr',
+            gap: 2,
+            mt: 2,
+          }}
+        >
           {isNivelOperacoes(form.nivelId) && (
-            <label>
-              Equipe
-              <select
+            <FormControl fullWidth variant="outlined" size="small" required>
+              <InputLabel>Equipe</InputLabel>
+              <Select
                 value={form.equipe}
                 onChange={(event) => handleChange('equipe', event.target.value)}
-                required
+                label="Equipe"
               >
-                <option value="">Selecione uma equipe</option>
+                <MenuItem value="">Selecione uma equipe</MenuItem>
                 {equipesAtivasSemSemEquipe.map((option) => (
-                  <option key={option.id} value={option.nome}>
+                  <MenuItem key={option.id} value={option.nome}>
                     {formatNome(option.nome)}
-                  </option>
+                  </MenuItem>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </FormControl>
           )}
-          <label>
-            Função
-            <select
+          <FormControl fullWidth variant="outlined" size="small">
+            <InputLabel>Função</InputLabel>
+            <Select
               value={form.funcaoId || ''}
               onChange={(event) =>
-                handleChange(
-                  'funcaoId',
-                  event.target.value ? Number(event.target.value) : undefined,
-                )
+                handleChange('funcaoId', event.target.value ? Number(event.target.value) : undefined)
               }
+              label="Função"
             >
-              <option value="">Selecione uma função</option>
+              <MenuItem value="">Selecione uma função</MenuItem>
               {funcoesAtivas.map((funcao) => (
-                <option key={funcao.id} value={funcao.id}>
+                <MenuItem key={funcao.id} value={funcao.id}>
                   {formatNome(funcao.nome)}
-                </option>
+                </MenuItem>
               ))}
-            </select>
-          </label>
-        </div>
-        <div className="grid two-columns">
-          <label>
-            Senha
-            <div className="password-input-wrapper">
-              <input
-                type={showPassword ? 'text' : 'password'}
-                value={form.senha}
-                onChange={(event) => handleChange('senha', event.target.value)}
-                placeholder="Informe uma senha forte"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="password-toggle"
-                tabIndex={-1}
-              >
-                {showPassword ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                  </svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                )}
-              </button>
-            </div>
-          </label>
-          <label>
-            Confirmar senha
-            <div className="password-input-wrapper">
-              <input
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={form.confirmarSenha}
-                onChange={(event) => handleChange('confirmarSenha', event.target.value)}
-                placeholder="Repita a senha"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="password-toggle"
-                tabIndex={-1}
-              >
-                {showConfirmPassword ? (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                    <line x1="1" y1="1" x2="23" y2="23"></line>
-                  </svg>
-                ) : (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
-                )}
-              </button>
-            </div>
-          </label>
-        </div>
-        <div className="grid two-columns">
-          <label>
-            Pergunta de Segurança
-            <select
+            </Select>
+          </FormControl>
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 2 }}>
+          <TextField
+            label="Senha"
+            type={showPassword ? 'text' : 'password'}
+            value={form.senha}
+            onChange={(event) => handleChange('senha', event.target.value)}
+            placeholder="Informe uma senha forte"
+            required
+            fullWidth
+            variant="outlined"
+            size="small"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    onClick={() => setShowPassword(!showPassword)}
+                    edge="end"
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+          <TextField
+            label="Confirmar senha"
+            type={showConfirmPassword ? 'text' : 'password'}
+            value={form.confirmarSenha}
+            onChange={(event) => handleChange('confirmarSenha', event.target.value)}
+            placeholder="Repita a senha"
+            required
+            fullWidth
+            variant="outlined"
+            size="small"
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={showConfirmPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    edge="end"
+                  >
+                    {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+          />
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 2 }}>
+          <FormControl fullWidth variant="outlined" size="small">
+            <InputLabel>Pergunta de Segurança</InputLabel>
+            <Select
               value={form.perguntaSeguranca}
               onChange={(event) => handleChange('perguntaSeguranca', event.target.value)}
+              label="Pergunta de Segurança"
             >
-              <option value="">Selecione uma pergunta</option>
+              <MenuItem value="">Selecione uma pergunta</MenuItem>
               {perguntasAtivas.map((pergunta) => (
-                <option key={pergunta.id} value={pergunta.texto}>
+                <MenuItem key={pergunta.id} value={pergunta.texto}>
                   {formatNome(pergunta.texto)}
-                </option>
+                </MenuItem>
               ))}
-            </select>
-          </label>
-          <label>
-            Resposta de Segurança
-            <input
-              type="text"
-              value={form.respostaSeguranca}
-              onChange={(event) => handleChange('respostaSeguranca', event.target.value)}
-              placeholder="Digite a resposta"
-            />
-          </label>
-        </div>
-        <div>
-          <label style={{ display: 'block', marginBottom: 8 }}>Foto do usuário</label>
-          <Box sx={{ display: 'flex', justifyContent: 'flex-start', marginTop: 1, position: 'relative' }}>
+            </Select>
+          </FormControl>
+          <TextField
+            label="Resposta de Segurança"
+            type="text"
+            value={form.respostaSeguranca}
+            onChange={(event) => handleChange('respostaSeguranca', event.target.value)}
+            placeholder="Digite a resposta"
+            fullWidth
+            variant="outlined"
+            size="small"
+          />
+        </Box>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
+            Foto do usuário
+          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-start', mt: 1, position: 'relative' }}>
             {fileSelectBlocking && fotoContext === 'create' && (
               <Box
                 sx={{
@@ -1174,13 +1235,13 @@ export function UsuariosSection({
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    backgroundColor: '#f5f5f5',
+                    backgroundColor: 'rgba(0,0,0,0.15)',
                     cursor: 'pointer',
-                    '&:hover': { backgroundColor: '#eeeeee' },
+                    '&:hover': { backgroundColor: 'rgba(0,0,0,0.25)' },
                   }}
                   onClick={openFileDialog('create')}
                 >
-                  <AddPhotoAlternate sx={{ fontSize: 36, color: '#9e9e9e', mb: 0.5 }} />
+                  <AddPhotoAlternate sx={{ fontSize: 36, color: 'var(--text-secondary)', mb: 0.5 }} />
                   <Typography variant="caption" color="text.secondary">
                     Adicionar foto
                   </Typography>
@@ -1195,39 +1256,47 @@ export function UsuariosSection({
               style={{ display: 'none' }}
             />
           </Box>
-        </div>
-        <div className="form-actions">
-          <button className="primary" type="submit" disabled={submitting}>
+        </Box>
+        <Box sx={{ mt: 3 }}>
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={submitting}
+            sx={{ minWidth: 180 }}
+          >
             {submitting ? 'Salvando...' : 'Cadastrar usuário'}
-          </button>
-        </div>
+          </Button>
+        </Box>
       </form>
 
       <div>
         <h3>Lista de usuários</h3>
       </div>
-      <div className="list-controls">
-        <input
-          className="search-input"
+      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
+        <TextField
+          size="small"
+          placeholder="Pesquisar por nome"
           value={searchTerm}
           onChange={(event) => setSearchTerm(event.target.value.toUpperCase())}
-          placeholder="Pesquisar por nome"
+          sx={{ minWidth: 200 }}
         />
-        <select
-          value={itensPorPagina}
-          onChange={(event) => {
-            setItensPorPagina(Number(event.target.value));
-            setPaginaAtual(1);
-          }}
-          style={{ maxWidth: '140px' }}
-          aria-label="Itens por página"
-        >
-          <option value={10}>10 / página</option>
-          <option value={20}>20 / página</option>
-          <option value={50}>50 / página</option>
-          <option value={100}>100 / página</option>
-        </select>
-      </div>
+        <FormControl size="small" sx={{ minWidth: 140 }}>
+          <InputLabel>Itens por página</InputLabel>
+          <Select
+            value={itensPorPagina}
+            onChange={(event) => {
+              setItensPorPagina(Number(event.target.value));
+              setPaginaAtual(1);
+            }}
+            label="Itens por página"
+          >
+            <MenuItem value={10}>10 / página</MenuItem>
+            <MenuItem value={20}>20 / página</MenuItem>
+            <MenuItem value={50}>50 / página</MenuItem>
+            <MenuItem value={100}>100 / página</MenuItem>
+          </Select>
+        </FormControl>
+      </Box>
       {loading ? (
         <p className="empty-state">Carregando usuários...</p>
       ) : filteredUsuarios.length === 0 ? (
@@ -1249,7 +1318,7 @@ export function UsuariosSection({
                 key={usuario.id}
                 style={
                   usuario.status === 'DESATIVADO'
-                    ? { backgroundColor: '#fee2e2' }
+                    ? { backgroundColor: 'var(--alert-error-bg)' }
                     : undefined
                 }
               >
@@ -1263,7 +1332,7 @@ export function UsuariosSection({
                       <IconButton
                         size="small"
                         onClick={() => handleEdit(usuario)}
-                        color="primary"
+                        sx={{ color: 'var(--accent-muted)' }}
                       >
                         <Edit />
                       </IconButton>
@@ -1321,12 +1390,12 @@ export function UsuariosSection({
             alignItems: 'center',
             marginTop: '16px',
             padding: '12px',
-            backgroundColor: '#f8f9fa',
+            backgroundColor: 'rgba(0,0,0,0.15)',
             borderRadius: '8px',
-            border: '1px solid #e9ecef',
+            border: '1px solid var(--border-soft)',
           }}
         >
-          <div style={{ fontSize: '0.9rem', color: '#64748b' }}>
+          <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
             Mostrando {registroInicio} a {registroFim} de {totalVisivel} registro(s)
           </div>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -1348,7 +1417,7 @@ export function UsuariosSection({
             >
               ‹ Anterior
             </button>
-            <span style={{ padding: '0 12px', fontSize: '0.9rem', color: '#374151' }}>
+            <span style={{ padding: '0 12px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
               Página {paginaAtual} de {totalPaginas}
             </span>
             <button
@@ -1391,9 +1460,9 @@ export function UsuariosSection({
               </div>
             )}
             <form onSubmit={handleEditSubmit}>
-              <label style={{ display: 'block', marginBottom: 8 }}>
+              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
                 Foto do usuário
-              </label>
+              </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 2, position: 'relative' }}>
                 {fileSelectBlocking && fotoContext === 'edit' && (
                   <Box
@@ -1425,9 +1494,9 @@ export function UsuariosSection({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: '#f5f5f5',
+                        backgroundColor: 'rgba(0,0,0,0.15)',
                         fontSize: '0.8rem',
-                        color: '#64748b',
+                        color: 'var(--text-secondary)',
                       }}
                     >
                       Carregando...
@@ -1482,13 +1551,13 @@ export function UsuariosSection({
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: '#f5f5f5',
+                        backgroundColor: 'rgba(0,0,0,0.15)',
                         cursor: 'pointer',
-                        '&:hover': { backgroundColor: '#eeeeee' },
+                        '&:hover': { backgroundColor: 'rgba(255,255,255,0.1)' },
                       }}
                       onClick={openFileDialog('edit')}
                     >
-                      <AddPhotoAlternate sx={{ fontSize: 36, color: '#9e9e9e', mb: 0.5 }} />
+                      <AddPhotoAlternate sx={{ fontSize: 36, color: 'var(--text-secondary)', mb: 0.5 }} />
                       <Typography variant="caption" color="text.secondary">
                         Adicionar foto
                       </Typography>
@@ -1503,198 +1572,184 @@ export function UsuariosSection({
                   style={{ display: 'none' }}
                 />
               </Box>
-              <div className="grid three-columns">
-                <label>
-                  Nome
-                  <input
-                    value={editForm.nome}
-                    onChange={(event) => handleEditChange('nome', event.target.value.toUpperCase())}
-                    required
-                  />
-                </label>
-                <label>
-                  Matrícula
-                  <input
-                    value={editForm.matricula}
-                    onChange={(event) =>
-                      handleEditChange('matricula', event.target.value)
-                    }
-                    required
-                  />
-                </label>
-                <label>
-                  Nível
-                  <select
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr 1fr' }, gap: 2, mb: 2 }}>
+                <TextField
+                  label="Nome"
+                  value={editForm.nome}
+                  onChange={(event) => handleEditChange('nome', event.target.value.toUpperCase())}
+                  required
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                />
+                <TextField
+                  label="Matrícula"
+                  value={editForm.matricula}
+                  onChange={(event) => handleEditChange('matricula', event.target.value)}
+                  required
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                />
+                <FormControl fullWidth variant="outlined" size="small" required>
+                  <InputLabel>Nível</InputLabel>
+                  <Select
                     value={editForm.nivelId || ''}
                     onChange={(event) =>
-                      handleEditChange(
-                        'nivelId',
-                        event.target.value ? Number(event.target.value) : 0,
-                      )
+                      handleEditChange('nivelId', event.target.value ? Number(event.target.value) : 0)
                     }
-                    required
+                    label="Nível"
                     disabled={editingUsuario ? isUsuarioAdministrador(editingUsuario) && !currentUserIsAdmin : false}
                   >
-                    <option value="">Selecione um nível</option>
+                    <MenuItem value="">Selecione um nível</MenuItem>
                     {niveisDisponiveis.map((nivel) => (
-                      <option key={nivel.id} value={nivel.id}>
+                      <MenuItem key={nivel.id} value={nivel.id}>
                         {nivel.nome}
-                      </option>
+                      </MenuItem>
                     ))}
-                  </select>
+                  </Select>
                   {editingUsuario && isUsuarioAdministrador(editingUsuario) && !currentUserIsAdmin && (
-                    <span style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', display: 'block' }}>
+                    <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary' }}>
                       Apenas administradores podem alterar o nível de outros administradores.
-                    </span>
+                    </Typography>
                   )}
-                </label>
-              </div>
-              <div className={isNivelOperacoes(editForm.nivelId) ? 'grid two-columns' : 'grid one-column'}>
+                </FormControl>
+              </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: isNivelOperacoes(editForm.nivelId) ? { xs: '1fr', md: '1fr 1fr' } : '1fr',
+                  gap: 2,
+                  mb: 2,
+                }}
+              >
                 {isNivelOperacoes(editForm.nivelId) && (
-                  <label>
-                    Equipe
-                    <select
+                  <FormControl fullWidth variant="outlined" size="small" required>
+                    <InputLabel>Equipe</InputLabel>
+                    <Select
                       value={editForm.equipe}
-                      onChange={(event) =>
-                        handleEditChange('equipe', event.target.value)
-                      }
-                      required
+                      onChange={(event) => handleEditChange('equipe', event.target.value)}
+                      label="Equipe"
                     >
-                      <option value="">Selecione uma equipe</option>
+                      <MenuItem value="">Selecione uma equipe</MenuItem>
                       {equipesAtivasSemSemEquipe.map((option) => (
-                        <option key={option.id} value={option.nome}>
+                        <MenuItem key={option.id} value={option.nome}>
                           {formatNome(option.nome)}
-                        </option>
+                        </MenuItem>
                       ))}
-                    </select>
-                  </label>
+                    </Select>
+                  </FormControl>
                 )}
-                <label>
-                  Função
-                  <select
+                <FormControl fullWidth variant="outlined" size="small">
+                  <InputLabel>Função</InputLabel>
+                  <Select
                     value={editForm.funcaoId || ''}
                     onChange={(event) =>
-                      handleEditChange(
-                        'funcaoId',
-                        event.target.value ? Number(event.target.value) : undefined,
-                      )
+                      handleEditChange('funcaoId', event.target.value ? Number(event.target.value) : undefined)
                     }
+                    label="Função"
                   >
-                    <option value="">Selecione uma função</option>
+                    <MenuItem value="">Selecione uma função</MenuItem>
                     {funcoesAtivas.map((funcao) => (
-                      <option key={funcao.id} value={funcao.id}>
+                      <MenuItem key={funcao.id} value={funcao.id}>
                         {funcao.nome}
-                      </option>
+                      </MenuItem>
                     ))}
-                  </select>
-                </label>
-              </div>
-              <div className="grid two-columns">
-                <label>
-                  Nova senha
-                  <div className="password-input-wrapper">
-                    <input
-                      type={showEditPassword ? 'text' : 'password'}
-                      value={editForm.senha}
-                      onChange={(event) =>
-                        handleEditChange('senha', event.target.value)
-                      }
-                      placeholder="Informe uma nova senha (opcional)"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowEditPassword(!showEditPassword)}
-                      className="password-toggle"
-                      tabIndex={-1}
-                    >
-                      {showEditPassword ? (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                          <line x1="1" y1="1" x2="23" y2="23"></line>
-                        </svg>
-                      ) : (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                          <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </label>
-                <label>
-                  Confirmar nova senha
-                  <div className="password-input-wrapper">
-                    <input
-                      type={showEditConfirmPassword ? 'text' : 'password'}
-                      value={editForm.confirmarSenha}
-                      onChange={(event) =>
-                        handleEditChange('confirmarSenha', event.target.value)
-                      }
-                      placeholder="Repita a nova senha"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowEditConfirmPassword(!showEditConfirmPassword)}
-                      className="password-toggle"
-                      tabIndex={-1}
-                    >
-                      {showEditConfirmPassword ? (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                          <line x1="1" y1="1" x2="23" y2="23"></line>
-                        </svg>
-                      ) : (
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                          <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                </label>
-              </div>
-              <div className="grid two-columns">
-                <label>
-                  Pergunta de Segurança
-                  <select
+                  </Select>
+                </FormControl>
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 2 }}>
+                <TextField
+                  label="Nova senha"
+                  type={showEditPassword ? 'text' : 'password'}
+                  value={editForm.senha}
+                  onChange={(event) => handleEditChange('senha', event.target.value)}
+                  placeholder="Informe uma nova senha (opcional)"
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label={showEditPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                          onClick={() => setShowEditPassword(!showEditPassword)}
+                          edge="end"
+                        >
+                          {showEditPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                <TextField
+                  label="Confirmar nova senha"
+                  type={showEditConfirmPassword ? 'text' : 'password'}
+                  value={editForm.confirmarSenha}
+                  onChange={(event) => handleEditChange('confirmarSenha', event.target.value)}
+                  placeholder="Repita a nova senha"
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label={showEditConfirmPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                          onClick={() => setShowEditConfirmPassword(!showEditConfirmPassword)}
+                          edge="end"
+                        >
+                          {showEditConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 2 }}>
+                <FormControl fullWidth variant="outlined" size="small">
+                  <InputLabel>Pergunta de Segurança</InputLabel>
+                  <Select
                     value={editForm.perguntaSeguranca}
-                    onChange={(event) =>
-                      handleEditChange('perguntaSeguranca', event.target.value)
-                    }
+                    onChange={(event) => handleEditChange('perguntaSeguranca', event.target.value)}
+                    label="Pergunta de Segurança"
                   >
-                    <option value="">Selecione uma pergunta</option>
+                    <MenuItem value="">Selecione uma pergunta</MenuItem>
                     {perguntasAtivas.map((pergunta) => (
-                      <option key={pergunta.id} value={pergunta.texto}>
+                      <MenuItem key={pergunta.id} value={pergunta.texto}>
                         {formatNome(pergunta.texto)}
-                      </option>
+                      </MenuItem>
                     ))}
-                  </select>
-                </label>
-                <label>
-                  Resposta de Segurança
-                  <input
-                    type="text"
-                    value={editForm.respostaSeguranca}
-                    onChange={(event) =>
-                      handleEditChange('respostaSeguranca', event.target.value)
-                    }
-                    placeholder="Deixe em branco para não alterar"
-                  />
-                </label>
-              </div>
-              <div className="modal-actions">
-                <button
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Resposta de Segurança"
+                  type="text"
+                  value={editForm.respostaSeguranca}
+                  onChange={(event) => handleEditChange('respostaSeguranca', event.target.value)}
+                  placeholder="Deixe em branco para não alterar"
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
+                <Button
                   type="button"
-                  className="secondary"
+                  variant="outlined"
                   onClick={resetEditForm}
                   disabled={editSubmitting}
                 >
                   Cancelar
-                </button>
-                <button className="primary" type="submit" disabled={editSubmitting}>
+                </Button>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={editSubmitting}
+                >
                   {editSubmitting ? 'Salvando...' : 'Salvar alterações'}
-                </button>
-              </div>
+                </Button>
+              </Box>
             </form>
           </div>
         </div>
@@ -1725,31 +1780,25 @@ export function UsuariosSection({
         <div className="modal-backdrop" role="dialog" aria-modal="true">
           <div className="modal" style={{ maxWidth: '500px' }}>
             <h3>Excluir usuário permanentemente</h3>
-            <div className="feedback error" style={{ marginBottom: '16px' }}>
-              <strong>ATENã‡ãƒO: Esta ação é IRREVERSãVEL!</strong>
-              <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
+            <Alert severity="error" sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                ATENÇÃO: Esta ação é IRREVERSÍVEL!
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
                 O usuário <strong>{deleteModal.usuario.nome}</strong> (matrícula{' '}
                 <strong>{formatMatricula(deleteModal.usuario.matricula)}</strong>) será removido
                 permanentemente do banco de dados.
-              </p>
-              <p style={{ margin: '8px 0 0', fontSize: '0.9rem' }}>
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
                 Se tem certeza que realmente quer excluir o registro do banco de dados,
                 digite a senha do administrador para confirmar a operação.
-              </p>
-            </div>
+              </Typography>
+            </Alert>
 
             {deleteModal.error && (
-              <div className="feedback error" style={{ marginBottom: '16px' }}>
+              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDeleteModal((prev) => ({ ...prev, error: null }))}>
                 {deleteModal.error}
-                <button
-                  type="button"
-                  className="feedback-close"
-                  onClick={() => setDeleteModal((prev) => ({ ...prev, error: null }))}
-                  aria-label="Fechar"
-                >
-                  ×
-                </button>
-              </div>
+              </Alert>
             )}
 
             <form
@@ -1758,42 +1807,45 @@ export function UsuariosSection({
                 void handleConfirmDelete();
               }}
             >
-              <label>
-                Senha do Administrador
-                <input
-                  type="password"
-                  value={deleteModal.senha}
-                  onChange={(event) =>
-                    setDeleteModal((prev) => ({
-                      ...prev,
-                      senha: event.target.value,
-                      error: null,
-                    }))
-                  }
-                  placeholder="Digite a senha do administrador"
-                  autoFocus
-                  disabled={deleteModal.loading}
-                  required
-                />
-              </label>
+              <TextField
+                label="Senha do Administrador"
+                type="password"
+                value={deleteModal.senha}
+                onChange={(event) =>
+                  setDeleteModal((prev) => ({
+                    ...prev,
+                    senha: event.target.value,
+                    error: null,
+                  }))
+                }
+                placeholder="Digite a senha do administrador"
+                autoFocus
+                disabled={deleteModal.loading}
+                required
+                fullWidth
+                variant="outlined"
+                size="small"
+                sx={{ mb: 2 }}
+              />
 
-              <div className="modal-actions">
-                <button
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                <Button
                   type="button"
-                  className="secondary"
+                  variant="outlined"
                   onClick={handleCloseDeleteModal}
                   disabled={deleteModal.loading}
                 >
                   Cancelar
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  className="danger"
+                  variant="contained"
+                  color="error"
                   disabled={deleteModal.loading || !deleteModal.senha.trim()}
                 >
                   {deleteModal.loading ? 'Excluindo...' : 'Sim, excluir permanentemente'}
-                </button>
-              </div>
+                </Button>
+              </Box>
             </form>
           </div>
         </div>

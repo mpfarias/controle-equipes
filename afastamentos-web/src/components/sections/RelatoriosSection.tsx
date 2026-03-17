@@ -1037,10 +1037,10 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             }
           style={{
             textAlign: 'left',
-            border: expandedCard === 'auditoria' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+            border: expandedCard === 'auditoria' ? '2px solid var(--info)' : '1px solid var(--border-soft)',
             borderRadius: '8px',
             padding: '1.25rem 1.5rem',
-            backgroundColor: expandedCard === 'auditoria' ? '#eff6ff' : '#ffffff',
+            backgroundColor: expandedCard === 'auditoria' ? 'var(--alert-info-bg)' : 'var(--card-bg)',
             display: 'flex',
             flexDirection: 'column',
             gap: '0.5rem',
@@ -1048,7 +1048,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             transition: 'border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease',
             boxShadow:
               expandedCard === 'auditoria'
-                ? '0 4px 12px rgba(37, 99, 235, 0.15)'
+                ? '0 4px 12px rgba(107, 155, 196, 0.2)'
                 : '0 1px 3px rgba(15, 23, 42, 0.08)',
           }}
         >
@@ -1061,22 +1061,22 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             }}
           >
             <div>
-              <h3 style={{ margin: 0 }}>Relatórios de Auditoria do Sistema</h3>
+              <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Relatórios de Auditoria do Sistema</h3>
               <p
                 style={{
                   margin: 0,
-                  marginTop: '0.25rem',
-                  color: '#64748b',
-                  fontSize: '0.9rem',
-                }}
-              >
+              marginTop: '0.25rem',
+              color: 'var(--text-secondary)',
+              fontSize: '0.9rem',
+            }}
+          >
                 Relatórios sobre ações no sistema, usuários, erros e acessos.
               </p>
             </div>
             <span
               style={{
                 fontSize: '1.25rem',
-                color: '#2563eb',
+                color: 'var(--alert-info-text)',
                 transform: expandedCard === 'auditoria' ? 'rotate(90deg)' : 'rotate(0deg)',
                 transition: 'transform 0.2s ease',
               }}
@@ -1088,7 +1088,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             style={{
               fontSize: '0.8rem',
               fontWeight: 500,
-              color: '#1d4ed8',
+              color: 'var(--alert-info-text)',
               marginTop: '0.25rem',
             }}
           >
@@ -1106,10 +1106,10 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             }
           style={{
             textAlign: 'left',
-            border: expandedCard === 'servico' ? '2px solid #2563eb' : '1px solid #e2e8f0',
+            border: expandedCard === 'servico' ? '2px solid var(--info)' : '1px solid var(--border-soft)',
             borderRadius: '8px',
             padding: '1.25rem 1.5rem',
-            backgroundColor: expandedCard === 'servico' ? '#eff6ff' : '#ffffff',
+            backgroundColor: expandedCard === 'servico' ? 'var(--alert-info-bg)' : 'var(--card-bg)',
             display: 'flex',
             flexDirection: 'column',
             gap: '0.5rem',
@@ -1117,7 +1117,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             transition: 'border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease',
             boxShadow:
               expandedCard === 'servico'
-                ? '0 4px 12px rgba(37, 99, 235, 0.15)'
+                ? '0 4px 12px rgba(107, 155, 196, 0.2)'
                 : '0 1px 3px rgba(15, 23, 42, 0.08)',
           }}
         >
@@ -1130,22 +1130,22 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             }}
           >
             <div>
-              <h3 style={{ margin: 0 }}>Relatórios de Serviço</h3>
+              <h3 style={{ margin: 0, color: 'var(--text-primary)' }}>Relatórios de Serviço</h3>
               <p
                 style={{
                   margin: 0,
-                  marginTop: '0.25rem',
-                  color: '#64748b',
-                  fontSize: '0.9rem',
-                }}
-              >
+              marginTop: '0.25rem',
+              color: 'var(--text-secondary)',
+              fontSize: '0.9rem',
+            }}
+          >
                 Relatórios operacionais do serviço (escala, equipes, indicadores etc.).
               </p>
             </div>
             <span
               style={{
                 fontSize: '1.25rem',
-                color: '#2563eb',
+                color: 'var(--alert-info-text)',
                 transform: expandedCard === 'servico' ? 'rotate(90deg)' : 'rotate(0deg)',
                 transition: 'transform 0.2s ease',
               }}
@@ -1157,7 +1157,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
             style={{
               fontSize: '0.8rem',
               fontWeight: 500,
-              color: '#1d4ed8',
+              color: 'var(--alert-info-text)',
               marginTop: '0.25rem',
             }}
           >
@@ -1191,7 +1191,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
         >
           <div
             style={{
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border-soft)',
               borderRadius: '8px',
               padding: '1.5rem',
               display: 'flex',
@@ -1227,7 +1227,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
 
           <div
             style={{
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border-soft)',
               borderRadius: '8px',
               padding: '1.5rem',
               display: 'flex',
@@ -1257,7 +1257,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
 
           <div
             style={{
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border-soft)',
               borderRadius: '8px',
               padding: '1.5rem',
               display: 'flex',
@@ -1287,7 +1287,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
 
           <div
             style={{
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border-soft)',
               borderRadius: '8px',
               padding: '1.5rem',
               display: 'flex',
@@ -1317,7 +1317,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
 
           <div
             style={{
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border-soft)',
               borderRadius: '8px',
               padding: '1.5rem',
               display: 'flex',
@@ -1371,17 +1371,17 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
         >
           <div
             style={{
-              border: '1px solid #e2e8f0',
+              border: '1px solid var(--border-soft)',
               borderRadius: '8px',
               padding: '1.5rem',
               display: 'flex',
               flexDirection: 'column',
               gap: '0.75rem',
-              backgroundColor: '#f9fafb',
+              backgroundColor: 'rgba(0,0,0,0.15)',
             }}
           >
             <h4 style={{ margin: 0 }}>Relatórios de Serviço (em breve)</h4>
-            <p style={{ margin: 0, color: '#6b7280', fontSize: '0.9rem' }}>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
               Em breve você poderá gerar relatórios específicos do serviço, como escala, equipes, afastamentos por período e outros indicadores operacionais.
             </p>
             <button
@@ -1423,7 +1423,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
                   style={{
                     width: '100%',
                     padding: '0.5rem',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border-soft)',
                     borderRadius: '4px',
                     fontSize: '14px',
                   }}
@@ -1456,7 +1456,7 @@ export function RelatoriosSection({ currentUser, permissoes }: RelatoriosSection
                   style={{
                     width: '100%',
                     padding: '0.5rem',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border-soft)',
                     borderRadius: '4px',
                     fontSize: '14px',
                   }}

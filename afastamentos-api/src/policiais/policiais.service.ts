@@ -700,7 +700,7 @@ export class PoliciaisService {
       where: {
         policialId: { in: Array.from(policialIdsComPrevisaoNoPeriodo) },
         motivoId: motivoFerias.id,
-        status: 'ATIVO',
+        // Incluir ATIVO e ENCERRADO: afastamentos já encerrados (dataFim passou) contam como "marcados"
       },
       select: { policialId: true, dataInicio: true, dataFim: true },
     });
@@ -810,7 +810,7 @@ export class PoliciaisService {
       where: {
         policialId: { in: Array.from(policialIdsComPrevisaoNoPeriodo) },
         motivoId: motivoFerias.id,
-        status: 'ATIVO',
+        // Incluir ATIVO e ENCERRADO: afastamentos já encerrados (dataFim passou) contam como "marcados"
       },
       select: { policialId: true, dataInicio: true, dataFim: true },
     });
