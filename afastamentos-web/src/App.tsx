@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken, removeToken } from './api.ts';
 import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
-import { TABS, type TabKey, type TabChangeOptions } from './constants';
+import { TABS, AFastamentosSubTABS, EfetivoSubTABS, SistemaSubTABS, type TabKey, type TabChangeOptions, type AfastamentosSubTabKey, type SistemaSubTabKey } from './constants';
 import { formatMatricula } from './utils/dateUtils';
 import { Avatar, IconButton, Menu, MenuItem } from '@mui/material';
 import { Logout, PhotoCamera } from '@mui/icons-material';
@@ -13,23 +13,16 @@ import {
 } from './components/auth';
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
 const DashboardHomeSection = lazy(() => import('./components/sections/DashboardHomeSection').then((m) => ({ default: m.DashboardHomeSection })));
-const DashboardSection = lazy(() => import('./components/sections/DashboardSection').then((m) => ({ default: m.DashboardSection })));
+const CalendarioSection = lazy(() => import('./components/sections/CalendarioSection').then((m) => ({ default: m.CalendarioSection })));
 const MostrarEquipeSection = lazy(() =>
   import('./components/sections/MostrarEquipeSection').then((m) => ({ default: m.MostrarEquipeSection })),
 );
-const PoliciaisSection = lazy(() => import('./components/sections/PoliciaisSection').then((m) => ({ default: m.PoliciaisSection })));
-const AfastamentosSection = lazy(() =>
-  import('./components/sections/AfastamentosSection').then((m) => ({ default: m.AfastamentosSection })),
+const AfastamentosGroupSection = lazy(() =>
+  import('./components/sections/AfastamentosGroupSection').then((m) => ({ default: m.AfastamentosGroupSection })),
 );
-const UsuariosSection = lazy(() => import('./components/sections/UsuariosSection').then((m) => ({ default: m.UsuariosSection })));
-const GestaoSistemaSection = lazy(() => import('./components/sections/GestaoSistemaSection').then((m) => ({ default: m.GestaoSistemaSection })));
-const RelatoriosSection = lazy(() =>
-  import('./components/sections/RelatoriosSection').then((m) => ({ default: m.RelatoriosSection })),
+const SistemaGroupSection = lazy(() =>
+  import('./components/sections/SistemaGroupSection').then((m) => ({ default: m.SistemaGroupSection })),
 );
-const GerarRestricaoAfastamentoSection = lazy(() =>
-  import('./components/sections/GerarRestricaoAfastamentoSection').then((m) => ({ default: m.GerarRestricaoAfastamentoSection })),
-);
-const CalendarioSection = lazy(() => import('./components/sections/CalendarioSection').then((m) => ({ default: m.CalendarioSection })));
 
 type AuthView = 'login' | 'forgot-password' | 'security-question';
 
@@ -52,6 +45,10 @@ export default function App() {
   const [permissoesCarregando, setPermissoesCarregando] = useState(false);
   /** Preencher formulário de cadastro ao abrir "Gerenciar afastamentos" (ex.: policial + motivo Férias). Consumida ao montar AfastamentosSection. */
   const [afastamentosPreencherCadastro, setAfastamentosPreencherCadastro] = useState<{ policialId: number; motivoNome: string } | null>(null);
+  /** Sub-tab inicial ao navegar para aba Afastamentos (ex.: a partir do Dashboard). */
+  const [afastamentosInitialSubTab, setAfastamentosInitialSubTab] = useState<AfastamentosSubTabKey>('afastamentos-mes');
+  /** Sub-tab inicial ao navegar para aba Sistema. */
+  const [sistemaInitialSubTab, setSistemaInitialSubTab] = useState<SistemaSubTabKey>('usuarios');
   const [avatarMenuAnchor, setAvatarMenuAnchor] = useState<HTMLElement | null>(null);
   const [fotoModalOpen, setFotoModalOpen] = useState(false);
   const [imageForCrop, setImageForCrop] = useState('');
@@ -112,6 +109,27 @@ export default function App() {
           DESATIVAR: false,
           EXCLUIR: false,
         };
+      });
+      // Sub-telas da aba Afastamentos (permissões granulares no backend)
+      AFastamentosSubTABS.forEach((st) => {
+        base[st.key] = {
+          VISUALIZAR: false,
+          EDITAR: false,
+          DESATIVAR: false,
+          EXCLUIR: false,
+        };
+      });
+      // Sub-telas da aba Efetivo (permissões granulares no backend)
+      EfetivoSubTABS.forEach((st) => {
+        if (!base[st.key]) {
+          base[st.key] = { VISUALIZAR: false, EDITAR: false, DESATIVAR: false, EXCLUIR: false };
+        }
+      });
+      // Sub-telas da aba Sistema (permissões granulares no backend)
+      SistemaSubTABS.forEach((st) => {
+        if (!base[st.key]) {
+          base[st.key] = { VISUALIZAR: false, EDITAR: false, DESATIVAR: false, EXCLUIR: false };
+        }
       });
       // Também inicializar relatorios-sistema e relatorios-servico (não estão no TABS mas são usados para permissões)
       base['relatorios-sistema'] = {
@@ -269,24 +287,49 @@ export default function App() {
     }
   }, [confirmDialog, closeConfirm]);
 
-  // Filtrar tabs baseado apenas nas permissões do banco
+  // Filtrar tabs baseado nas permissões do banco
   const tabsDisponiveis = useMemo(() => {
-    if (!permissoesPorTela) {
-      return [];
-    }
-    return TABS.filter((tab) => Boolean(permissoesPorTela[tab.key]?.VISUALIZAR));
+    if (!permissoesPorTela) return [];
+    const temAcessoAfastamentos =
+      permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
+      permissoesPorTela['afastamentos']?.VISUALIZAR ||
+      permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
+    const temAcessoEfetivo =
+      permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
+    const temAcessoSistema =
+      permissoesPorTela['usuarios']?.VISUALIZAR ||
+      permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
+      permissoesPorTela['relatorios']?.VISUALIZAR;
+    return TABS.filter((tab) => {
+      if (tab.key === 'afastamentos') return Boolean(temAcessoAfastamentos);
+      if (tab.key === 'equipe') return Boolean(temAcessoEfetivo);
+      if (tab.key === 'sistema') return Boolean(temAcessoSistema);
+      return Boolean(permissoesPorTela[tab.key]?.VISUALIZAR);
+    });
   }, [permissoesPorTela]);
 
   // Se o usuário não tem acesso à aba e está tentando acessá-la, redirecionar
   useEffect(() => {
-    if (!currentUser) return;
-
-    if (!permissoesPorTela) {
-      return;
-    }
-    if (!permissoesPorTela[activeTab]?.VISUALIZAR) {
-      setActiveTab('dashboard');
-    }
+    if (!currentUser || !permissoesPorTela) return;
+    const temAcessoAfastamentos =
+      permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
+      permissoesPorTela['afastamentos']?.VISUALIZAR ||
+      permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
+    const temAcessoEfetivo =
+      permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
+    const temAcessoSistema =
+      permissoesPorTela['usuarios']?.VISUALIZAR ||
+      permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
+      permissoesPorTela['relatorios']?.VISUALIZAR;
+    const podeAcessar =
+      activeTab === 'afastamentos'
+        ? temAcessoAfastamentos
+        : activeTab === 'equipe'
+          ? temAcessoEfetivo
+          : activeTab === 'sistema'
+            ? temAcessoSistema
+            : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
+    if (!podeAcessar) setActiveTab('dashboard');
   }, [currentUser, activeTab, permissoesPorTela]);
 
   if (!currentUser) {
@@ -484,7 +527,11 @@ export default function App() {
                 aria-selected={activeTab === tab.key}
                 type="button"
                 className={activeTab === tab.key ? 'tab active' : 'tab'}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+              setActiveTab(tab.key);
+              if (tab.key === 'afastamentos') setAfastamentosInitialSubTab('afastamentos-mes');
+              if (tab.key === 'sistema') setSistemaInitialSubTab('usuarios');
+            }}
               >
                 {tab.label}
               </button>
@@ -499,30 +546,25 @@ export default function App() {
             currentUser={currentUser}
             onTabChange={(tab, options?: TabChangeOptions) => {
               setActiveTab(tab);
-              if (options?.preencherCadastro) setAfastamentosPreencherCadastro(options.preencherCadastro);
+              if (tab === 'afastamentos') {
+                if (options?.subTab) setAfastamentosInitialSubTab(options.subTab);
+                if (options?.preencherCadastro) setAfastamentosPreencherCadastro(options.preencherCadastro);
+              }
             }}
             refreshKeyPoliciais={policiaisVersion}
             refreshKeyAfastamentos={afastamentosVersion}
           />
         )}
         {activeTab === 'calendario' && <CalendarioSection currentUser={currentUser} />}
-        {activeTab === 'afastamentos-mes' && <DashboardSection currentUser={currentUser} />}
         {activeTab === 'afastamentos' && (
-          <AfastamentosSection
+          <AfastamentosGroupSection
             currentUser={currentUser}
             openConfirm={openConfirm}
             onChanged={notifyAfastamentosChanged}
             permissoes={permissoesPorTela}
+            initialSubTab={afastamentosInitialSubTab}
             initialCadastro={afastamentosPreencherCadastro}
             onPreencherCadastroConsumed={() => setAfastamentosPreencherCadastro(null)}
-          />
-        )}
-        {activeTab === 'policiais' && (
-          <PoliciaisSection
-            currentUser={currentUser}
-            openConfirm={openConfirm}
-            onChanged={notifyPoliciaisChanged}
-            permissoes={permissoesPorTela}
           />
         )}
         {activeTab === 'equipe' && (
@@ -534,29 +576,13 @@ export default function App() {
             permissoes={permissoesPorTela}
           />
         )}
-        {activeTab === 'usuarios' && (
-          <UsuariosSection
+        {activeTab === 'sistema' && (
+          <SistemaGroupSection
             currentUser={currentUser}
             openConfirm={openConfirm}
-            onCurrentUserUpdate={(updatedUser) => {
-              setCurrentUser(updatedUser);
-            }}
+            onCurrentUserUpdate={(updatedUser) => setCurrentUser(updatedUser)}
             permissoes={permissoesPorTela}
-          />
-        )}
-        {activeTab === 'gestao-sistema' && (
-          <GestaoSistemaSection
-            currentUser={currentUser}
-            permissoes={permissoesPorTela}
-          />
-        )}
-        {activeTab === 'relatorios' && (
-          <RelatoriosSection currentUser={currentUser} permissoes={permissoesPorTela} />
-        )}
-        {activeTab === 'restricao-afastamento' && (
-          <GerarRestricaoAfastamentoSection 
-            openConfirm={openConfirm}
-            permissoes={permissoesPorTela}
+            initialSubTab={sistemaInitialSubTab}
           />
         )}
       </Suspense>

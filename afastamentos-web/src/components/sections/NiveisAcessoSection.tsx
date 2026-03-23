@@ -19,7 +19,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
 import { api } from '../../api';
-import { TABS, type TabKey } from '../../constants';
+import { PERMISSION_TABS, type TabKey } from '../../constants';
 import type { PermissaoAcao, Usuario, UsuarioNivelOption, UsuarioNivelPermissao } from '../../types';
 import { formatNome } from '../../utils/dateUtils';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
@@ -58,7 +58,7 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
     DESATIVAR: 'Desativar',
     EXCLUIR: 'Excluir',
   };
-  const telas = useMemo(() => TABS.map((tab) => ({ key: tab.key, label: tab.label })), []);
+  const telas = useMemo(() => PERMISSION_TABS.map((tab) => ({ key: tab.key, label: tab.label })), []);
   
   // Telas que têm apenas permissão de visualizar (sem editar, desativar ou excluir)
   const TELAS_SOMENTE_VISUALIZAR: TabKey[] = [
@@ -77,8 +77,8 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
       DESATIVAR: {} as Record<TabKey, boolean>,
       EXCLUIR: {} as Record<TabKey, boolean>,
     };
-    // Incluir todas as telas de TABS
-    TABS.forEach((tela) => {
+    // Incluir todas as telas de PERMISSION_TABS
+    PERMISSION_TABS.forEach((tela) => {
       (Object.keys(initial) as PermissaoAcao[]).forEach((acao) => {
         initial[acao][tela.key] = false;
       });

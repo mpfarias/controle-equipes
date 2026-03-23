@@ -21,13 +21,26 @@ import {
   Box,
   TextField,
   FormControl,
-  InputLabel,
   Select,
   MenuItem,
   Checkbox,
   Button,
-  Grid,
+  Typography,
 } from '@mui/material';
+
+const formFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '8px',
+    fontSize: '0.95rem',
+    '& fieldset': { borderColor: 'var(--border-soft)' },
+    '&:hover fieldset': { borderColor: 'var(--border-soft)' },
+    '&.Mui-focused fieldset': {
+      borderColor: 'var(--accent-muted)',
+      boxShadow: '0 0 0 3px rgba(107, 155, 196, 0.2)',
+    },
+    '& input, & textarea': { padding: '10px 12px' },
+  },
+};
 
 interface PoliciaisSectionProps {
   currentUser: Usuario;
@@ -48,6 +61,7 @@ export function PoliciaisSection({
     dataNascimento: '',
     email: '',
     matriculaComissionadoGdf: '',
+    dataPosse: '',
     status: 'ATIVO' as PolicialStatus,
     funcaoId: undefined as number | undefined,
     equipe: undefined as Equipe | undefined,
@@ -125,6 +139,7 @@ export function PoliciaisSection({
   const funcoesOrdenadas = useMemo(() => {
     return [...funcoesAtivas].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
   }, [funcoesAtivas]);
+
 
   const validateMatricula = useCallback((matricula: string) => {
     // Se a lista ainda não foi carregada, não valida
@@ -338,6 +353,7 @@ export function PoliciaisSection({
         dataNascimento: dataNascimentoEnvio ?? null,
         email: emailEnvio ?? null,
         matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
+        dataPosse: form.status === 'COMISSIONADO' && form.dataPosse ? form.dataPosse : null,
         equipe: equipeFinal === null ? null : (equipeFinal || undefined),
       });
       setSuccess('Policial cadastrado com sucesso.');
@@ -508,6 +524,7 @@ export function PoliciaisSection({
       (dataNascExibir !== '—' ? `Data de nascimento: ${dataNascExibir}\n` : '') +
       (emailExibir !== '—' ? `E-mail: ${emailExibir}\n` : '') +
       (form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? `Matrícula Comissionado (GDF): ${form.matriculaComissionadoGdf.trim()}\n` : '') +
+      (form.status === 'COMISSIONADO' && form.dataPosse ? `Data de posse: ${new Date(form.dataPosse + 'T12:00:00').toLocaleDateString('pt-BR')}\n` : '') +
       `Status: ${statusLabel}\n` +
       `Função: ${funcaoNome}\n` +
       `Equipe: ${equipeFinalLabel}`;
@@ -633,6 +650,8 @@ export function PoliciaisSection({
         status: form.status,
         funcaoId: form.funcaoId,
         equipe: equipeFinalReativar === null ? null : (equipeFinalReativar || undefined),
+        matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
+        dataPosse: form.status === 'COMISSIONADO' && form.dataPosse ? form.dataPosse : null,
       });
 
       setSuccess('Policial reativado e atualizado com sucesso.');
@@ -657,25 +676,26 @@ export function PoliciaisSection({
 
   return (
     <section>
-      <div>
-        <h2>
-          {(() => {
-            return 'Cadastrar Policial';
-          })()}
-        </h2>
-      </div>
-
-      <div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".xlsx,.xls,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf"
-          onChange={handleFileSelect}
-          style={{ display: 'none' }}
-        />
-        <button className="success" type="button" onClick={handleFileButtonClick}>
-          Cadastrar de PDF
-        </button>
+      <div className="section-header">
+        <div>
+          <h2>Cadastrar Policial</h2>
+        </div>
+        <div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/pdf"
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          <Button
+            variant="outlined"
+            onClick={handleFileButtonClick}
+            sx={{ textTransform: 'none' }}
+          >
+            Cadastrar de PDF
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -709,51 +729,53 @@ export function PoliciaisSection({
         component="form"
         onSubmit={handleSubmit}
         noValidate
-        sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}
+        sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
       >
-        <Grid container spacing={3}>
-          <Grid size={{ xs: 12, sm: 6 }}>
+        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="nome-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Nome
+            </Typography>
             <TextField
+              id="nome-input"
               fullWidth
               required
-              label="Nome"
+              size="small"
+              variant="outlined"
               value={form.nome}
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, nome: e.target.value.toUpperCase() }))
               }
               placeholder="2º SGT JOÃO PEREIRA DA SILVA"
-              autoFocus
+              sx={formFieldSx}
             />
-            <Box
-              component="label"
-              sx={{
-                display: 'inline-flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'flex-start',
-                marginTop: 1,
-                cursor: 'pointer',
-                gap: 0.5,
-              }}
-            >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
               <Checkbox
                 checked={form.status === 'COMISSIONADO'}
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
                     status: e.target.checked ? 'COMISSIONADO' : 'ATIVO',
-                    ...(e.target.checked ? {} : { matriculaComissionadoGdf: '' }),
+                    ...(e.target.checked ? {} : { matriculaComissionadoGdf: '', dataPosse: '' }),
                   }))
                 }
+                size="small"
               />
-              <span>Comissionado</span>
+              <Typography component="span" sx={{ fontSize: '0.95rem' }}>
+                Comissionado
+              </Typography>
             </Box>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="matricula-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Matrícula
+            </Typography>
             <TextField
+              id="matricula-input"
               fullWidth
               required
-              label="Matrícula"
+              size="small"
+              variant="outlined"
               value={form.matricula}
               onChange={(e) => {
                 const value = e.target.value.replace(/[^0-9xX]/g, '').toUpperCase();
@@ -768,28 +790,56 @@ export function PoliciaisSection({
               placeholder="Matrícula"
               error={!!matriculaError}
               helperText={matriculaError}
+              sx={formFieldSx}
             />
             {form.status === 'COMISSIONADO' && (
-              <TextField
-                fullWidth
-                label="Matrícula Comissionado (GDF)"
-                value={form.matriculaComissionadoGdf}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    matriculaComissionadoGdf: e.target.value.replace(/[^0-9xX]/g, '').toUpperCase(),
-                  }))
-                }
-                placeholder="Matrícula Comissionado (GDF)"
-                sx={{ mt: 2 }}
-              />
+              <>
+                <TextField
+                  fullWidth
+                  size="small"
+                  variant="outlined"
+                  label="Matrícula Comissionado (GDF)"
+                  value={form.matriculaComissionadoGdf}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      matriculaComissionadoGdf: e.target.value.replace(/[^0-9xX]/g, '').toUpperCase(),
+                    }))
+                  }
+                  placeholder="Matrícula Comissionado (GDF)"
+                  sx={{ mt: 1, ...formFieldSx }}
+                />
+                <Box sx={{ mt: 1 }}>
+                  <Typography component="label" htmlFor="data-posse-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+                    Data de posse
+                  </Typography>
+                  <TextField
+                    id="data-posse-input"
+                    fullWidth
+                    size="small"
+                    variant="outlined"
+                    type="date"
+                    value={form.dataPosse}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, dataPosse: e.target.value }))
+                    }
+                    InputLabelProps={{ shrink: true }}
+                    sx={{ mt: 0.5, ...formFieldSx }}
+                  />
+                </Box>
+              </>
             )}
-          </Grid>
+          </Box>
 
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="cpf-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              CPF
+            </Typography>
             <TextField
+              id="cpf-input"
               fullWidth
-              label="CPF"
+              size="small"
+              variant="outlined"
               value={form.cpf}
               onChange={(e) => {
                 setForm((prev) => ({ ...prev, cpf: maskCpf(e.target.value) }));
@@ -809,25 +859,37 @@ export function PoliciaisSection({
               inputProps={{ maxLength: 14 }}
               error={!!cpfError}
               helperText={cpfError}
+              sx={formFieldSx}
             />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="data-nascimento-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Data de nascimento
+            </Typography>
             <TextField
+              id="data-nascimento-input"
               fullWidth
-              label="Data de nascimento"
+              size="small"
+              variant="outlined"
               type="date"
               value={form.dataNascimento}
               onChange={(e) =>
                 setForm((prev) => ({ ...prev, dataNascimento: e.target.value }))
               }
               InputLabelProps={{ shrink: true }}
+              sx={formFieldSx}
             />
-          </Grid>
+          </Box>
 
-          <Grid size={{ xs: 12, sm: 6 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="email-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              E-mail
+            </Typography>
             <TextField
+              id="email-input"
               fullWidth
-              label="E-mail"
+              size="small"
+              variant="outlined"
               type="email"
               value={form.email}
               onChange={(e) => {
@@ -845,17 +907,25 @@ export function PoliciaisSection({
               placeholder="email@exemplo.com"
               error={!!emailError}
               helperText={emailError}
+              sx={formFieldSx}
             />
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }} />
+          </Box>
+          <Box />
 
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <FormControl fullWidth error={!!funcaoError}>
-              <InputLabel id="form-funcao-label">Função</InputLabel>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="funcao-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Função
+            </Typography>
+            <FormControl fullWidth size="small" variant="outlined" error={!!funcaoError} sx={formFieldSx}>
               <Select
-                labelId="form-funcao-label"
-                label="Função"
+                id="funcao-select"
                 value={form.funcaoId ?? ''}
+                displayEmpty
+                renderValue={(v) => {
+                  if (!v) return 'Selecione uma função';
+                  const f = funcoesOrdenadas.find((x) => x.id === v);
+                  return f ? formatNome(f.nome) : 'Selecione uma função';
+                }}
                 onChange={(e) => {
                   const novoFuncaoId = e.target.value ? Number(e.target.value) : undefined;
                   const funcaoSelecionada = funcoes.find((f) => f.id === novoFuncaoId);
@@ -877,8 +947,11 @@ export function PoliciaisSection({
                     setForm((prev) => ({ ...prev, funcaoId: novoFuncaoId }));
                   }
                 }}
+                MenuProps={{ sx: { zIndex: 1500 } }}
               >
-                <MenuItem value="">Selecione uma função</MenuItem>
+                <MenuItem value="">
+                  <em>Selecione uma função</em>
+                </MenuItem>
                 {funcoesOrdenadas.map((funcao) => (
                   <MenuItem key={funcao.id} value={funcao.id}>
                     {formatNome(funcao.nome)}
@@ -886,25 +959,28 @@ export function PoliciaisSection({
                 ))}
               </Select>
               {funcaoError && (
-                <Box component="span" sx={{ fontSize: '0.75rem', color: 'error.main', mt: 0.5, display: 'block' }}>
+                <Typography variant="caption" sx={{ color: 'error.main', mt: 0.5, display: 'block' }}>
                   {funcaoError}
-                </Box>
+                </Typography>
               )}
             </FormControl>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6 }}>
-            <FormControl fullWidth required>
-              <InputLabel id="form-status-label">Status</InputLabel>
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="status-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Status
+            </Typography>
+            <FormControl fullWidth required size="small" variant="outlined" sx={formFieldSx}>
               <Select
-                labelId="form-status-label"
-                label="Status"
+                id="status-select"
                 value={form.status}
+                renderValue={(v) => POLICIAL_STATUS_OPTIONS_FORM.find((o) => o.value === v)?.label ?? v}
                 onChange={(e) =>
                   setForm((prev) => ({
                     ...prev,
                     status: e.target.value as PolicialStatus,
                   }))
                 }
+                MenuProps={{ sx: { zIndex: 1500 } }}
               >
                 {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
                   <MenuItem key={option.value} value={option.value}>
@@ -913,7 +989,7 @@ export function PoliciaisSection({
                 ))}
               </Select>
             </FormControl>
-          </Grid>
+          </Box>
 
           {(() => {
             const funcaoSelecionada = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : null;
@@ -936,21 +1012,30 @@ export function PoliciaisSection({
 
             if (!mostrarEquipe) return null;
             return (
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth required>
-                  <InputLabel id="form-equipe-label">Equipe</InputLabel>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, gridColumn: { md: '1 / -1' } }}>
+                <Typography component="label" htmlFor="equipe-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+                  Equipe
+                </Typography>
+                <FormControl fullWidth required size="small" variant="outlined" sx={{ ...formFieldSx, maxWidth: { md: 400 } }}>
                   <Select
-                    labelId="form-equipe-label"
-                    label="Equipe"
+                    id="equipe-select"
                     value={form.equipe ?? ''}
+                    displayEmpty
+                    renderValue={(v) => {
+                      if (!v) return 'Selecione uma equipe';
+                      return formatNome(v);
+                    }}
                     onChange={(e) =>
                       setForm((prev) => ({
                         ...prev,
                         equipe: e.target.value ? (e.target.value as Equipe) : undefined,
                       }))
                     }
+                    MenuProps={{ sx: { zIndex: 1500 } }}
                   >
-                    <MenuItem value="">Selecione uma equipe</MenuItem>
+                    <MenuItem value="">
+                      <em>Selecione uma equipe</em>
+                    </MenuItem>
                     {equipesDisponiveis.map((option) => (
                       <MenuItem key={option.id} value={option.nome}>
                         {formatNome(option.nome)}
@@ -958,16 +1043,21 @@ export function PoliciaisSection({
                     ))}
                   </Select>
                 </FormControl>
-              </Grid>
+              </Box>
             );
           })()}
-        </Grid>
+        </Box>
 
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 1 }}>
           <Button
             type="submit"
             variant="contained"
             disabled={submitting}
+            sx={{
+              textTransform: 'none',
+              bgcolor: 'var(--sentinela-blue)',
+              '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
+            }}
           >
             {submitting ? 'Salvando...' : 'Cadastrar policial'}
           </Button>

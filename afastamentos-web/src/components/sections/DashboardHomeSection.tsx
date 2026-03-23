@@ -1557,7 +1557,7 @@ export function DashboardHomeSection({
                           component="button"
                           variant="body2"
                           onClick={() => {
-                            onTabChange('afastamentos', { preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
+                            onTabChange('afastamentos', { subTab: 'afastamentos', preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
                             setModalVerPoliciaisOpen(false);
                           }}
                           sx={{ fontWeight: 600, flexShrink: 0 }}
@@ -1661,7 +1661,7 @@ export function DashboardHomeSection({
                           component="button"
                           variant="body2"
                           onClick={() => {
-                            onTabChange('afastamentos', { preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
+                            onTabChange('afastamentos', { subTab: 'afastamentos', preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
                             setModalVerPoliciaisAtrasadosOpen(false);
                           }}
                           sx={{ fontWeight: 600, flexShrink: 0 }}

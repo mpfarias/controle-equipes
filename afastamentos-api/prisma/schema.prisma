@@ -14,6 +14,7 @@ model Policial {
   dataNascimento             DateTime?
   email                      String?
   matriculaComissionadoGdf   String?
+  dataPosse                  DateTime?
   equipe                     String?
   statusId                   Int
   status                     StatusPolicial             @relation(fields: [statusId], references: [id])

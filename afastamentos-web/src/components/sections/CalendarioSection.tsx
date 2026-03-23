@@ -17,7 +17,9 @@ import {
   ListItem,
   ListItemText,
   Chip,
-  CircularProgress
+  CircularProgress,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { api } from '../../api';
@@ -62,6 +64,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   
   const [anoSelecionado, setAnoSelecionado] = useState<number>(anoAtual);
   const [mesSelecionado, setMesSelecionado] = useState<number>(mesAtual);
+  const [tabAtiva, setTabAtiva] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [policiaisModal, setPoliciaisModal] = useState<Policial[]>([]);
@@ -327,6 +330,13 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
         </div>
       </div>
 
+      <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
+        <Tabs value={tabAtiva} onChange={(_, newValue) => setTabAtiva(newValue)}>
+          <Tab label="Equipes" />
+          <Tab label="Motoristas" />
+        </Tabs>
+      </Box>
+
       <Box sx={{ p: 3, width: '100%', maxWidth: '1400px', margin: '0 auto' }}>
         {/* Seletores de mês e ano */}
         <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
@@ -364,7 +374,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
           </FormControl>
         </Box>
 
-        {/* Calendário */}
+        {/* Calendário - Tab Equipes */}
+        {tabAtiva === 0 && (
         <Paper sx={{ p: 2 }}>
           {/* Cabeçalho com nome do mês e ano */}
           <Typography 
@@ -393,7 +404,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
             ))}
           </Grid>
 
-          {/* Dias do mês */}
+          {/* Dias do mês - Escala 12x24 */}
           <Grid container spacing={0.5}>
             {diasDoMes.map((dia, index) => {
               const equipes = getEquipesDia(dia);
@@ -425,18 +436,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                   >
                     {dia !== null && (
                       <>
-                        {/* Número do dia e link Motoristas */}
-                        <Box
-                          sx={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 0.5,
-                            p: 1,
-                            pb: 0.5,
-                            flexShrink: 0,
-                          }}
-                        >
+                        {/* Número do dia */}
+                        <Box sx={{ p: 1, pb: 0.5, flexShrink: 0 }}>
                           <Typography
                             variant="body2"
                             sx={{
@@ -448,32 +449,6 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                           >
                             {dia}
                           </Typography>
-                          {funcaoMotoristaId != null &&
-                            anoSelecionado >= 2026 &&
-                            getEquipeMotoristasDia(anoSelecionado, mesSelecionado, dia) !== null && (
-                              <Typography
-                                variant="caption"
-                                component="button"
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleMotoristasClick(dia);
-                                }}
-                                sx={{
-                                  fontSize: '0.65rem',
-                                  color: 'var(--alert-success-text)',
-                                  cursor: 'pointer',
-                                  textDecoration: 'underline',
-                                  background: 'none',
-                                  border: 'none',
-                                  padding: 0,
-                                  fontFamily: 'inherit',
-                                  '&:hover': { color: 'var(--alert-success-text)' },
-                                }}
-                              >
-                                Motoristas
-                              </Typography>
-                            )}
                         </Box>
 
                         {/* Divisão diagonal e equipes */}
@@ -632,6 +607,86 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
             })}
           </Grid>
         </Paper>
+        )}
+
+        {/* Calendário - Tab Motoristas (escala 24x72) */}
+        {tabAtiva === 1 && (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h5" sx={{ mb: 2, textAlign: 'center', fontWeight: 600 }}>
+            {MESES[mesSelecionado].nome} {anoSelecionado}
+          </Typography>
+          {anoSelecionado < 2026 ? (
+            <Typography variant="body2" sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
+              A escala de motoristas (24x72) começa em janeiro de 2026. Selecione 2026 ou um ano posterior.
+            </Typography>
+          ) : (
+            <>
+              <Grid container spacing={0.5} sx={{ mb: 1 }}>
+                {DIAS_SEMANA.map((dia) => (
+                  <Grid size={{ xs: 12 / 7 }} key={dia}>
+                    <Paper sx={{ p: 1.5, textAlign: 'center', backgroundColor: 'rgba(0,0,0,0.15)', fontWeight: 600, fontSize: '0.875rem' }}>
+                      {dia}
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+              <Grid container spacing={0.5}>
+                {diasDoMes.map((dia, index) => {
+                  const equipeMotoristas = dia !== null ? getEquipeMotoristasDia(anoSelecionado, mesSelecionado, dia) : null;
+                  const podeClicar = dia !== null && equipeMotoristas !== null;
+                  return (
+                    <Grid size={{ xs: 12 / 7 }} key={`motoristas-dia-${index}`}>
+                      <Paper
+                        sx={{
+                          p: 1,
+                          minHeight: '90px',
+                          height: '100%',
+                          backgroundColor: dia === null ? 'transparent' : 'var(--card-bg)',
+                          border: dia === null ? 'none' : '1px solid var(--border-soft)',
+                          cursor: podeClicar ? 'pointer' : 'default',
+                          transition: 'all 0.2s',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 0.5,
+                          '&:hover': podeClicar ? { backgroundColor: 'rgba(0,0,0,0.1)', borderColor: 'var(--accent-muted)' } : {},
+                          ...(dia !== null && isHoje(dia) && { border: '2px solid var(--accent-muted)', backgroundColor: 'var(--alert-info-bg)' }),
+                        }}
+                        onClick={() => {
+                          if (podeClicar) handleMotoristasClick(dia);
+                        }}
+                      >
+                        {dia !== null && (
+                          <>
+                            <Typography variant="body2" sx={{ fontWeight: isHoje(dia) ? 700 : 500, color: isHoje(dia) ? 'var(--accent-muted)' : 'var(--text-primary)' }}>
+                              {dia}
+                            </Typography>
+                            {equipeMotoristas !== null ? (
+                              <Typography
+                                variant="h6"
+                                sx={{
+                                  fontWeight: 700,
+                                  color: 'var(--alert-success-text)',
+                                  fontSize: '1.25rem',
+                                }}
+                              >
+                                Equipe {equipeMotoristas}
+                              </Typography>
+                            ) : (
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>—</Typography>
+                            )}
+                          </>
+                        )}
+                      </Paper>
+                    </Grid>
+                  );
+                })}
+              </Grid>
+            </>
+          )}
+        </Paper>
+        )}
       </Box>
 
       {/* Modal de Policiais da Equipe */}

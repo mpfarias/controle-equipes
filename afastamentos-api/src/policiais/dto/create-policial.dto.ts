@@ -67,6 +67,11 @@ export class CreatePolicialDto {
   matriculaComissionadoGdf?: string | null;
 
   @IsOptional()
+  @ValidateIf((o) => o.dataPosse != null && o.dataPosse !== '')
+  @IsISO8601({ strict: true }, { message: 'Data de posse inválida (use o formato ISO: AAAA-MM-DD).' })
+  dataPosse?: string | null;
+
+  @IsOptional()
   @ValidateIf((o) => o.equipe !== null)
   @IsString()
   @MaxLength(50)

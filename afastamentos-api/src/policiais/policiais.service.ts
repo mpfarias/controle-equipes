@@ -425,6 +425,7 @@ export class PoliciaisService {
         dataNascimento: dataNascimentoDate,
         email: emailValue,
         matriculaComissionadoGdf: data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null,
+        dataPosse: data.dataPosse ? new Date(data.dataPosse) : null,
         status: { connect: { id: statusId } },
         equipe,
         funcao: { connect: { id: data.funcaoId } },
@@ -454,8 +455,11 @@ export class PoliciaisService {
     includeRestricoes?: boolean;
     search?: string;
     equipe?: string;
+    equipes?: string[];
     status?: string;
+    statuses?: string[];
     funcaoId?: number;
+    funcaoIds?: number[];
     orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     orderDir?: 'asc' | 'desc';
     /** Filtro para previsão de férias: só retorna policiais com férias programadas neste mês/ano */
@@ -481,8 +485,11 @@ export class PoliciaisService {
       includeRestricoes,
       search,
       equipe,
+      equipes,
       status,
+      statuses,
       funcaoId,
+      funcaoIds,
       orderBy,
       orderDir,
       mesPrevisaoFerias,
@@ -509,13 +516,19 @@ export class PoliciaisService {
     }
     const where: Prisma.PolicialWhereInput = {};
 
-    if (equipe) {
+    if (equipes?.length) {
+      where.equipe = { in: equipes };
+    } else if (equipe) {
       where.equipe = equipe;
     }
-    if (status) {
+    if (statuses?.length) {
+      where.status = { nome: { in: statuses } };
+    } else if (status) {
       where.status = { nome: status as string };
     }
-    if (funcaoId) {
+    if (funcaoIds?.length) {
+      where.funcaoId = { in: funcaoIds };
+    } else if (funcaoId) {
       where.funcaoId = funcaoId;
     }
     if (search) {
@@ -1009,6 +1022,9 @@ export class PoliciaisService {
     }
     if (data.matriculaComissionadoGdf !== undefined) {
       updateData.matriculaComissionadoGdf = data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null;
+    }
+    if (data.dataPosse !== undefined) {
+      updateData.dataPosse = data.dataPosse ? new Date(data.dataPosse) : null;
     }
 
     if (data.fotoUrl !== undefined) {

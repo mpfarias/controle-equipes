@@ -578,8 +578,11 @@ export const api = {
     includeRestricoes?: boolean;
     search?: string;
     equipe?: string;
+    equipes?: string[];
     status?: string;
+    statuses?: string[];
     funcaoId?: number;
+    funcaoIds?: number[];
     orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     orderDir?: 'asc' | 'desc';
     /** Filtro previsão de férias: só retorna policiais com férias programadas neste mês/ano */
@@ -605,9 +608,12 @@ export const api = {
       searchParams.append('includeRestricoes', String(params.includeRestricoes));
     }
     if (params.search) searchParams.append('search', params.search);
-    if (params.equipe) searchParams.append('equipe', params.equipe);
-    if (params.status) searchParams.append('status', params.status);
-    if (params.funcaoId) searchParams.append('funcaoId', String(params.funcaoId));
+    if (params.equipes?.length) searchParams.append('equipes', params.equipes.join(','));
+    else if (params.equipe) searchParams.append('equipe', params.equipe);
+    if (params.statuses?.length) searchParams.append('statuses', params.statuses.join(','));
+    else if (params.status) searchParams.append('status', params.status);
+    if (params.funcaoIds?.length) searchParams.append('funcaoIds', params.funcaoIds.join(','));
+    else if (params.funcaoId) searchParams.append('funcaoId', String(params.funcaoId));
     if (params.orderBy) searchParams.append('orderBy', params.orderBy);
     if (params.orderDir) searchParams.append('orderDir', params.orderDir);
     if (params.mesPrevisaoFerias != null) searchParams.append('mesPrevisaoFerias', String(params.mesPrevisaoFerias));

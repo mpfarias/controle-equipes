@@ -51,8 +51,11 @@ export class PoliciaisController {
     @Query('includeRestricoes') includeRestricoes?: string,
     @Query('search') search?: string,
     @Query('equipe') equipe?: string,
+    @Query('equipes') equipes?: string,
     @Query('status') status?: string,
+    @Query('statuses') statuses?: string,
     @Query('funcaoId') funcaoId?: string,
+    @Query('funcaoIds') funcaoIds?: string,
     @Query('orderBy') orderBy?: string,
     @Query('orderDir') orderDir?: string,
     @Query('mesPrevisaoFerias') mesPrevisaoFerias?: string,
@@ -65,6 +68,13 @@ export class PoliciaisController {
     if (funcaoId && Number.isNaN(funcaoIdParsed)) {
       throw new BadRequestException('O funcaoId deve ser numérico.');
     }
+    const equipesParsed = equipes ? equipes.split(',').map((e) => e.trim()).filter(Boolean) : undefined;
+    const statusesParsed = statuses ? statuses.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    const funcaoIdsParsed = funcaoIds
+      ? funcaoIds.split(',')
+          .map((id) => Number.parseInt(id.trim(), 10))
+          .filter((id) => !Number.isNaN(id))
+      : undefined;
     const orderByAllowed = orderBy === 'nome' || orderBy === 'matricula' || orderBy === 'equipe' || orderBy === 'status' || orderBy === 'funcao';
     if (orderBy && !orderByAllowed) {
       throw new BadRequestException('O orderBy deve ser nome, matricula, equipe, status ou funcao.');
@@ -88,9 +98,12 @@ export class PoliciaisController {
       includeAfastamentos: includeAfastamentosParsed,
       includeRestricoes: includeRestricoesParsed,
       search: search || undefined,
-      equipe: equipe || undefined,
-      status: status || undefined,
-      funcaoId: funcaoIdParsed,
+      equipe: !equipesParsed?.length ? (equipe || undefined) : undefined,
+      equipes: equipesParsed?.length ? equipesParsed : undefined,
+      status: !statusesParsed?.length ? (status || undefined) : undefined,
+      statuses: statusesParsed?.length ? statusesParsed : undefined,
+      funcaoId: !funcaoIdsParsed?.length ? funcaoIdParsed : undefined,
+      funcaoIds: funcaoIdsParsed?.length ? funcaoIdsParsed : undefined,
       orderBy: orderByAllowed ? (orderBy as 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') : undefined,
       orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
       mesPrevisaoFerias: mesPrevisaoParsed,

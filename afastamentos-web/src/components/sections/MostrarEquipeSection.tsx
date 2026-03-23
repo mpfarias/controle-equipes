@@ -13,15 +13,31 @@ import {
 } from '../../constants/svgRegras';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf, Search } from '@mui/icons-material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox, Collapse, Grid } from '@mui/material';
+import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf, Search, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
+import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import { theme } from '../../constants/theme';
+import { PoliciaisSection } from './PoliciaisSection';
+
+const formFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '8px',
+    fontSize: '0.95rem',
+    '& fieldset': { borderColor: 'var(--border-soft)' },
+    '&:hover fieldset': { borderColor: 'var(--border-soft)' },
+    '&.Mui-focused fieldset': {
+      borderColor: 'var(--accent-muted)',
+      boxShadow: '0 0 0 3px rgba(107, 155, 196, 0.2)',
+    },
+    '& input, & textarea, & .MuiSelect-select': { padding: '10px 12px' },
+  },
+};
 
 interface MostrarEquipeSectionProps {
   currentUser: Usuario;
@@ -115,12 +131,16 @@ export function MostrarEquipeSection({
   const [editForm, setEditForm] = useState({
     nome: '',
     matricula: '',
+    cpf: '' as string,
+    dataNascimento: '' as string,
     status: 'ATIVO' as PolicialStatus,
     matriculaComissionadoGdf: '' as string,
+    dataPosse: '' as string,
     equipe: undefined as Equipe | undefined,
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
   });
+  const [editCpfError, setEditCpfError] = useState<string | null>(null);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -128,13 +148,23 @@ export function MostrarEquipeSection({
   const [showImageCropper, setShowImageCropper] = useState(false);
   const [imageForCrop, setImageForCrop] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [filtrosAberto, setFiltrosAberto] = useState(false);
-  const [filtroEquipe, setFiltroEquipe] = useState<Equipe | ''>('');
-  const [filtroStatus, setFiltroStatus] = useState<PolicialStatus | ''>('');
-  const [filtroFuncao, setFiltroFuncao] = useState<number | ''>('');
+  const [filtrosExpanded, setFiltrosExpanded] = useState(false);
+  const [equipesSelecionadas, setEquipesSelecionadas] = useState<Equipe[]>([]);
+  const [statusSelecionados, setStatusSelecionados] = useState<PolicialStatus[]>([]);
+  const [funcoesSelecionadas, setFuncoesSelecionadas] = useState<number[]>([]);
   const [excluirMotoristas, setExcluirMotoristas] = useState(true);
   const [excluirDesativados, setExcluirDesativados] = useState(true);
   const [tabAtiva, setTabAtiva] = useState<number>(0);
+  const mostraCadastrarPolicial = Boolean(permissoes?.['policiais']?.VISUALIZAR);
+  const tabsEfetivo = useMemo(
+    () => [
+      { label: 'Efetivo do COPOM', key: 'efetivo' },
+      { label: 'Gerar efetivo disponível', key: 'disponivel' },
+      { label: 'Disponibilidade SVG', key: 'svg' },
+      ...(mostraCadastrarPolicial ? [{ label: 'Cadastrar Policial', key: 'cadastrar' as const }] : []),
+    ],
+    [mostraCadastrarPolicial]
+  );
   const [dataEfetivo, setDataEfetivo] = useState<string>('');
   const [efetivoDisponivel, setEfetivoDisponivel] = useState<Policial[]>([]);
   const [loadingEfetivo, setLoadingEfetivo] = useState(false);
@@ -686,12 +716,12 @@ export function MostrarEquipeSection({
       try {
         const filters = JSON.parse(dashboardFilters);
         if (filters.equipe) {
-          setFiltroEquipe(filters.equipe as Equipe);
-          setFiltrosAberto(true);
+          setEquipesSelecionadas([filters.equipe as Equipe]);
+          setFiltrosExpanded(true);
         }
         if (filters.funcaoId) {
-          setFiltroFuncao(filters.funcaoId);
-          setFiltrosAberto(true);
+          setFuncoesSelecionadas([filters.funcaoId]);
+          setFiltrosExpanded(true);
         }
         // Limpar filtros após aplicá-los
         sessionStorage.removeItem('dashboard-filters');
@@ -851,19 +881,18 @@ export function MostrarEquipeSection({
       if (!usuarioEhCpmulher) {
         if (!usuarioPodeVerTodos && currentUser.equipe) {
           params.equipe = currentUser.equipe;
-        } else if (filtroEquipe) {
-          params.equipe = filtroEquipe;
+        } else if (equipesSelecionadas.length > 0) {
+          params.equipes = equipesSelecionadas;
         }
-      } else if (filtroEquipe) {
-        // Se for Cpmulher mas tiver filtro manual de equipe, aplicar
-        params.equipe = filtroEquipe;
+      } else if (equipesSelecionadas.length > 0) {
+        params.equipes = equipesSelecionadas;
       }
-      if (filtroStatus) {
-        params.status = filtroStatus;
+      if (statusSelecionados.length > 0) {
+        params.statuses = statusSelecionados;
       }
-      // Não aplicar filtroFuncao aqui se for Cpmulher, vamos filtrar depois
-      if (filtroFuncao && !buscarTodosParaFiltro) {
-        params.funcaoId = filtroFuncao;
+      // Não aplicar filtro de função aqui se for Cpmulher, vamos filtrar depois
+      if (funcoesSelecionadas.length > 0 && !buscarTodosParaFiltro) {
+        params.funcaoIds = funcoesSelecionadas;
       }
       if (ordenacao && !buscarTodos) {
         params.orderBy = ordenacao.campo;
@@ -875,9 +904,11 @@ export function MostrarEquipeSection({
       
       // Se for Cpmulher, filtrar apenas policiais com as funções permitidas
       if (usuarioEhCpmulher && funcoesCpmulherIds.length > 0) {
-        policiaisFiltrados = policiaisFiltrados.filter((p) => 
-          p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
-        );
+        policiaisFiltrados = policiaisFiltrados.filter((p) => {
+          if (!p.funcaoId || !funcoesCpmulherIds.includes(p.funcaoId)) return false;
+          if (funcoesSelecionadas.length > 0 && !funcoesSelecionadas.includes(p.funcaoId)) return false;
+          return true;
+        });
       }
       
       // Se buscamos todos (Cpmulher ou ordenação por patente), armazenar TODOS e paginar no cliente
@@ -907,7 +938,7 @@ export function MostrarEquipeSection({
     } finally {
       setLoading(false);
     }
-  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds, filtroEquipe, filtroFuncao, filtroStatus, ordenacao, debouncedSearchTerm, excluirMotoristas, excluirDesativados]);
+  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds, equipesSelecionadas, funcoesSelecionadas, statusSelecionados, ordenacao, debouncedSearchTerm, excluirMotoristas, excluirDesativados]);
 
   const carregarFuncoes = useCallback(async () => {
     try {
@@ -972,7 +1003,7 @@ export function MostrarEquipeSection({
 
   useEffect(() => {
     void carregarPoliciais(paginaAtual, itensPorPagina);
-  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey, filtroEquipe, filtroStatus, filtroFuncao, debouncedSearchTerm]);
+  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, debouncedSearchTerm]);
 
   useEffect(() => {
     void carregarFuncoes();
@@ -987,22 +1018,34 @@ export function MostrarEquipeSection({
     const funcaoId = policial.funcaoId !== null && policial.funcaoId !== undefined
       ? policial.funcaoId
       : policial.funcao?.id ?? undefined;
+    const dataPosseStr = policial.dataPosse
+      ? new Date(policial.dataPosse).toISOString().split('T')[0]
+      : '';
+    const dataNascimentoStr = policial.dataNascimento
+      ? new Date(policial.dataNascimento).toISOString().split('T')[0]
+      : '';
+    const cpfFormatado = policial.cpf ? maskCpf((policial.cpf || '').replace(/\D/g, '')) : '';
     setEditForm({
       nome: policial.nome,
       matricula: policial.matricula,
+      cpf: cpfFormatado,
+      dataNascimento: dataNascimentoStr,
       status: policial.status,
       matriculaComissionadoGdf: policial.matriculaComissionadoGdf ?? '',
+      dataPosse: dataPosseStr,
       equipe: policial.equipe ?? undefined,
       funcaoId: funcaoId,
       fotoUrl: policial.fotoUrl ?? null,
     });
     setEditError(null);
+    setEditCpfError(null);
     setShowImageCropper(false);
   };
 
   const closeEditModal = () => {
     setEditingPolicial(null);
     setEditError(null);
+    setEditCpfError(null);
     setShowImageCropper(false);
     setImageForCrop('');
     if (fileInputRef.current) {
@@ -1062,6 +1105,16 @@ export function MostrarEquipeSection({
       return;
     }
 
+    const cpfDigits = cpfToDigits(editForm.cpf);
+    if (cpfDigits.length > 0 && cpfDigits.length !== 11) {
+      setEditError('CPF deve conter 11 dígitos.');
+      return;
+    }
+    if (cpfDigits.length === 11 && !validarCpf(editForm.cpf)) {
+      setEditError('CPF inválido (dígitos verificadores incorretos).');
+      return;
+    }
+
     // Validar se MOTORISTA DE DIA não tem equipe E
     let equipeFinal: string | undefined | null = editForm.equipe;
     if (editForm.funcaoId) {
@@ -1082,12 +1135,21 @@ export function MostrarEquipeSection({
       editForm.status === 'COMISSIONADO'
         ? (editForm.matriculaComissionadoGdf?.trim() || null)
         : null;
+    const dataPosse =
+      editForm.status === 'COMISSIONADO' && editForm.dataPosse
+        ? editForm.dataPosse
+        : null;
+    const cpfEnvio = cpfDigits.length === 11 ? cpfDigits : null;
+    const dataNascimentoEnvio = editForm.dataNascimento.trim() || null;
 
     const payload = {
       nome,
       matricula,
+      cpf: cpfEnvio,
+      dataNascimento: dataNascimentoEnvio,
       status: editForm.status,
       matriculaComissionadoGdf,
+      dataPosse,
       equipe: equipeFinal,
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl,
@@ -1370,19 +1432,19 @@ export function MostrarEquipeSection({
       });
     }
 
-    // Aplicar filtro por equipe
-    if (filtroEquipe) {
-      resultado = resultado.filter((policial) => policial.equipe === filtroEquipe);
+    // Aplicar filtro por equipe (client-side, quando paginação no cliente)
+    if (equipesSelecionadas.length > 0) {
+      resultado = resultado.filter((policial) => policial.equipe && equipesSelecionadas.includes(policial.equipe));
     }
 
-    // Aplicar filtro por status/condição
-    if (filtroStatus) {
-      resultado = resultado.filter((policial) => policial.status === filtroStatus);
+    // Aplicar filtro por status/condição (client-side, quando paginação no cliente)
+    if (statusSelecionados.length > 0) {
+      resultado = resultado.filter((policial) => policial.status && statusSelecionados.includes(policial.status));
     }
 
-    // Aplicar filtro por função
-    if (filtroFuncao) {
-      resultado = resultado.filter((policial) => policial.funcaoId === filtroFuncao);
+    // Aplicar filtro por função (client-side, quando paginação no cliente)
+    if (funcoesSelecionadas.length > 0) {
+      resultado = resultado.filter((policial) => policial.funcaoId && funcoesSelecionadas.includes(policial.funcaoId));
     }
 
     // Excluir motoristas da lista quando checkbox marcado (não afeta contagem total)
@@ -1445,7 +1507,7 @@ export function MostrarEquipeSection({
     }
 
     return resultado;
-  }, [policiaisDaEquipe, normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao, excluirMotoristas, excluirDesativados, ordenacao, paginacaoNoServidor]);
+  }, [policiaisDaEquipe, normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, excluirMotoristas, excluirDesativados, ordenacao, paginacaoNoServidor]);
 
   // Recalcular total e paginação baseado nos dados filtrados
   const totalPoliciaisFiltrado = useMemo(() => {
@@ -1502,7 +1564,7 @@ export function MostrarEquipeSection({
   // Resetar para página 1 quando filtros ou busca mudarem
   useEffect(() => {
     setPaginaAtual(1);
-  }, [normalizedSearch, filtroEquipe, filtroStatus, filtroFuncao]);
+  }, [normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas]);
 
   const handleOrdenacao = (campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') => {
     setOrdenacao((prev) => {
@@ -1537,14 +1599,14 @@ export function MostrarEquipeSection({
     if (!usuarioEhCpmulher) {
       if (!usuarioPodeVerTodos && currentUser.equipe) {
         params.equipe = currentUser.equipe;
-      } else if (filtroEquipe) {
-        params.equipe = filtroEquipe;
+      } else if (equipesSelecionadas.length > 0) {
+        params.equipes = equipesSelecionadas;
       }
-    } else if (filtroEquipe) {
-      params.equipe = filtroEquipe;
+    } else if (equipesSelecionadas.length > 0) {
+      params.equipes = equipesSelecionadas;
     }
-    if (filtroStatus) params.status = filtroStatus;
-    if (filtroFuncao && !buscarTodosParaFiltro) params.funcaoId = filtroFuncao;
+    if (statusSelecionados.length > 0) params.statuses = statusSelecionados;
+    if (funcoesSelecionadas.length > 0 && !buscarTodosParaFiltro) params.funcaoIds = funcoesSelecionadas;
     if (ordenacao && !buscarTodosParaFiltro) {
       params.orderBy = ordenacao.campo;
       params.orderDir = ordenacao.direcao;
@@ -1553,9 +1615,11 @@ export function MostrarEquipeSection({
     const data = await api.listPoliciaisPaginated(params);
     let listaPdf: Policial[] = data.Policiales;
     if (buscarTodosParaFiltro) {
-      listaPdf = listaPdf.filter(
-        (p) => p.funcaoId && funcoesCpmulherIds.includes(p.funcaoId)
-      );
+      listaPdf = listaPdf.filter((p) => {
+        if (!p.funcaoId || !funcoesCpmulherIds.includes(p.funcaoId)) return false;
+        if (funcoesSelecionadas.length > 0 && !funcoesSelecionadas.includes(p.funcaoId)) return false;
+        return true;
+      });
     }
     // Excluir desativados quando checkbox marcado (consistente com a lista na tela)
     if (excluirDesativados) {
@@ -1579,7 +1643,7 @@ export function MostrarEquipeSection({
     y += 10;
 
     doc.setFontSize(10);
-    const temFiltro = !!busca || !!filtroEquipe || !!filtroStatus || !!filtroFuncao;
+    const temFiltro = !!busca || equipesSelecionadas.length > 0 || statusSelecionados.length > 0 || funcoesSelecionadas.length > 0;
     doc.text(
       temFiltro
         ? 'Lista de policiais disponíveis com os filtros aplicados'
@@ -1644,9 +1708,9 @@ export function MostrarEquipeSection({
     usuarioEhCpmulher,
     funcoesCpmulherIds,
     debouncedSearchTerm,
-    filtroEquipe,
-    filtroStatus,
-    filtroFuncao,
+    equipesSelecionadas,
+    statusSelecionados,
+    funcoesSelecionadas,
     excluirMotoristas,
     excluirDesativados,
     ordenacao,
@@ -1655,10 +1719,10 @@ export function MostrarEquipeSection({
   return (
     <section>
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-        <Tabs value={tabAtiva} onChange={(_e, newValue) => setTabAtiva(newValue)}>
-          <Tab label="Efetivo do COPOM" />
-          <Tab label="Gerar efetivo disponível" />
-          <Tab label="Disponibilidade SVG" />
+        <Tabs value={Math.min(tabAtiva, tabsEfetivo.length - 1)} onChange={(_e, newValue) => setTabAtiva(newValue)}>
+          {tabsEfetivo.map((t) => (
+            <Tab key={t.key} label={t.label} />
+          ))}
         </Tabs>
       </Box>
 
@@ -1705,13 +1769,19 @@ export function MostrarEquipeSection({
           onChange={(event) => setSearchTerm(event.target.value.toUpperCase())}
           placeholder="Pesquisar por nome, matrícula ou função"
         />
-        <button
-          className="ghost"
-          type="button"
-          onClick={() => setFiltrosAberto(!filtrosAberto)}
+        <Button
+          variant="outlined"
+          size="small"
+          endIcon={filtrosExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+          onClick={() => setFiltrosExpanded(!filtrosExpanded)}
+          sx={{
+            whiteSpace: 'nowrap',
+            textTransform: 'none',
+            minWidth: 'auto',
+          }}
         >
-          {filtrosAberto ? 'Ocultar filtros' : 'Mostrar filtros'}
-        </button>
+          Filtros Avançados
+        </Button>
         <button
           className="ghost"
           type="button"
@@ -1774,7 +1844,7 @@ export function MostrarEquipeSection({
             policiais disponíveis.
           </Typography>
         </Box>
-        {(searchTerm || filtroEquipe || filtroStatus || filtroFuncao) && (
+        {(searchTerm || equipesSelecionadas.length > 0 || statusSelecionados.length > 0 || funcoesSelecionadas.length > 0) && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
               Com filtros aplicados:
@@ -1828,88 +1898,176 @@ export function MostrarEquipeSection({
         </Box>
       </div>
 
-      {filtrosAberto && (
-        <div style={{ marginBottom: '16px', padding: '16px', backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: '8px', border: '1px solid var(--border-soft)' }}>
-          <div className="grid two-columns" style={{ gap: '16px' }}>
-            <label>
-              Por equipe
-              <select
-                value={filtroEquipe}
-                onChange={(event) => setFiltroEquipe(event.target.value ? (event.target.value as Equipe) : '')}
-                style={{ width: '100%', marginTop: '8px' }}
-              >
-                <option value="">Todas as equipes</option>
-                {equipesDisponiveisCadastro.map((option) => (
-                  <option key={option.id} value={option.nome}>
-                    {formatNome(option.nome)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Por condição
-              <select
-                value={filtroStatus}
-                onChange={(event) => {
-                  const novoValor = event.target.value ? (event.target.value as PolicialStatus) : '';
-                  setFiltroStatus(novoValor);
-                  // Ao selecionar "Desativado", desmarcar o checkbox automaticamente
-                  if (novoValor === 'DESATIVADO') {
-                    setExcluirDesativados(false);
-                  }
+      <Collapse in={filtrosExpanded}>
+        <Paper
+          elevation={2}
+          sx={{
+            p: 3,
+            mb: 3,
+            mt: 2,
+            backgroundColor: 'var(--card-bg)',
+          }}
+        >
+          <Grid container spacing={3} direction="column">
+            {/* Seção de Equipes */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
+                Filtrar por Equipes
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(equipesDisponiveisCadastro.length / 2))}, 1fr)`,
+                  gap: '8px 16px',
+                  mb: 2,
                 }}
-                style={{ width: '100%', marginTop: '8px' }}
               >
-                <option value="">Todas as condições</option>
-                {POLICIAL_STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+                {equipesDisponiveisCadastro.map((equipe) => (
+                  <Box key={equipe.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={equipesSelecionadas.includes(equipe.nome)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setEquipesSelecionadas([...equipesSelecionadas, equipe.nome]);
+                        } else {
+                          setEquipesSelecionadas(equipesSelecionadas.filter((eq) => eq !== equipe.nome));
+                        }
+                      }}
+                      size="small"
+                      sx={{ '& .MuiSvgIcon-root': { fontSize: '1.25rem' } }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {formatNome(equipe.nome)}
+                    </Typography>
+                  </Box>
                 ))}
-              </select>
-            </label>
-            <label>
-              Por função
-              <select
-                value={filtroFuncao}
-                onChange={(event) => {
-                  const novoValor = event.target.value ? Number(event.target.value) : '';
-                  setFiltroFuncao(novoValor);
-                  // Ao selecionar "Motorista de dia", desmarcar o checkbox automaticamente
-                  if (novoValor) {
-                    const funcaoSelecionada = funcoesOrdenadas.find((f) => f.id === novoValor);
-                    if (funcaoSelecionada?.nome?.toUpperCase().includes('MOTORISTA DE DIA')) {
-                      setExcluirMotoristas(false);
-                    }
-                  }
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button variant="outlined" size="small" onClick={() => setEquipesSelecionadas(equipesDisponiveisCadastro.map((eq) => eq.nome))} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                  Selecionar Todos
+                </Button>
+                <Button variant="outlined" size="small" onClick={() => setEquipesSelecionadas([])} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                  Limpar
+                </Button>
+                {equipesSelecionadas.length > 0 && (
+                  <Typography variant="caption" sx={{ ml: 'auto', alignSelf: 'center', color: 'text.secondary', fontWeight: 500 }}>
+                    {equipesSelecionadas.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
+
+            {/* Seção de Status */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
+                Filtrar por Status do Policial
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2, alignItems: 'center' }}>
+                {POLICIAL_STATUS_OPTIONS.map((status) => (
+                  <Box key={status.value} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={statusSelecionados.includes(status.value)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setStatusSelecionados([...statusSelecionados, status.value]);
+                          if (status.value === 'DESATIVADO') setExcluirDesativados(false);
+                        } else {
+                          setStatusSelecionados(statusSelecionados.filter((s) => s !== status.value));
+                        }
+                      }}
+                      size="small"
+                      sx={{ '& .MuiSvgIcon-root': { fontSize: '1.25rem' } }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {status.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button variant="outlined" size="small" onClick={() => { setStatusSelecionados(POLICIAL_STATUS_OPTIONS.map((s) => s.value)); setExcluirDesativados(false); }} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                  Selecionar Todos
+                </Button>
+                <Button variant="outlined" size="small" onClick={() => setStatusSelecionados([])} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                  Limpar
+                </Button>
+                {statusSelecionados.length > 0 && (
+                  <Typography variant="caption" sx={{ ml: 'auto', alignSelf: 'center', color: 'text.secondary', fontWeight: 500 }}>
+                    {statusSelecionados.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
+
+            {/* Seção de Funções */}
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
+                Filtrar por Função
+              </Typography>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(funcoesOrdenadas.length / 2))}, 1fr)`,
+                  gap: '8px 16px',
+                  mb: 2,
                 }}
-                style={{ width: '100%', marginTop: '8px' }}
               >
-                <option value="">Todas as funções</option>
                 {funcoesOrdenadas.map((funcao) => (
-                  <option key={funcao.id} value={funcao.id}>
-                    {formatNome(funcao.nome)}
-                  </option>
+                  <Box key={funcao.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Checkbox
+                      checked={funcoesSelecionadas.includes(funcao.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFuncoesSelecionadas([...funcoesSelecionadas, funcao.id]);
+                          if (funcao.nome?.toUpperCase().includes('MOTORISTA DE DIA')) setExcluirMotoristas(false);
+                        } else {
+                          setFuncoesSelecionadas(funcoesSelecionadas.filter((id) => id !== funcao.id));
+                        }
+                      }}
+                      size="small"
+                      sx={{ '& .MuiSvgIcon-root': { fontSize: '1.25rem' } }}
+                    />
+                    <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      {formatNome(funcao.nome)}
+                    </Typography>
+                  </Box>
                 ))}
-              </select>
-            </label>
-          </div>
-          {(filtroEquipe || filtroStatus || filtroFuncao) && (
-            <button
-              type="button"
-              className="ghost"
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                <Button variant="outlined" size="small" onClick={() => setFuncoesSelecionadas(funcoesOrdenadas.map((f) => f.id))} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                  Selecionar Todos
+                </Button>
+                <Button variant="outlined" size="small" onClick={() => setFuncoesSelecionadas([])} sx={{ textTransform: 'none', fontSize: '0.75rem' }}>
+                  Limpar
+                </Button>
+                {funcoesSelecionadas.length > 0 && (
+                  <Typography variant="caption" sx={{ ml: 'auto', alignSelf: 'center', color: 'text.secondary', fontWeight: 500 }}>
+                    {funcoesSelecionadas.length} selecionado(s)
+                  </Typography>
+                )}
+              </Box>
+            </Grid>
+          </Grid>
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+            <Button
+              variant="text"
+              size="small"
               onClick={() => {
-                setFiltroEquipe('');
-                setFiltroStatus('');
-                setFiltroFuncao('');
+                setEquipesSelecionadas([]);
+                setStatusSelecionados([]);
+                setFuncoesSelecionadas([]);
               }}
-              style={{ marginTop: '12px' }}
+              sx={{ textTransform: 'none', fontSize: '0.75rem' }}
+              disabled={equipesSelecionadas.length === 0 && statusSelecionados.length === 0 && funcoesSelecionadas.length === 0}
             >
-              Limpar filtros
-            </button>
-          )}
-        </div>
-      )}
+              Limpar Todos os Filtros
+            </Button>
+          </Box>
+        </Paper>
+      </Collapse>
 
       {loading ? (
         <p className="empty-state">Carregando policiais...</p>
@@ -2480,17 +2638,58 @@ export function MostrarEquipeSection({
                   size="small"
                   inputProps={{ style: { textTransform: 'uppercase' } }}
                 />
+                <TextField
+                  label="CPF"
+                  value={editForm.cpf}
+                  onChange={(event) => {
+                    setEditForm((prev) => ({ ...prev, cpf: maskCpf(event.target.value) }));
+                    if (editCpfError) setEditCpfError(null);
+                  }}
+                  onBlur={() => {
+                    const digits = cpfToDigits(editForm.cpf);
+                    if (digits.length === 11 && !validarCpf(editForm.cpf)) {
+                      setEditCpfError('CPF inválido (dígitos verificadores incorretos).');
+                    } else if (digits.length > 0 && digits.length !== 11) {
+                      setEditCpfError('CPF deve conter 11 dígitos.');
+                    } else {
+                      setEditCpfError(null);
+                    }
+                  }}
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  placeholder="000.000.000-00"
+                  inputProps={{ maxLength: 14 }}
+                  error={!!editCpfError}
+                  helperText={editCpfError}
+                  sx={formFieldSx}
+                />
+                <TextField
+                  label="Data de nascimento"
+                  type="date"
+                  value={editForm.dataNascimento}
+                  onChange={(event) =>
+                    setEditForm((prev) => ({ ...prev, dataNascimento: event.target.value }))
+                  }
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  InputLabelProps={{ shrink: true }}
+                  sx={formFieldSx}
+                />
                 <FormControl fullWidth variant="outlined" size="small" required>
                   <InputLabel>STATUS</InputLabel>
                   <Select
                     MenuProps={{ sx: { zIndex: 1500 } }}
                     value={editForm.status}
-                    onChange={(event) =>
+                    onChange={(event) => {
+                      const novoStatus = event.target.value as PolicialStatus;
                       setEditForm((prev) => ({
                         ...prev,
-                        status: event.target.value as PolicialStatus,
-                      }))
-                    }
+                        status: novoStatus,
+                        ...(novoStatus !== 'COMISSIONADO' ? { matriculaComissionadoGdf: '', dataPosse: '' } : {}),
+                      }));
+                    }}
                     label="STATUS"
                   >
                     {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
@@ -2501,22 +2700,36 @@ export function MostrarEquipeSection({
                   </Select>
                 </FormControl>
                 {editForm.status === 'COMISSIONADO' && (
-                  <TextField
-                    label="MATRÍCULA COMISSIONADO"
-                    value={editForm.matriculaComissionadoGdf}
-                    onChange={(event) =>
-                      setEditForm((prev) => ({
-                        ...prev,
-                        matriculaComissionadoGdf: event.target.value
-                          .replace(/[^0-9xX]/g, '')
-                          .toUpperCase(),
-                      }))
-                    }
-                    fullWidth
-                    variant="outlined"
-                    size="small"
-                    inputProps={{ style: { textTransform: 'uppercase' } }}
-                  />
+                  <>
+                    <TextField
+                      label="MATRÍCULA COMISSIONADO"
+                      value={editForm.matriculaComissionadoGdf}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({
+                          ...prev,
+                          matriculaComissionadoGdf: event.target.value
+                            .replace(/[^0-9xX]/g, '')
+                            .toUpperCase(),
+                        }))
+                      }
+                      fullWidth
+                      variant="outlined"
+                      size="small"
+                      inputProps={{ style: { textTransform: 'uppercase' } }}
+                    />
+                    <TextField
+                      label="Data de posse"
+                      type="date"
+                      value={editForm.dataPosse}
+                      onChange={(event) =>
+                        setEditForm((prev) => ({ ...prev, dataPosse: event.target.value }))
+                      }
+                      fullWidth
+                      variant="outlined"
+                      size="small"
+                      InputLabelProps={{ shrink: true }}
+                    />
+                  </>
                 )}
                 <FormControl fullWidth variant="outlined" size="small" required>
                   <InputLabel>FUNÇÃO</InputLabel>
@@ -2764,6 +2977,32 @@ export function MostrarEquipeSection({
 
                       <Box>
                         <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          CPF
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.cpf ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.cpf ? 'italic' : 'inherit' }}>
+                          {viewingPolicial.cpf
+                            ? maskCpf((viewingPolicial.cpf || '').replace(/\D/g, ''))
+                            : 'Campo não preenchido'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Data de nascimento
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.dataNascimento ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.dataNascimento ? 'italic' : 'inherit' }}>
+                          {viewingPolicial.dataNascimento
+                            ? new Date(viewingPolicial.dataNascimento.includes('T') ? viewingPolicial.dataNascimento : viewingPolicial.dataNascimento + 'T12:00:00').toLocaleDateString('pt-BR')
+                            : 'Campo não preenchido'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Status
                         </Typography>
                         <Box sx={{ mt: 0.5 }}>
@@ -2779,6 +3018,22 @@ export function MostrarEquipeSection({
                           />
                         </Box>
                       </Box>
+
+                      {viewingPolicial.status === 'COMISSIONADO' && (
+                        <>
+                          <Divider />
+                          <Box>
+                            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Data de posse
+                            </Typography>
+                            <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.dataPosse ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.dataPosse ? 'italic' : 'inherit' }}>
+                              {viewingPolicial.dataPosse
+                                ? new Date(viewingPolicial.dataPosse).toLocaleDateString('pt-BR')
+                                : 'Campo não preenchido'}
+                            </Typography>
+                          </Box>
+                        </>
+                      )}
 
                       {viewingPolicial.funcao && (
                         <>
@@ -3893,6 +4148,15 @@ export function MostrarEquipeSection({
             </DialogContent>
           </Dialog>
         </Box>
+      )}
+
+      {tabAtiva === 3 && mostraCadastrarPolicial && (
+        <PoliciaisSection
+          currentUser={currentUser}
+          openConfirm={openConfirm}
+          onChanged={onChanged}
+          permissoes={permissoes}
+        />
       )}
     </section>
   );

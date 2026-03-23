@@ -1283,28 +1283,31 @@ export function AfastamentosSection({
         <>
         <form onSubmit={handleSubmit}>
         <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-          <Autocomplete
-            options={policiaisOrdenados}
-            getOptionLabel={(option) =>
-              motivoEhFerias && option.mesPrevisaoFerias == null
-                ? `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`
-                : `${option.nome} - ${formatMatricula(option.matricula)}`
-            }
-            getOptionDisabled={(option) =>
-              motivoEhFerias ? option.mesPrevisaoFerias == null : false
-            }
-            value={policiaisOrdenados.find((c) => c.id.toString() === form.policialId) || null}
-            onChange={(_event, newValue) => {
-              setForm((prev) => ({
-                ...prev,
-                policialId: newValue ? newValue.id.toString() : '',
-              }));
-            }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Policial"
-                placeholder="Digite o nome ou matrícula para buscar"
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Policial
+            </Typography>
+            <Autocomplete
+              options={policiaisOrdenados}
+              getOptionLabel={(option) =>
+                motivoEhFerias && option.mesPrevisaoFerias == null
+                  ? `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`
+                  : `${option.nome} - ${formatMatricula(option.matricula)}`
+              }
+              getOptionDisabled={(option) =>
+                motivoEhFerias ? option.mesPrevisaoFerias == null : false
+              }
+              value={policiaisOrdenados.find((c) => c.id.toString() === form.policialId) || null}
+              onChange={(_event, newValue) => {
+                setForm((prev) => ({
+                  ...prev,
+                  policialId: newValue ? newValue.id.toString() : '',
+                }));
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder="Digite o nome ou matrícula para buscar"
                 required={!form.policialId}
                 size="small"
                 sx={formFieldSx}
@@ -1322,6 +1325,7 @@ export function AfastamentosSection({
             isOptionEqualToValue={(option, value) => option.id === value.id}
             sx={{ '& .MuiAutocomplete-root': { height: 'auto' } }}
           />
+          </Box>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
             <Typography component="label" htmlFor="motivo-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
               Motivo
@@ -1440,87 +1444,95 @@ export function AfastamentosSection({
           rows={3}
           sx={formFieldSx}
         />
-        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <TextField
-              label="Data de início"
-              type="date"
-              value={form.dataInicio}
-              onChange={(e) => {
-                setForm((prev) => ({ ...prev, dataInicio: e.target.value }));
-                if (!form.dataFim) setDataFimFocada(false);
-              }}
-              required
-              fullWidth
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', md: '1fr 1fr auto' },
+            alignItems: 'end',
+          }}
+        >
+          <TextField
+            label="Data de início"
+            type="date"
+            value={form.dataInicio}
+            onChange={(e) => {
+              setForm((prev) => ({ ...prev, dataInicio: e.target.value }));
+              if (!form.dataFim) setDataFimFocada(false);
+            }}
+            required
+            fullWidth
+            size="small"
+            variant="outlined"
+            InputLabelProps={{ shrink: true }}
+            sx={formFieldSx}
+          />
+          <TextField
+            label={calcularPeriodo ? 'Quantidade de dias' : 'Data de término'}
+            type={calcularPeriodo ? 'number' : 'date'}
+            value={calcularPeriodo ? quantidadeDias : form.dataFim}
+            onChange={
+              calcularPeriodo
+                ? (e) => setQuantidadeDias(e.target.value.replace(/\D/g, ''))
+                : (e) => {
+                    setForm((prev) => ({ ...prev, dataFim: e.target.value }));
+                    setDataFimFocada(true);
+                  }
+            }
+            onFocus={
+              !calcularPeriodo
+                ? (e) => {
+                    if (!form.dataFim && form.dataInicio && !dataFimFocada) {
+                      (e.target as HTMLInputElement).value = form.dataInicio;
+                      setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
+                      setDataFimFocada(true);
+                    }
+                  }
+                : undefined
+            }
+            placeholder={calcularPeriodo ? 'Nº de dias' : undefined}
+            fullWidth
+            size="small"
+            variant="outlined"
+            inputProps={
+              calcularPeriodo
+                ? { min: 1, inputMode: 'numeric' }
+                : { min: form.dataInicio || undefined }
+            }
+            InputLabelProps={!calcularPeriodo ? { shrink: true } : undefined}
+            required={!calcularPeriodo}
+            sx={formFieldSx}
+          />
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={() => {
+              setForm((prev) => ({ ...prev, dataInicio: '', dataFim: '' }));
+              setQuantidadeDias('');
+              setCalcularPeriodo(false);
+              setDataFimFocada(false);
+            }}
+            sx={{
+              textTransform: 'none',
+              height: 40,
+              minWidth: 90,
+            }}
+          >
+            Limpar
+          </Button>
+        </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Checkbox
+              checked={calcularPeriodo}
+              onChange={(e) => setCalcularPeriodo(e.target.checked)}
               size="small"
-              variant="outlined"
-              InputLabelProps={{ shrink: true }}
-              sx={formFieldSx}
             />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Checkbox
-                checked={calcularPeriodo}
-                onChange={(e) => setCalcularPeriodo(e.target.checked)}
-                size="small"
-              />
-              <Typography component="span" sx={{ fontSize: '0.95rem' }}>
-                Calcular período
-              </Typography>
-            </Box>
+            <Typography component="span" sx={{ fontSize: '0.95rem' }}>
+              Calcular período
+            </Typography>
           </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-              <TextField
-                label={calcularPeriodo ? 'Quantidade de dias' : 'Data de término'}
-                type={calcularPeriodo ? 'number' : 'date'}
-                value={calcularPeriodo ? quantidadeDias : form.dataFim}
-                onChange={
-                  calcularPeriodo
-                    ? (e) => setQuantidadeDias(e.target.value.replace(/\D/g, ''))
-                    : (e) => {
-                        setForm((prev) => ({ ...prev, dataFim: e.target.value }));
-                        setDataFimFocada(true);
-                      }
-                }
-                onFocus={
-                  !calcularPeriodo
-                    ? (e) => {
-                        if (!form.dataFim && form.dataInicio && !dataFimFocada) {
-                          (e.target as HTMLInputElement).value = form.dataInicio;
-                          setForm((prev) => ({ ...prev, dataFim: prev.dataInicio }));
-                          setDataFimFocada(true);
-                        }
-                      }
-                    : undefined
-                }
-                placeholder={calcularPeriodo ? 'Nº de dias' : undefined}
-                fullWidth
-                size="small"
-                variant="outlined"
-                inputProps={
-                  calcularPeriodo
-                    ? { min: 1, inputMode: 'numeric' }
-                    : { min: form.dataInicio || undefined }
-                }
-                InputLabelProps={!calcularPeriodo ? { shrink: true } : undefined}
-                required={!calcularPeriodo}
-                sx={{ flex: 1, ...formFieldSx }}
-              />
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={() => {
-                  setForm((prev) => ({ ...prev, dataInicio: '', dataFim: '' }));
-                  setQuantidadeDias('');
-                  setCalcularPeriodo(false);
-                  setDataFimFocada(false);
-                }}
-                sx={{ textTransform: 'none', mt: '28px', height: '40px', flexShrink: 0 }}
-              >
-                Limpar
-              </Button>
-            </Box>
-            {calcularPeriodo && dataTerminoCalculada && (
+          {calcularPeriodo && dataTerminoCalculada && (
               <Typography 
                 variant="body2" 
                 sx={{ 
@@ -1546,7 +1558,6 @@ export function AfastamentosSection({
                 Período: {diasCalculados} {diasCalculados === 1 ? 'dia' : 'dias'}
               </Typography>
             )}
-          </Box>
         </Box>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5 }}>
           <Button

@@ -85,6 +85,7 @@ export interface Policial {
   dataNascimento?: string | null;
   email?: string | null;
   matriculaComissionadoGdf?: string | null;
+  dataPosse?: string | null;
   equipe: Equipe | null;
   status: PolicialStatus;
   funcaoId?: number | null;
@@ -118,6 +119,7 @@ export interface CreatePolicialInput {
   dataNascimento?: string | null;
   email?: string | null;
   matriculaComissionadoGdf?: string | null;
+  dataPosse?: string | null;
   equipe?: Equipe | null;
 }
 

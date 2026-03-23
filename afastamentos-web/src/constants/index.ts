@@ -11,15 +11,27 @@ export function funcoesParaSelecao(funcoes: FuncaoOption[]): FuncaoOption[] {
   );
 }
 
+/** Aba geral "Afastamentos" - agrupa as telas relacionadas. */
+export type AfastamentosSubTabKey = 'afastamentos-mes' | 'afastamentos' | 'restricao-afastamento';
+
+/** Aba geral "Efetivo" - agrupa as telas relacionadas. */
+export type EfetivoSubTabKey = 'equipe' | 'policiais';
+
+/** Aba geral "Sistema" - agrupa as telas relacionadas. */
+export type SistemaSubTabKey = 'usuarios' | 'gestao-sistema' | 'relatorios';
+
 export type TabChangeOptions = {
   preencherCadastro?: { policialId: number; motivoNome: string };
+  /** Sub-tab a abrir ao navegar para a aba Afastamentos. */
+  subTab?: AfastamentosSubTabKey;
 };
 
 export type TabKey =
   | 'dashboard'
-  | 'calendario'
-  | 'afastamentos-mes'
   | 'afastamentos'
+  | 'calendario'
+  | 'sistema'
+  | 'afastamentos-mes'
   | 'policiais'
   | 'equipe'
   | 'usuarios'
@@ -29,15 +41,41 @@ export type TabKey =
   | 'restricao-afastamento'
   | 'gestao-sistema';
 
+export const AFastamentosSubTABS: { key: AfastamentosSubTabKey; label: string }[] = [
+  { key: 'afastamentos-mes', label: 'Afastamentos do mês' },
+  { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
+  { key: 'afastamentos', label: 'Gerenciar afastamentos' },
+];
+
+export const EfetivoSubTABS: { key: EfetivoSubTabKey; label: string }[] = [
+  { key: 'equipe', label: 'Efetivo' },
+  { key: 'policiais', label: 'Cadastrar Policial' },
+];
+
+export const SistemaSubTABS: { key: SistemaSubTabKey; label: string }[] = [
+  { key: 'usuarios', label: 'Cadastrar usuários' },
+  { key: 'gestao-sistema', label: 'Gestão do Sistema' },
+  { key: 'relatorios', label: 'Relatórios' },
+];
+
 export const TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'calendario', label: 'Calendário das Equipes' },
+  { key: 'afastamentos', label: 'Afastamentos' },
+  { key: 'equipe', label: 'Efetivo' },
+  { key: 'sistema', label: 'Sistema' },
+];
+
+/** Telas usadas na configuração de permissões (Gestão do Sistema). Mantém as sub-telas de Afastamentos para controle granular. */
+export const PERMISSION_TABS: { key: TabKey; label: string }[] = [
+  { key: 'dashboard', label: 'Dashboard' },
   { key: 'afastamentos-mes', label: 'Afastamentos do mês' },
-  { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
+  { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'policiais', label: 'Cadastrar Policial' },
-  { key: 'equipe', label: 'Gerenciar Efetivo' },
   { key: 'usuarios', label: 'Cadastrar usuários' },
+  { key: 'calendario', label: 'Calendário das Equipes' },
+  { key: 'equipe', label: 'Efetivo' },
   { key: 'gestao-sistema', label: 'Gestão do Sistema' },
   { key: 'relatorios', label: 'Relatórios' },
 ];
