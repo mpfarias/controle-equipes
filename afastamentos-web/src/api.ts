@@ -585,6 +585,8 @@ export const api = {
     /** Filtro previsão de férias: só retorna policiais com férias programadas neste mês/ano */
     mesPrevisaoFerias?: number;
     anoPrevisaoFerias?: number;
+    /** Exclui COMISSIONADO do efetivo e contagens (para limite 1/12 de férias) */
+    excluirComissionadosParaLimiteFerias?: boolean;
   }): Promise<{
     Policiales: Policial[];
     total: number;
@@ -610,6 +612,9 @@ export const api = {
     if (params.orderDir) searchParams.append('orderDir', params.orderDir);
     if (params.mesPrevisaoFerias != null) searchParams.append('mesPrevisaoFerias', String(params.mesPrevisaoFerias));
     if (params.anoPrevisaoFerias != null) searchParams.append('anoPrevisaoFerias', String(params.anoPrevisaoFerias));
+    if (params.excluirComissionadosParaLimiteFerias === true) {
+      searchParams.append('excluirComissionadosParaLimiteFerias', 'true');
+    }
     const query = searchParams.toString();
     const path = `/policiais?${query}`;
     const cacheKey = `GET:${path}`;

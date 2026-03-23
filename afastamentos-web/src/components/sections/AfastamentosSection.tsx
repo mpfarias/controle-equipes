@@ -351,7 +351,13 @@ export function AfastamentosSection({
     const carregarExcesso = async () => {
       setLoadingExcesso(true);
       try {
-        const baseParams = { page: 1, pageSize: 1, includeAfastamentos: false, includeRestricoes: false };
+        const baseParams = {
+          page: 1,
+          pageSize: 1,
+          includeAfastamentos: false,
+          includeRestricoes: false,
+          excluirComissionadosParaLimiteFerias: true,
+        };
         if (equipeParam) (baseParams as { equipe?: string }).equipe = equipeParam;
         const resEfetivo = await api.listPoliciaisPaginated(baseParams);
         const efetivoTotal = resEfetivo.totalDisponiveis ?? resEfetivo.total ?? 0;
@@ -367,6 +373,7 @@ export function AfastamentosSection({
               includeRestricoes: false,
               mesPrevisaoFerias: mes,
               anoPrevisaoFerias: anoAtual,
+              excluirComissionadosParaLimiteFerias: true,
             };
             if (equipeParam) params.equipe = equipeParam;
             const res = await api.listPoliciaisPaginated(params);
@@ -408,6 +415,7 @@ export function AfastamentosSection({
           includeRestricoes: false,
           mesPrevisaoFerias: mes,
           anoPrevisaoFerias: anoAtual,
+          excluirComissionadosParaLimiteFerias: true,
         };
         if (equipeParam) params.equipe = equipeParam;
         const res = await api.listPoliciaisPaginated(params);

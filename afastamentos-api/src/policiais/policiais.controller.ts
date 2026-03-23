@@ -57,6 +57,7 @@ export class PoliciaisController {
     @Query('orderDir') orderDir?: string,
     @Query('mesPrevisaoFerias') mesPrevisaoFerias?: string,
     @Query('anoPrevisaoFerias') anoPrevisaoFerias?: string,
+    @Query('excluirComissionadosParaLimiteFerias') excluirComissionadosParaLimiteFerias?: string,
   ) {
     const includeAfastamentosParsed = includeAfastamentos === 'true';
     const includeRestricoesParsed = includeRestricoes === 'true';
@@ -80,6 +81,7 @@ export class PoliciaisController {
     if (anoPrevisaoFerias && Number.isNaN(anoPrevisaoParsed!)) {
       throw new BadRequestException('O anoPrevisaoFerias deve ser numérico.');
     }
+    const excluirComissionadosParsed = excluirComissionadosParaLimiteFerias === 'true';
     return this.policiaisService.findAll({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -93,6 +95,7 @@ export class PoliciaisController {
       orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
       mesPrevisaoFerias: mesPrevisaoParsed,
       anoPrevisaoFerias: anoPrevisaoParsed,
+      excluirComissionadosParaLimiteFerias: excluirComissionadosParsed,
     });
   }
 

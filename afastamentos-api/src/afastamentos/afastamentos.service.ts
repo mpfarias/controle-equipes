@@ -638,59 +638,56 @@ export class AfastamentosService {
       }
     }
 
-    // Validar que o último período de férias seja no mês previsto
+    // Validar que o último período de férias (cronologicamente) seja no mês previsto
+    // IMPORTANTE: A regra exige que o ÚLTIMO período no tempo esteja no mês previsto, não o período
+    // que está sendo cadastrado. Ex.: ao cadastrar Julho após já ter Nov e Set, o último é Nov (OK).
     if (feriasAtual?.dataInicio && feriasAtual.ano) {
       const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
       const anoPrevisto = feriasAtual.ano;
-      
-      // REGRA 2: O período que completa os 30 dias (ou ultrapassa) OBRIGATORIAMENTE deve iniciar no mês previsto
-      // Períodos intermediários podem ser em qualquer mês
-      
+
       // Calcular total de dias após cadastrar este período
       const totalDiasAposCadastro = totalDias + diasSolicitados;
       const diasRestantes = 30 - totalDiasAposCadastro;
-      const periodosRestantes = 3 - totalPeriodosAposCadastro;
-      
+      const totalPeriodosAposCadastro = feriasExistentes.length + 1;
+
       // Criar data do primeiro e último dia do mês previsto para comparação
       const primeiroDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto - 1, 1, 0, 0, 0, 0);
       const ultimoDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto, 0, 23, 59, 59, 999);
-      
-      const dataInicioNormalizada = new Date(dataInicio);
-      dataInicioNormalizada.setHours(0, 0, 0, 0);
-      
-      // Verificar se o novo período está dentro do mês previsto (início entre primeiro e último dia)
-      const novoPeriodoEstaNoMesPrevisto = 
-        dataInicioNormalizada >= primeiroDiaMesPrevisto && 
-        dataInicioNormalizada <= ultimoDiaMesPrevisto;
-      
+
+      // Coletar todos os períodos (existentes + novo) e ordenar por data de início
+      const todosPeriodos: Date[] = [
+        ...feriasExistentes
+          .filter((f) => f.dataFim)
+          .map((f) => new Date(f.dataInicio)),
+        new Date(dataInicio),
+      ].map((d) => {
+        const copy = new Date(d);
+        copy.setHours(0, 0, 0, 0);
+        return copy;
+      });
+      todosPeriodos.sort((a, b) => a.getTime() - b.getTime());
+
+      // O último período cronologicamente (o que inicia mais tarde)
+      const ultimoPeriodoInicio = todosPeriodos[todosPeriodos.length - 1];
+      const ultimoPeriodoEstaNoMesPrevisto =
+        ultimoPeriodoInicio >= primeiroDiaMesPrevisto &&
+        ultimoPeriodoInicio <= ultimoDiaMesPrevisto;
+
       const meses = [
         'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
         'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
       ];
       const nomeMesPrevisto = meses[mesPrevisto - 1];
-      
-      // Se este período completa ou ultrapassa os 30 dias, DEVE estar no mês previsto
-      if (totalDiasAposCadastro >= 30) {
-        if (!novoPeriodoEstaNoMesPrevisto) {
+
+      // Aplicar validação apenas quando o conjunto completo exige o último período no mês previsto:
+      // - completa/ultrapassa 30 dias, OU
+      // - é o 3º período (último possível)
+      if (totalDiasAposCadastro >= 30 || totalPeriodosAposCadastro === 3) {
+        if (!ultimoPeriodoEstaNoMesPrevisto) {
           throw new BadRequestException(
-            `O último período de férias deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Este período completa ou ultrapassa os 30 dias de férias, portanto deve estar no mês previsto.`
+            `O último período de férias (cronologicamente) deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Verifique se já existe um período no mês previsto ou se o período que completa os 30 dias está correto.`
           );
         }
-      } else if (diasRestantes > 0) {
-        // Se ainda faltam dias, este período pode ser em qualquer mês (períodos intermediários)
-        // A validação de que o último período deve estar no mês previsto será feita quando
-        // o usuário tentar cadastrar o período que completará os 30 dias (totalDiasAposCadastro >= 30)
-        // ou quando for o último período possível (totalPeriodosAposCadastro === 3)
-        
-        // Se este é o último período possível (3º período), então deve estar no mês previsto
-        if (totalPeriodosAposCadastro === 3) {
-          if (!novoPeriodoEstaNoMesPrevisto) {
-            throw new BadRequestException(
-              `O último período de férias deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Este é o último período possível (3º período), portanto deve estar no mês previsto.`
-            );
-          }
-        }
-        // Caso contrário, este período pode ser em qualquer mês (períodos intermediários)
       }
     }
   }

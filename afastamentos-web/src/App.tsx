@@ -93,7 +93,8 @@ export default function App() {
   }, []);
 
   const loadPermissoes = useCallback(async () => {
-    if (!currentUser?.nivelId) {
+    const nivelId = currentUser?.nivelId ?? currentUser?.nivel?.id;
+    if (!nivelId) {
       console.warn('Usuário não tem nivelId definido:', { userId: currentUser?.id, nivelId: currentUser?.nivelId });
       setPermissoesPorTela(null);
       setPermissoesCarregando(false);
@@ -101,7 +102,7 @@ export default function App() {
     }
     try {
       setPermissoesCarregando(true);
-      const data = await api.listUsuarioNivelPermissoes(currentUser.nivelId);
+      const data = await api.listUsuarioNivelPermissoes(nivelId);
       const base: Record<TabKey, Record<PermissaoAcao, boolean>> = {} as Record<TabKey, Record<PermissaoAcao, boolean>>;
       // Inicializar todas as telas do TABS
       TABS.forEach((tab) => {
@@ -150,10 +151,9 @@ export default function App() {
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ nivelId?: number }>).detail;
-      if (!currentUser?.nivelId) {
-        return;
-      }
-      if (!detail?.nivelId || detail.nivelId === currentUser.nivelId) {
+      const nivelId = currentUser?.nivelId ?? currentUser?.nivel?.id;
+      if (!nivelId) return;
+      if (!detail?.nivelId || detail.nivelId === nivelId) {
         void loadPermissoes();
       }
     };

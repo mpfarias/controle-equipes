@@ -132,9 +132,7 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
       const data = await api.listUsuarioNivelPermissoes(nivel.id);
       data.forEach((item) => {
         const telaKey = item.telaKey as TabKey;
-        // Verificar se esta ação é permitida para esta tela
         const telaPermiteAcao = item.acao === 'VISUALIZAR' || !TELAS_SOMENTE_VISUALIZAR.includes(telaKey);
-        
         if (base[item.acao] && telaKey in base[item.acao] && telaPermiteAcao) {
           base[item.acao][telaKey] = true;
         }
@@ -194,13 +192,8 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
 
   const togglePermissao = useCallback(
     (acao: PermissaoAcao, tela: TabKey) => {
-      // Verificar se esta ação é permitida para esta tela
       const telaPermiteAcao = acao === 'VISUALIZAR' || !TELAS_SOMENTE_VISUALIZAR.includes(tela);
-      
-      if (!telaPermiteAcao) {
-        return; // Não permitir alterar ações não permitidas
-      }
-      
+      if (!telaPermiteAcao) return;
       setPermissoesModal((prev) => {
         const next = { ...prev, [acao]: { ...prev[acao] } } as Record<PermissaoAcao, Record<TabKey, boolean>>;
         const novoValor = !prev[acao][tela];
@@ -225,10 +218,8 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
     const itens: UsuarioNivelPermissao[] = [];
     (Object.keys(permissoesModal) as PermissaoAcao[]).forEach((acao) => {
       Object.entries(permissoesModal[acao]).forEach(([telaKey, permitido]) => {
-        // Não salvar ações que não são permitidas para telas somente visualizar
         const telaKeyTyped = telaKey as TabKey;
         const acaoPermitida = acao === 'VISUALIZAR' || !TELAS_SOMENTE_VISUALIZAR.includes(telaKeyTyped);
-        
         if (permitido && acaoPermitida) {
           itens.push({ telaKey: telaKeyTyped, acao });
         }
@@ -634,12 +625,9 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
                         sx={{ minHeight: rowHeight, alignItems: 'center' }}
                       >
                         {colunasParaExibir.map((tela) => {
-                          // Verificar se esta tela permite esta ação
                           const telaPermiteAcao = acao === 'VISUALIZAR' || !TELAS_SOMENTE_VISUALIZAR.includes(tela.key);
-                          
-                          // Para as colunas de relatórios, só mostrar checkbox se for VISUALIZAR
                           const ehColunaRelatorios = tela.key === 'relatorios-sistema' || tela.key === 'relatorios-servico';
-                          const mostrarCheckbox = telaPermiteAcao && 
+                          const mostrarCheckbox = telaPermiteAcao &&
                             (acao === 'VISUALIZAR' || permissoesModal.VISUALIZAR[tela.key]) &&
                             (!ehColunaRelatorios || acao === 'VISUALIZAR');
                           

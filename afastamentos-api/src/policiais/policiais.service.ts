@@ -461,6 +461,8 @@ export class PoliciaisService {
     /** Filtro para previsão de férias: só retorna policiais com férias programadas neste mês/ano */
     mesPrevisaoFerias?: number;
     anoPrevisaoFerias?: number;
+    /** Exclui COMISSIONADO do efetivo e das contagens (para cálculo do limite 1/12 de férias) */
+    excluirComissionadosParaLimiteFerias?: boolean;
   }): Promise<
     | PolicialResponse[]
     | {
@@ -485,6 +487,7 @@ export class PoliciaisService {
       orderDir,
       mesPrevisaoFerias,
       anoPrevisaoFerias,
+      excluirComissionadosParaLimiteFerias,
     } = options || {};
     const anoAtual = new Date().getFullYear();
     const include: {
@@ -567,6 +570,11 @@ export class PoliciaisService {
       );
     }
 
+    // Excluir comissionados do cálculo quando solicitado (limite 1/12 de férias)
+    if (excluirComissionadosParaLimiteFerias) {
+      mapped = mapped.filter((p) => p.status !== 'COMISSIONADO');
+    }
+
     // Ordenar em memória: desativados sempre por último, depois pelo campo solicitado
     const orderField = orderBy || 'nome';
     mapped.sort((a, b) => {
@@ -609,10 +617,17 @@ export class PoliciaisService {
     const Policiales = mapped.slice(skip, skip + take);
 
     // Contar policiais disponíveis (status diferente de DESATIVADO) com os mesmos filtros
+    // Para limite 1/12 de férias: excluir também COMISSIONADO
     const desativadoStatusId = await this.resolveStatusId('DESATIVADO');
     const whereDisponiveis: Prisma.PolicialWhereInput = {
       ...where,
-      statusId: { not: desativadoStatusId },
+      ...(excluirComissionadosParaLimiteFerias
+        ? {
+            statusId: {
+              notIn: [desativadoStatusId, await this.resolveStatusId('COMISSIONADO')],
+            },
+          }
+        : { statusId: { not: desativadoStatusId } }),
     };
     const totalDisponiveis = await this.prisma.policial.count({ where: whereDisponiveis });
 

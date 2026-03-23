@@ -128,6 +128,7 @@ export class UsuariosController {
   }
 
   @Get('equipes')
+  @AnyAuthenticated() // Permite acesso para qualquer usuário autenticado (ex.: filtros avançados em Afastamentos do mês)
   listEquipes() {
     return this.usuariosService.listEquipes();
   }
