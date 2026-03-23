@@ -132,6 +132,7 @@ model Usuario {
   isAdmin               Boolean       @default(false)
   nivelId               Int?
   nivel                 UsuarioNivel? @relation(fields: [nivelId], references: [id])
+  nivelRemovidoEm       DateTime?     // Quando o nível foi excluído e o usuário ficou sem nível
   funcaoId              Int?
   funcao                Funcao?       @relation(fields: [funcaoId], references: [id])
   fotoUrl               String?

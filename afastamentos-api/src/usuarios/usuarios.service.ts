@@ -408,15 +408,17 @@ export class UsuariosService {
       throw new NotFoundException(`Nível de acesso ${id} não encontrado.`);
     }
 
-    const usuariosVinculados = await this.prisma.usuario.count({
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    // Desvincular usuários deste nível (eles serão bloqueados no próximo login)
+    await this.prisma.usuario.updateMany({
       where: { nivelId: id },
+      data: {
+        nivelId: null,
+        nivelRemovidoEm: new Date(),
+      },
     });
 
-    if (usuariosVinculados > 0) {
-      throw new ConflictException('Não é possível excluir um nível em uso.');
-    }
-
-    const actor = await this.audit.resolveActor(responsavelId);
     const deleted = await this.prisma.usuarioNivel.delete({
       where: { id },
     });
@@ -861,8 +863,9 @@ export class UsuariosService {
     }
 
     if (data.nivelId !== undefined && data.nivelId !== null && data.nivelId > 0) {
-      // nivelId é obrigatório, então sempre conecta quando fornecido
+      // nivelId é obrigatório, então sempre connecta quando fornecido
       updateData.nivel = { connect: { id: data.nivelId } };
+      updateData.nivelRemovidoEm = null; // Limpar flag quando novo nível é atribuído
     }
 
     if (data.funcaoId !== undefined) {

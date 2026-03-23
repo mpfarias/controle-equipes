@@ -59,6 +59,13 @@ export class AuthService {
       );
     }
 
+    // Verificar se o nível de acesso foi excluído (usuário precisa de novo nível)
+    if (usuario.nivelRemovidoEm) {
+      throw new ForbiddenException(
+        'O seu nível de acesso foi alterado. Entre em contato com o Administrador do sistema urgente.',
+      );
+    }
+
     if (usuario.nivelId && usuario.nivel && usuario.nivel.ativo === false) {
       throw new ForbiddenException(
         'Erro: Nível de acesso bloqueado. Entre em contato com o Administrador do sistema',

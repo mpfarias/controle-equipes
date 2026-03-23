@@ -50,6 +50,7 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
   const [confirmacaoDesativarAberta, setConfirmacaoDesativarAberta] = useState(false);
   const [confirmacaoExcluirAberta, setConfirmacaoExcluirAberta] = useState(false);
   const [nivelSelecionado, setNivelSelecionado] = useState<UsuarioNivelOption | null>(null);
+  const [excluindoNivel, setExcluindoNivel] = useState(false);
 
   const PERMISSOES_ACOES = ['VISUALIZAR', 'EDITAR', 'DESATIVAR', 'EXCLUIR'] as const satisfies PermissaoAcao[];
   const PERMISSOES_LABELS: Record<PermissaoAcao, string> = {
@@ -331,16 +332,22 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
     if (!nivelSelecionado) {
       return;
     }
+    const idParaExcluir = nivelSelecionado.id;
+    setExcluindoNivel(true);
     try {
-      await api.deleteUsuarioNivel(nivelSelecionado.id);
+      await api.deleteUsuarioNivel(idParaExcluir);
       setSucesso(`Nível ${formatNome(nivelSelecionado.nome)} excluído com sucesso.`);
       setError(null);
+      // Atualização otimista: remove da lista imediatamente
+      setNiveis((prev) => prev.filter((n) => n.id !== idParaExcluir));
       await carregarNiveis();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Não foi possível excluir o nível de acesso.',
       );
+      await carregarNiveis();
     } finally {
+      setExcluindoNivel(false);
       setConfirmacaoExcluirAberta(false);
       setNivelSelecionado(null);
     }
@@ -779,11 +786,16 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button variant="outlined" onClick={fecharConfirmacaoExcluir}>
+          <Button variant="outlined" onClick={fecharConfirmacaoExcluir} disabled={excluindoNivel}>
             Cancelar
           </Button>
-          <Button variant="contained" color="error" onClick={() => void confirmarExclusaoNivel()}>
-            Confirmar
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => void confirmarExclusaoNivel()}
+            disabled={excluindoNivel}
+          >
+            {excluindoNivel ? 'Excluindo...' : 'Excluir'}
           </Button>
         </DialogActions>
       </Dialog>
