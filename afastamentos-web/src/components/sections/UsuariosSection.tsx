@@ -1600,6 +1600,7 @@ export function UsuariosSection({
                     }
                     label="Nível"
                     disabled={editingUsuario ? isUsuarioAdministrador(editingUsuario) && !currentUserIsAdmin : false}
+                    MenuProps={{ sx: { zIndex: 1500 } }}
                   >
                     <MenuItem value="">Selecione um nível</MenuItem>
                     {niveisDisponiveis.map((nivel) => (
@@ -1630,6 +1631,7 @@ export function UsuariosSection({
                       value={editForm.equipe}
                       onChange={(event) => handleEditChange('equipe', event.target.value)}
                       label="Equipe"
+                      MenuProps={{ sx: { zIndex: 1500 } }}
                     >
                       <MenuItem value="">Selecione uma equipe</MenuItem>
                       {equipesAtivasSemSemEquipe.map((option) => (
@@ -1648,6 +1650,7 @@ export function UsuariosSection({
                       handleEditChange('funcaoId', event.target.value ? Number(event.target.value) : undefined)
                     }
                     label="Função"
+                    MenuProps={{ sx: { zIndex: 1500 } }}
                   >
                     <MenuItem value="">Selecione uma função</MenuItem>
                     {funcoesAtivas.map((funcao) => (
@@ -1713,6 +1716,7 @@ export function UsuariosSection({
                     value={editForm.perguntaSeguranca}
                     onChange={(event) => handleEditChange('perguntaSeguranca', event.target.value)}
                     label="Pergunta de Segurança"
+                    MenuProps={{ sx: { zIndex: 1500 } }}
                   >
                     <MenuItem value="">Selecione uma pergunta</MenuItem>
                     {perguntasAtivas.map((pergunta) => (

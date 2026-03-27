@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import type { Usuario, Policial, Afastamento, Equipe } from '../../types';
-import type { TabKey } from '../../constants';
+import type { TabChangeOptions, TabKey } from '../../constants';
 import { 
   Alert,
   Box, 
@@ -33,10 +33,11 @@ import { api } from '../../api';
 import { formatEquipeLabel } from '../../constants';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
+import { DashboardGraficosPanel, type TipoGraficoDashboard } from './DashboardGraficosPanel';
 
 interface DashboardHomeSectionProps {
   currentUser: Usuario;
-  onTabChange?: (tab: TabKey, options?: { preencherCadastro?: { policialId: number; motivoNome: string } }) => void;
+  onTabChange?: (tab: TabKey, options?: TabChangeOptions) => void;
   refreshKeyPoliciais?: number;
   refreshKeyAfastamentos?: number;
 }
@@ -132,6 +133,10 @@ export function DashboardHomeSection({
   const [anoSelecionado, setAnoSelecionado] = useState<number>(anoAtual);
   const [mesSelecionado, setMesSelecionado] = useState<number>(mesAtual);
 
+  /** Sub-aba do Dashboard: 0 = Cards (padrão), 1 = Gráficos */
+  const [dashboardPainelTab, setDashboardPainelTab] = useState(0);
+  const [dashboardTipoGrafico, setDashboardTipoGrafico] = useState<TipoGraficoDashboard>('bar');
+
   // Verificar se o usuário pode ver todos os afastamentos (ADMINISTRADOR, COMANDO, SAD)
   const usuarioPodeVerTodos = useMemo(() => {
     const nivelNome = currentUser.nivel?.nome;
@@ -223,6 +228,11 @@ export function DashboardHomeSection({
       { valor: 12, nome: 'Dezembro' },
     ];
   }, []);
+
+  const periodoDashboardLabel = useMemo(() => {
+    const m = mesesDisponiveis.find((x) => x.valor === mesSelecionado);
+    return `${m?.nome ?? '—'} / ${anoSelecionado}`;
+  }, [mesesDisponiveis, mesSelecionado, anoSelecionado]);
 
   useEffect(() => {
     const carregarAfastamentosMes = async () => {
@@ -1495,6 +1505,27 @@ export function DashboardHomeSection({
       </div>
 
       <Box sx={{ p: 3, width: '100%' }}>
+        <Tabs
+          value={dashboardPainelTab}
+          onChange={(_, v) => setDashboardPainelTab(v)}
+          sx={{
+            mb: 2,
+            borderBottom: 1,
+            borderColor: 'divider',
+            '& .MuiTab-root': { textTransform: 'none' },
+          }}
+          aria-label="Painéis do dashboard"
+        >
+          <Tab label="Cards" id="dashboard-tab-cards" aria-controls="dashboard-panel-cards" />
+          <Tab label="Gráficos" id="dashboard-tab-graficos" aria-controls="dashboard-panel-graficos" />
+        </Tabs>
+
+        {dashboardPainelTab === 0 && (
+          <Box
+            id="dashboard-panel-cards"
+            role="tabpanel"
+            aria-labelledby="dashboard-tab-cards"
+          >
         {feriasProgramadasSemAfastamento != null && feriasProgramadasSemAfastamento.length > 0 && (() => {
           const now = new Date();
           const mesAtualNum = now.getMonth() + 1;
@@ -2807,6 +2838,29 @@ export function DashboardHomeSection({
             );
           })}
         </Grid>
+          </Box>
+        )}
+
+        {dashboardPainelTab === 1 && (
+          <DashboardGraficosPanel
+            tipoGrafico={dashboardTipoGrafico}
+            onTipoGraficoChange={setDashboardTipoGrafico}
+            periodoLabel={periodoDashboardLabel}
+            loadingAfastamentos={loadingAfastamentos}
+            loadingPoliciais={loadingPoliciais}
+            totalPoliciaisAfastados={totalPoliciaisAfastados}
+            totalPoliciaisDisponiveis={totalPoliciaisDisponiveis}
+            totalFerias={totalFerias}
+            totalAbono={totalAbono}
+            efetivoPorStatus={efetivoPorStatus}
+            efetivoPorPosto={efetivoPorPosto}
+            policiaisPorEquipe={policiaisPorEquipe}
+            expedienteData={expedienteData}
+            motoristasData={motoristasData}
+            copomMulherData={copomMulherData}
+            usuarioEhCpmulher={usuarioEhCpmulher}
+          />
+        )}
       </Box>
 
       {/* Modal com lista de policiais/afastamentos */}

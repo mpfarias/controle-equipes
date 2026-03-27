@@ -20,12 +20,15 @@ import {
   CircularProgress,
   Tabs,
   Tab,
+  Button,
 } from '@mui/material';
-import { Close as CloseIcon } from '@mui/icons-material';
+import { Close as CloseIcon, Print as PrintIcon } from '@mui/icons-material';
 import { api } from '../../api';
+import { useEscalaParametros } from '../../hooks/useEscalaParametros';
 import { formatEquipeLabel } from '../../constants';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
+import { imprimirListaPoliciaisCalendarioModal } from '../../utils/calendarioModalPrint';
 
 interface CalendarioSectionProps {
   currentUser: Usuario;
@@ -47,17 +50,8 @@ const MESES = [
   { valor: 11, nome: 'Dezembro' },
 ];
 
-// Data de início da escala: 20/01/2026 (terça-feira) com equipe D de manhã
-const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
-
-// Sequência das equipes: D → E → B → A → C → D
-const SEQUENCIA_EQUIPES: Equipe[] = ['D', 'E', 'B', 'A', 'C'];
-
-// Escala motoristas 24x72: apenas equipes A, B, C e D. Data de início: 01/01/2026 (equipe A). Sequência: A → B → C → D (03/02/2026 = B).
-const DATA_INICIO_ESCALA_MOTORISTAS = new Date(2026, 0, 1); // 01/01/2026
-const SEQUENCIA_EQUIPES_MOTORISTAS: Equipe[] = ['A', 'B', 'C', 'D'];
-
 export function CalendarioSection({ currentUser: _currentUser }: CalendarioSectionProps) {
+  const { parsed: escala } = useEscalaParametros();
   const now = new Date();
   const anoAtual = now.getFullYear() >= 2026 ? now.getFullYear() : 2026;
   const mesAtual = now.getMonth();
@@ -121,8 +115,11 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   // Calcular qual equipe está de serviço em um determinado dia e horário
   const calcularEquipeServico = (ano: number, mes: number, dia: number, periodo: 'dia' | 'noite'): { equipe: Equipe; nome: string } | null => {
     const dataAtual = new Date(ano, mes, dia);
-    const dataInicio = new Date(DATA_INICIO_ESCALA);
-    
+    const dataInicio = escala.dataInicioEquipes;
+    const sequencia = escala.sequenciaEquipes;
+    const n = sequencia.length;
+    if (n === 0) return null;
+
     // Calcular diferença em dias desde o início da escala
     const diffTime = dataAtual.getTime() - dataInicio.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
@@ -142,16 +139,16 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       // Sequência do dia: D, E, B, A, C, D, E, B, A, C...
       // Cada ciclo completo tem 5 turnos (5 dias)
       // Usar módulo com tratamento para números negativos
-      const posicaoNaSequencia = ((diffDays % 5) + 5) % 5;
-      const equipe = SEQUENCIA_EQUIPES[posicaoNaSequencia];
+      const posicaoNaSequencia = ((diffDays % n) + n) % n;
+      const equipe = sequencia[posicaoNaSequencia];
       return { equipe, nome: equipe };
     } else {
       // Sequência da noite: C, D, E, B, A, C, D, E, B, A...
       // A noite está 1 posição atrás do dia: se o dia é posição 0 (D), a noite é posição 4 (C)
       // Se o dia é posição 1 (E), a noite é posição 0 (D)
-      const posicaoDia = ((diffDays % 5) + 5) % 5;
-      const posicaoNoite = (posicaoDia - 1 + 5) % 5; // -1 + 5 para garantir valor positivo
-      const equipe = SEQUENCIA_EQUIPES[posicaoNoite];
+      const posicaoDia = ((diffDays % n) + n) % n;
+      const posicaoNoite = (posicaoDia - 1 + n) % n; // -1 + n para garantir valor positivo
+      const equipe = sequencia[posicaoNoite];
       return { equipe, nome: equipe };
     }
   };
@@ -203,10 +200,13 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     const dataAtual = new Date(ano, mes, dia);
     const dataMinima = new Date(2026, 0, 1);
     if (dataAtual.getTime() < dataMinima.getTime()) return null;
-    const diffTime = dataAtual.getTime() - DATA_INICIO_ESCALA_MOTORISTAS.getTime();
+    const seq = escala.sequenciaMotoristas;
+    const nm = seq.length;
+    if (nm === 0) return null;
+    const diffTime = dataAtual.getTime() - escala.dataInicioMotoristas.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
     if (diffDays < 0) return null;
-    return SEQUENCIA_EQUIPES_MOTORISTAS[diffDays % 4];
+    return seq[diffDays % nm];
   };
 
   useEffect(() => {
@@ -696,20 +696,38 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle>
-          {modalTitle}
-          <IconButton
-            aria-label="close"
-            onClick={() => setModalOpen(false)}
-            sx={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              color: (theme) => theme.palette.grey[500],
-            }}
-          >
-            <CloseIcon />
-          </IconButton>
+        <DialogTitle
+          sx={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: 1.5,
+            flexWrap: 'wrap',
+            pr: 1,
+          }}
+        >
+          <Typography component="span" variant="h6" sx={{ flex: '1 1 200px', minWidth: 0, fontWeight: 600 }}>
+            {modalTitle}
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+            {!loadingModal && policiaisModal.length > 0 && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<PrintIcon />}
+                onClick={() => {
+                  if (!imprimirListaPoliciaisCalendarioModal(modalTitle, policiaisModal)) {
+                    window.alert('Não foi possível abrir a janela de impressão. Permita pop-ups para este site.');
+                  }
+                }}
+              >
+                Imprimir lista
+              </Button>
+            )}
+            <IconButton aria-label="Fechar" onClick={() => setModalOpen(false)} color="inherit">
+              <CloseIcon />
+            </IconButton>
+          </Box>
         </DialogTitle>
         <DialogContent>
           {loadingModal ? (

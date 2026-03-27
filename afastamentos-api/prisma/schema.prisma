@@ -27,6 +27,8 @@ model Policial {
   fotoUrl                    String?
   ferias                     FeriasPolicial[]
   afastamentos               Afastamento[]
+  trocasServicoComoA         TrocaServico[]             @relation("TrocaServicoPolicialA")
+  trocasServicoComoB         TrocaServico[]             @relation("TrocaServicoPolicialB")
   createdById                Int?
   createdByName              String?
   updatedById                Int?
@@ -306,4 +308,86 @@ model HorarioSvg {
   updatedAt DateTime @updatedAt
 
   @@unique([horaInicio, horaFim])
+}
+
+/** Parâmetros globais da escala 24×72 (equipes) e motoristas — chaves fixas no serviço. */
+model EscalaParametro {
+  id            Int      @id @default(autoincrement())
+  chave         String   @unique
+  valor         String   @db.Text
+  updatedAt     DateTime @updatedAt
+  updatedById   Int?
+  updatedByName String?
+}
+
+/** Textos informativos exibidos na tela Geral de Escalas. */
+model EscalaInformacao {
+  id              Int      @id @default(autoincrement())
+  titulo          String
+  conteudo        String   @db.Text
+  ordem           Int      @default(0)
+  ativo           Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdById     Int?
+  createdByName   String?
+  updatedById     Int?
+  updatedByName   String?
+}
+
+/** Escala gerada e salva (aba Gerar Escalas). tipoServico: OPERACIONAL | EXPEDIENTE | MOTORISTAS. lista: DISPONIVEL | AFASTADO. */
+model EscalaGerada {
+  id              Int                 @id @default(autoincrement())
+  dataEscala      DateTime            @db.Date
+  tipoServico     String
+  resumoEquipes   String?             @db.Text
+  ativo           Boolean             @default(true)
+  createdAt       DateTime            @default(now())
+  createdById     Int?
+  createdByName   String?
+  linhas          EscalaGeradaLinha[]
+}
+
+model EscalaGeradaLinha {
+  id                 Int          @id @default(autoincrement())
+  escalaGeradaId     Int
+  escalaGerada       EscalaGerada @relation(fields: [escalaGeradaId], references: [id], onDelete: Cascade)
+  lista              String
+  policialId         Int
+  nome               String
+  matricula          String
+  equipe             String?
+  horarioServico     String
+  funcaoNome         String?
+  detalheAfastamento String?      @db.Text
+}
+
+enum TrocaServicoStatus {
+  ATIVA
+  CONCLUIDA
+  CANCELADA
+}
+
+/** Troca temporária de equipe entre dois policiais; após as datas de serviço, equipes de origem são restauradas. */
+model TrocaServico {
+  id            Int                @id @default(autoincrement())
+  policialAId   Int
+  policialBId   Int
+  policialA     Policial           @relation("TrocaServicoPolicialA", fields: [policialAId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  policialB     Policial           @relation("TrocaServicoPolicialB", fields: [policialBId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  equipeOrigemA String?
+  equipeOrigemB String?
+  dataServicoA  DateTime           @db.Date
+  dataServicoB  DateTime           @db.Date
+  restauradoA   Boolean            @default(false)
+  restauradoB   Boolean            @default(false)
+  status        TrocaServicoStatus @default(ATIVA)
+  createdById   Int?
+  createdByName String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  @@index([status])
+  @@index([policialAId])
+  @@index([policialBId])
 }

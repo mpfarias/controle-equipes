@@ -24,7 +24,7 @@ export function AfastamentosGroupSection({
   openConfirm,
   onChanged,
   permissoes,
-  initialSubTab = 'afastamentos-mes',
+  initialSubTab = 'afastamentos',
   initialCadastro,
   onPreencherCadastroConsumed,
 }: AfastamentosGroupSectionProps) {

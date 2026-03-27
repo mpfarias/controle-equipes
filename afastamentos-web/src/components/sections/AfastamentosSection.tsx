@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
 import type {
   Afastamento,
   Policial,
   MotivoAfastamentoOption,
   Usuario,
+  TrocaServicoAtivaListaItem,
 } from '../../types';
 import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome, formatMatricula } from '../../utils/dateUtils';
@@ -14,7 +15,40 @@ import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import { theme } from '../../constants/theme';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { Alert, Autocomplete, TextField, Button, Checkbox, Box, Typography, Tabs, Tab, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Paper, Chip, Tooltip, FormControl, InputLabel, Select, MenuItem, List, ListItem, ListItemText } from '@mui/material';
+import {
+  Alert,
+  Autocomplete,
+  TextField,
+  Button,
+  Checkbox,
+  Box,
+  Typography,
+  Tabs,
+  Tab,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Paper,
+  Chip,
+  Tooltip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  List,
+  ListItem,
+  ListItemText,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  ToggleButton,
+  ToggleButtonGroup,
+} from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
 import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
@@ -27,6 +61,16 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import BlockIcon from '@mui/icons-material/Block';
 import DeleteIcon from '@mui/icons-material/Delete';
+import {
+  extrairTextoPdf,
+  montarPreviewImportacaoPdf,
+  normalizarTextoComparacao,
+  parsearLinhasTabelaAfastamentosPdf,
+  type PdfPreviewLinha,
+} from '../../utils/afastamentosPdfImport';
+
+/** `true` para voltar a exibir o botão &quot;Testar leitura do PDF&quot; na aba Cadastrar. */
+const EXIBIR_BOTAO_TESTE_PDF = false;
 
 const formFieldSx = {
   '& .MuiOutlinedInput-root': {
@@ -94,12 +138,35 @@ export function AfastamentosSection({
     conflitos: [],
     dataVerificada: '',
   });
+  const [trocaConflitoModal, setTrocaConflitoModal] = useState<{
+    open: boolean;
+    policialNome: string;
+    dataServico: string;
+  }>({
+    open: false,
+    policialNome: '',
+    dataServico: '',
+  });
+  const [trocaConflitoCiente, setTrocaConflitoCiente] = useState(false);
+  // Para a confirmação final do cadastro após o usuário marcar o checkbox "Ciente".
+  const [trocaConflitoDataFimParaValidacao, setTrocaConflitoDataFimParaValidacao] = useState<string | null>(null);
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
   const [dataFimFocada, setDataFimFocada] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
+
+  const pdfImportInputRef = useRef<HTMLInputElement | null>(null);
+  const [pdfImportModalOpen, setPdfImportModalOpen] = useState(false);
+  const [pdfImportLoading, setPdfImportLoading] = useState(false);
+  const [pdfImportErro, setPdfImportErro] = useState<string | null>(null);
+  /** Resultado completo do teste de leitura (todas as linhas interpretadas). */
+  const [pdfPreviewCompleto, setPdfPreviewCompleto] = useState<PdfPreviewLinha[]>([]);
+  const [pdfLinhasBrutasTotal, setPdfLinhasBrutasTotal] = useState(0);
+  const [pdfTextoAmostra, setPdfTextoAmostra] = useState<string | null>(null);
+  const [pdfNomeArquivo, setPdfNomeArquivo] = useState<string | null>(null);
+  const [pdfLeituraFiltro, setPdfLeituraFiltro] = useState<'atestado' | 'todas'>('atestado');
 
   // Preencher formulário de cadastro quando vier initialCadastro (ex.: "Marcar férias agora" no modal do dashboard)
   useEffect(() => {
@@ -281,6 +348,29 @@ export function AfastamentosSection({
     }
   }, [currentUser.equipe, currentUser.nivel?.nome]);
 
+  /**
+   * Após salvar previsão/confirmação de férias na aba Previsão, atualiza o mesmo policial na lista do cadastro
+   * de afastamento — sem isso, o Autocomplete ainda enxerga `mesPrevisaoFerias` antigo até F5.
+   */
+  const aplicarPolicialAtualizadoNoEstadoCadastro = useCallback(
+    (atualizado: Policial) => {
+      let merged = false;
+      setPoliciais((prev) => {
+        const idx = prev.findIndex((p) => p.id === atualizado.id);
+        if (idx === -1) return prev;
+        merged = true;
+        const copy = [...prev];
+        copy[idx] = atualizado;
+        return copy;
+      });
+      if (!merged) {
+        void carregarDados();
+      }
+      setPolicialSelecionado((prev) => (prev?.id === atualizado.id ? atualizado : prev));
+    },
+    [carregarDados],
+  );
+
   useEffect(() => {
     void carregarDados();
   }, [carregarDados]);
@@ -351,6 +441,7 @@ export function AfastamentosSection({
     const carregarExcesso = async () => {
       setLoadingExcesso(true);
       try {
+        /** Efetivo para 1/12: exclui DESATIVADO e COMISSIONADO (comissionados não entram no limite). */
         const baseParams = {
           page: 1,
           pageSize: 1,
@@ -361,7 +452,7 @@ export function AfastamentosSection({
         if (equipeParam) (baseParams as { equipe?: string }).equipe = equipeParam;
         const resEfetivo = await api.listPoliciaisPaginated(baseParams);
         const efetivoTotal = resEfetivo.totalDisponiveis ?? resEfetivo.total ?? 0;
-        const limitePorMes = Math.ceil(efetivoTotal / 12);
+        const limitePorMes = Math.floor(efetivoTotal / 12);
 
         const porMes: { mes: number; nome: string; total: number }[] = [];
         await Promise.all(
@@ -591,6 +682,35 @@ export function AfastamentosSection({
 
     return conflitos;
   }, [afastamentos, periodosSobrepostos]);
+
+  const verificarConflitoTrocaServico = useCallback(
+    async (policialId: number, dataInicio: string, dataFim?: string | null): Promise<{
+      policialNome: string;
+      dataServico: string;
+    } | null> => {
+      const fim = dataFim || dataInicio;
+      if (!dataInicio || !fim) return null;
+
+      // O endpoint retorna apenas trocas ativas (mas inclui os campos dataServicoA/B e restauradoA/B).
+      const trocas: TrocaServicoAtivaListaItem[] = await api.listTrocasServicoAtivas();
+
+      const matches: { policialNome: string; dataServico: string }[] = [];
+      for (const t of trocas) {
+        if (t.policialA.id === policialId && t.dataServicoA >= dataInicio && t.dataServicoA <= fim) {
+          matches.push({ policialNome: t.policialA.nome, dataServico: t.dataServicoA });
+        }
+        if (t.policialB.id === policialId && t.dataServicoB >= dataInicio && t.dataServicoB <= fim) {
+          matches.push({ policialNome: t.policialB.nome, dataServico: t.dataServicoB });
+        }
+      }
+
+      if (matches.length === 0) return null;
+      // Selecionar a primeira data (ordem cronológica) para exibir no alerta.
+      matches.sort((a, b) => a.dataServico.localeCompare(b.dataServico));
+      return matches[0] ?? null;
+    },
+    [],
+  );
 
   const submeterAfastamento = useCallback(async () => {
     try {
@@ -877,6 +997,24 @@ export function AfastamentosSection({
       }
     }
 
+    // Se não houver conflitos e validações passaram, verificar choque com troca de serviço
+    try {
+      const conflitoTroca = await verificarConflitoTrocaServico(policialId, form.dataInicio, dataFimParaValidacao || null);
+      if (conflitoTroca) {
+        setTrocaConflitoModal({
+          open: true,
+          policialNome: conflitoTroca.policialNome,
+          dataServico: conflitoTroca.dataServico,
+        });
+        setTrocaConflitoCiente(false);
+        setTrocaConflitoDataFimParaValidacao(dataFimParaValidacao || null);
+        return;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao verificar conflito com troca de serviço.');
+      return;
+    }
+
     // Se não houver conflitos e validações passaram, abrir confirmação antes de cadastrar
     abrirConfirmacaoCadastro(dataFimParaValidacao || null);
   };
@@ -899,11 +1037,43 @@ export function AfastamentosSection({
       }
     }
 
+    // Antes de confirmar, verificar choque com troca de serviço
+    try {
+      const policialId = Number(form.policialId);
+      const conflitoTroca = await verificarConflitoTrocaServico(policialId, form.dataInicio, dataFimParaValidacao || null);
+      if (conflitoTroca) {
+        setTrocaConflitoModal({
+          open: true,
+          policialNome: conflitoTroca.policialNome,
+          dataServico: conflitoTroca.dataServico,
+        });
+        setTrocaConflitoCiente(false);
+        setTrocaConflitoDataFimParaValidacao(dataFimParaValidacao || null);
+        return;
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Falha ao verificar conflito com troca de serviço.');
+      return;
+    }
+
     abrirConfirmacaoCadastro(dataFimParaValidacao || null);
   };
 
   const handleCancelarConflito = () => {
     setConflitosModal({ open: false, conflitos: [], dataVerificada: '' });
+  };
+
+  const handleCancelarTrocaConflito = () => {
+    setTrocaConflitoModal({ open: false, policialNome: '', dataServico: '' });
+    setTrocaConflitoCiente(false);
+    setTrocaConflitoDataFimParaValidacao(null);
+  };
+
+  const handleOkTrocaConflito = () => {
+    if (!trocaConflitoCiente) return;
+    setTrocaConflitoModal({ open: false, policialNome: '', dataServico: '' });
+    setTrocaConflitoCiente(false);
+    abrirConfirmacaoCadastro(trocaConflitoDataFimParaValidacao || null);
   };
 
   const handleOpenEditAfastamento = (afastamento: Afastamento) => {
@@ -1034,6 +1204,66 @@ export function AfastamentosSection({
     }
     return sortPorPatenteENome(policiais);
   }, [policiais, motivoEhFerias]);
+
+  const motivoDispensaMedica = useMemo(
+    () =>
+      motivos.find(
+        (m) => normalizarTextoComparacao(m.nome) === normalizarTextoComparacao('Dispensa médica'),
+      ),
+    [motivos],
+  );
+
+  const pdfLinhasExibidas = useMemo(() => {
+    if (pdfLeituraFiltro === 'todas') return pdfPreviewCompleto;
+    return pdfPreviewCompleto.filter((p) => p.filtroAtestado);
+  }, [pdfPreviewCompleto, pdfLeituraFiltro]);
+
+  const pdfLeituraResumo = useMemo(() => {
+    const all = pdfPreviewCompleto;
+    const comAtestado = all.filter((p) => p.filtroAtestado);
+    const ok = all.filter((p) => p.status === 'ok').length;
+    const aviso = all.filter((p) => p.status === 'aviso').length;
+    const erro = all.filter((p) => p.status === 'erro').length;
+    return {
+      totalInterpretadas: all.length,
+      comObsAtestado: comAtestado.length,
+      ok,
+      aviso,
+      erro,
+    };
+  }, [pdfPreviewCompleto]);
+
+  const handlePdfImportSelecionado = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      setPdfImportLoading(true);
+      setPdfImportErro(null);
+      setPdfTextoAmostra(null);
+      setPdfNomeArquivo(file.name);
+      setPdfLeituraFiltro('atestado');
+      try {
+        const buf = await file.arrayBuffer();
+        const texto = await extrairTextoPdf(buf);
+        setPdfTextoAmostra(texto.length > 2500 ? `${texto.slice(0, 2500)}…` : texto);
+        const bruto = parsearLinhasTabelaAfastamentosPdf(texto);
+        setPdfLinhasBrutasTotal(bruto.length);
+        const preview = montarPreviewImportacaoPdf(
+          bruto,
+          policiais.map((p) => ({ id: p.id, nome: p.nome, matricula: p.matricula })),
+          motivoDispensaMedica?.nome ?? null,
+        );
+        setPdfPreviewCompleto(preview);
+        setPdfImportModalOpen(true);
+      } catch (err) {
+        setPdfImportErro(err instanceof Error ? err.message : 'Falha ao ler o PDF.');
+      } finally {
+        setPdfImportLoading(false);
+      }
+    },
+    [policiais, motivoDispensaMedica],
+  );
 
   const normalizedSearch = searchTerm.trim().toUpperCase();
 
@@ -1281,6 +1511,30 @@ export function AfastamentosSection({
 
       {tabAtiva === 0 && (
         <>
+        {EXIBIR_BOTAO_TESTE_PDF ? (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5, mb: 2 }}>
+            <input
+              ref={pdfImportInputRef}
+              type="file"
+              accept="application/pdf"
+              style={{ display: 'none' }}
+              onChange={handlePdfImportSelecionado}
+            />
+            <Button
+              type="button"
+              variant="outlined"
+              size="small"
+              disabled={pdfImportLoading || policiais.length === 0 || motivos.length === 0}
+              onClick={() => pdfImportInputRef.current?.click()}
+            >
+              {pdfImportLoading ? 'Lendo PDF…' : 'Testar leitura do PDF'}
+            </Button>
+            <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 640 }}>
+              Interpreta o arquivo e abre um relatório de conferência. Nada é gravado no banco. Você pode filtrar só
+              linhas com OBS &quot;Atestado&quot; (mapeadas para &quot;Dispensa médica&quot;) ou ver todas as linhas lidas.
+            </Typography>
+          </Box>
+        ) : null}
         <form onSubmit={handleSubmit}>
         <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
@@ -2182,7 +2436,9 @@ export function AfastamentosSection({
                   </tr>
                 </thead>
                 <tbody>
-                  {policiaisPrevisao.map((policial) => (
+                  {policiaisPrevisao.map((policial) => {
+                    const desativado = policial.status === 'DESATIVADO';
+                    return (
                     <tr key={policial.id}>
                       <td>
                         <div>
@@ -2219,10 +2475,12 @@ export function AfastamentosSection({
                       <td>
                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                           <Tooltip title={
-                            policial.feriasReprogramadas 
-                              ? 'Férias já foram reprogramadas' 
-                              : policial.mesPrevisaoFerias 
-                                ? (policial.feriasConfirmadas ? 'Reprogramar férias' : 'Alterar mês') 
+                            desativado
+                              ? 'Policiais desativados não podem ter previsão de férias alterada.'
+                              : policial.feriasReprogramadas
+                              ? 'Férias já foram reprogramadas'
+                              : policial.mesPrevisaoFerias
+                                ? (policial.feriasConfirmadas ? 'Reprogramar férias' : 'Alterar mês')
                                 : 'Inserir mês'
                           }>
                             <span>
@@ -2238,7 +2496,7 @@ export function AfastamentosSection({
                                   }
                                   setModalMesPrevisaoOpen(true);
                                 }}
-                                disabled={policial.feriasReprogramadas && policial.feriasConfirmadas}
+                                disabled={desativado || (policial.feriasReprogramadas && policial.feriasConfirmadas)}
                                 sx={{
                                   border: '1px solid',
                                   borderColor: policial.feriasReprogramadas 
@@ -2267,7 +2525,7 @@ export function AfastamentosSection({
                               </IconButton>
                             </span>
                           </Tooltip>
-                          {policial.mesPrevisaoFerias && !policial.feriasConfirmadas && (
+                          {policial.mesPrevisaoFerias && !policial.feriasConfirmadas && !desativado && (
                             <Tooltip title="Confirmar férias">
                               <IconButton
                                 size="small"
@@ -2286,11 +2544,13 @@ export function AfastamentosSection({
                                     onConfirm: async () => {
                                       try {
                                         setError(null);
-                                        await api.updatePolicial(policial.id, {
+                                        const atualizado = await api.updatePolicial(policial.id, {
                                           feriasConfirmadas: true,
                                         });
+                                        aplicarPolicialAtualizadoNoEstadoCadastro(atualizado);
                                         setSuccess('Férias confirmadas com sucesso.');
                                         await carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
+                                        onChanged?.();
                                       } catch (err) {
                                         setError(
                                           err instanceof Error
@@ -2317,7 +2577,8 @@ export function AfastamentosSection({
                         </Box>
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               </table>
 
@@ -2517,6 +2778,229 @@ export function AfastamentosSection({
           </div>
         </div>
       )}
+
+      {/* Modal de choque entre afastamento e troca de serviço */}
+      <Dialog open={trocaConflitoModal.open} onClose={handleCancelarTrocaConflito} maxWidth="sm" fullWidth>
+        <DialogTitle>Conflito de troca de serviço</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">
+            O policial <strong>"{trocaConflitoModal.policialNome}"</strong> está com uma troca de serviço cadastrada na
+            data <strong>"{trocaConflitoModal.dataServico ? formatDate(trocaConflitoModal.dataServico) : ''}"</strong>.
+          </Typography>
+
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Período do afastamento: <strong>{formatPeriodo(form.dataInicio, trocaConflitoDataFimParaValidacao || null)}</strong>
+          </Typography>
+
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+            <Checkbox
+              checked={trocaConflitoCiente}
+              onChange={(e) => setTrocaConflitoCiente(e.target.checked)}
+              size="small"
+            />
+            <Typography variant="body2">Ciente</Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="outlined" onClick={handleCancelarTrocaConflito}>
+            Cancelar
+          </Button>
+          <Button variant="contained" onClick={handleOkTrocaConflito} disabled={!trocaConflitoCiente || submitting}>
+            OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Teste de leitura do PDF (sem persistência) */}
+      <Dialog
+        open={pdfImportModalOpen}
+        onClose={() => {
+          setPdfImportModalOpen(false);
+          setPdfImportErro(null);
+          setPdfPreviewCompleto([]);
+          setPdfNomeArquivo(null);
+        }}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>Teste de leitura do PDF</DialogTitle>
+        <DialogContent>
+          {pdfNomeArquivo ? (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Arquivo: <strong>{pdfNomeArquivo}</strong>
+            </Typography>
+          ) : null}
+          {pdfImportErro && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {pdfImportErro}
+            </Alert>
+          )}
+          {!motivoDispensaMedica && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Não foi encontrado o motivo &quot;Dispensa médica&quot; na lista de motivos. Cadastre-o para validar o
+              mapeamento no próximo passo.
+            </Alert>
+          )}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 1.5 }}>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={pdfLeituraFiltro}
+              onChange={(_, v: 'atestado' | 'todas' | null) => {
+                if (v) setPdfLeituraFiltro(v);
+              }}
+              sx={{
+                '& .MuiToggleButtonGroup-grouped': {
+                  border: `1px solid ${theme.borderSoft}`,
+                  '&:not(:first-of-type)': {
+                    borderLeft: `1px solid ${theme.borderSoft}`,
+                  },
+                },
+                '& .MuiToggleButton-root': {
+                  py: 0.75,
+                  px: 1.25,
+                  textTransform: 'none',
+                  color: theme.textPrimary,
+                  bgcolor: theme.cardBg,
+                  '&:hover': {
+                    bgcolor: theme.bgMain,
+                    color: theme.textPrimary,
+                  },
+                  '&.Mui-selected': {
+                    color: theme.textPrimary,
+                    bgcolor: theme.sentinelaBlue,
+                    borderColor: `${theme.accentMuted} !important`,
+                    '&:hover': {
+                      bgcolor: theme.sentinelaNavy,
+                      color: theme.textPrimary,
+                    },
+                  },
+                },
+              }}
+            >
+              <ToggleButton value="atestado">Só &quot;Atestado&quot; (dispensa médica)</ToggleButton>
+              <ToggleButton value="todas">Todas as linhas interpretadas</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            Linhas brutas extraídas da tabela: <strong>{pdfLinhasBrutasTotal}</strong>. Registros interpretados:{' '}
+            <strong>{pdfLeituraResumo.totalInterpretadas}</strong>. Com OBS &quot;Atestado&quot;:{' '}
+            <strong>{pdfLeituraResumo.comObsAtestado}</strong>. Correspondência (todas):{' '}
+            <Chip size="small" component="span" label={`OK ${pdfLeituraResumo.ok}`} color="success" sx={{ ml: 0.5 }} />{' '}
+            <Chip size="small" component="span" label={`Aviso ${pdfLeituraResumo.aviso}`} color="warning" />{' '}
+            <Chip size="small" component="span" label={`Erro ${pdfLeituraResumo.erro}`} color="error" />
+          </Typography>
+          <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1.5 }}>
+            Exibindo <strong>{pdfLinhasExibidas.length}</strong> linha(s){' '}
+            {pdfLeituraFiltro === 'atestado' ? '(filtro Atestado)' : '(sem filtro de OBS)'}. O policial do
+            cadastro é identificado <strong>somente pela MAT (PDF)</strong> (igualdade exata dos dígitos).
+          </Typography>
+          <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 420 }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Linha</TableCell>
+                  <TableCell>MAT (PDF)</TableCell>
+                  <TableCell>Início</TableCell>
+                  <TableCell>Término</TableCell>
+                  <TableCell>SEI</TableCell>
+                  <TableCell>OBS</TableCell>
+                  <TableCell>Motivo mapeado</TableCell>
+                  <TableCell>Policial (sistema)</TableCell>
+                  <TableCell>Status</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {pdfLinhasExibidas.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9}>
+                      <Typography variant="body2" color="text.secondary">
+                        {pdfLeituraFiltro === 'atestado'
+                          ? 'Nenhuma linha com "Atestado" na OBS neste filtro. Troque para "Todas as linhas interpretadas" ou verifique o PDF e o trecho de texto abaixo.'
+                          : 'Nenhum registro foi interpretado a partir do PDF. Verifique o arquivo ou o trecho de texto abaixo.'}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  pdfLinhasExibidas.map((row, idx) => (
+                    <TableRow key={`pdf-prev-${idx}-${row.linhaTexto}`} hover>
+                      <TableCell>{row.linhaTexto}</TableCell>
+                      <TableCell>{row.matriculaPdf ?? '—'}</TableCell>
+                      <TableCell>{row.dataInicioIso ? formatDate(row.dataInicioIso) : '—'}</TableCell>
+                      <TableCell>{row.dataFimIso ? formatDate(row.dataFimIso) : '—'}</TableCell>
+                      <TableCell>{row.seiNumero || '—'}</TableCell>
+                      <TableCell sx={{ maxWidth: 200 }} title={row.obsOriginal}>
+                        {row.obsOriginal}
+                      </TableCell>
+                      <TableCell>{row.filtroAtestado ? row.motivoMapeadoNome : '—'}</TableCell>
+                      <TableCell sx={{ maxWidth: 200 }}>
+                        {row.policialNome ? `${row.policialNome} (id ${row.policialId})` : '—'}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={row.status === 'ok' ? 'OK' : row.status === 'aviso' ? 'Aviso' : 'Erro'}
+                          color={row.status === 'ok' ? 'success' : row.status === 'aviso' ? 'warning' : 'error'}
+                        />
+                        {row.mensagem ? (
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            {row.mensagem}
+                          </Typography>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          {pdfTextoAmostra ? (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                Trecho do texto extraído do PDF (para conferência)
+              </Typography>
+              <Typography
+                variant="caption"
+                component="pre"
+                sx={{
+                  display: 'block',
+                  p: 1.5,
+                  bgcolor: 'action.hover',
+                  borderRadius: 1,
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: 240,
+                  overflow: 'auto',
+                  fontFamily: 'monospace',
+                }}
+              >
+                {pdfTextoAmostra}
+              </Typography>
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setPdfImportModalOpen(false);
+              setPdfImportErro(null);
+              setPdfPreviewCompleto([]);
+              setPdfNomeArquivo(null);
+            }}
+            sx={{
+              borderColor: theme.borderSoft,
+              color: theme.textPrimary,
+              '&:hover': {
+                borderColor: theme.accentMuted,
+                bgcolor: 'rgba(107, 155, 196, 0.12)',
+                color: theme.textPrimary,
+              },
+            }}
+          >
+            Fechar
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Modal com informações do policial */}
       <Dialog
@@ -3156,6 +3640,11 @@ export function AfastamentosSection({
                 return;
               }
 
+              if (policialParaMesPrevisao.status === 'DESATIVADO') {
+                setError('Policiais desativados não podem ter previsão de férias alterada.');
+                return;
+              }
+
               // Validação do campo SEI para reprogramação
               if (policialParaMesPrevisao.feriasConfirmadas && !documentoSei.trim()) {
                 setError('Por favor, informe o Documento SEI.');
@@ -3182,16 +3671,18 @@ export function AfastamentosSection({
                   try {
                     setSalvandoMesPrevisao(true);
                     setError(null);
-                    
-                    await api.updatePolicial(policialParaMesPrevisao.id, {
+
+                    const atualizado = await api.updatePolicial(policialParaMesPrevisao.id, {
                       mesPrevisaoFerias: parseInt(mesSelecionado, 10),
                       anoPrevisaoFerias: anoAtual,
                     });
+                    aplicarPolicialAtualizadoNoEstadoCadastro(atualizado);
 
                     setSuccess(isReprogramacao ? 'Férias reprogramadas com sucesso.' : 'Mês previsto de férias salvo com sucesso.');
                     setModalMesPrevisaoOpen(false);
                     setDocumentoSei('');
                     await carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
+                    onChanged?.();
                   } catch (err) {
                     setError(
                       err instanceof Error
@@ -3215,7 +3706,12 @@ export function AfastamentosSection({
                 background: `linear-gradient(135deg, var(--accent-muted) 0%, var(--sentinela-blue) 100%)`,
               },
             }}
-            disabled={salvandoMesPrevisao || !mesSelecionado || (policialParaMesPrevisao?.feriasConfirmadas && !documentoSei.trim())}
+            disabled={
+              salvandoMesPrevisao ||
+              !mesSelecionado ||
+              policialParaMesPrevisao?.status === 'DESATIVADO' ||
+              (policialParaMesPrevisao?.feriasConfirmadas && !documentoSei.trim())
+            }
           >
             {salvandoMesPrevisao ? 'Salvando...' : 'Salvar'}
           </Button>

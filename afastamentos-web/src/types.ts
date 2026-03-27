@@ -167,6 +167,93 @@ export interface HorarioSvg {
   horaFim: string;
 }
 
+/** Parâmetros globais da escala (API GET /escalas/parametros). */
+export interface EscalaParametros {
+  dataInicioEquipes: string;
+  dataInicioMotoristas: string;
+  sequenciaEquipes: string;
+  sequenciaMotoristas: string;
+}
+
+export interface EscalaInformacao {
+  id: number;
+  titulo: string;
+  conteudo: string;
+  ordem: number;
+  ativo: boolean;
+  createdAt: string;
+  updatedAt: string;
+  createdById?: number | null;
+  createdByName?: string | null;
+  updatedById?: number | null;
+  updatedByName?: string | null;
+}
+
+export interface EscalaGeradaLinha {
+  id: number;
+  escalaGeradaId: number;
+  lista: 'DISPONIVEL' | 'AFASTADO';
+  policialId: number;
+  nome: string;
+  matricula: string;
+  equipe: string | null;
+  horarioServico: string;
+  funcaoNome: string | null;
+  detalheAfastamento: string | null;
+}
+
+export interface EscalaGerada {
+  id: number;
+  dataEscala: string;
+  tipoServico: string;
+  resumoEquipes: string | null;
+  ativo?: boolean;
+  createdAt: string;
+  createdById: number | null;
+  createdByName: string | null;
+  linhas: EscalaGeradaLinha[];
+}
+
+/** Resumo de GET /escalas/geradas (sem linhas). */
+export interface EscalaGeradaResumo {
+  id: number;
+  dataEscala: string;
+  tipoServico: string;
+  resumoEquipes: string | null;
+  createdAt: string;
+  createdById: number | null;
+  createdByName: string | null;
+  linhasCount: number;
+}
+
+export interface TrocaServico {
+  id: number;
+  policialAId: number;
+  policialBId: number;
+  equipeOrigemA: string | null;
+  equipeOrigemB: string | null;
+  dataServicoA: string;
+  dataServicoB: string;
+  restauradoA: boolean;
+  restauradoB: boolean;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Item de GET /troca-servico/ativas (troca ainda ativa, com policiais atuais). */
+export interface TrocaServicoAtivaListaItem {
+  id: number;
+  dataServicoA: string;
+  dataServicoB: string;
+  restauradoA: boolean;
+  restauradoB: boolean;
+  equipeOrigemA: string | null;
+  equipeOrigemB: string | null;
+  policialA: { id: number; nome: string; matricula: string; equipe: string | null };
+  policialB: { id: number; nome: string; matricula: string; equipe: string | null };
+}
+
 export interface UsuarioNivelOption {
   id: number;
   nome: string;

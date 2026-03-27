@@ -30,6 +30,14 @@ export type TabKey =
   | 'dashboard'
   | 'afastamentos'
   | 'calendario'
+  /** Legado: uma única chave para toda a área Escalas (ainda pode existir no banco até regravar permissões). */
+  | 'escalas'
+  /** Gerar e gravar escalas (aba Gerar). */
+  | 'escalas-gerar'
+  /** Consultar / imprimir escalas salvas (aba Visualizar). */
+  | 'escalas-consultar'
+  /** Registrar e gerenciar trocas de serviço (Efetivo + área de trocas em Escalas). */
+  | 'troca-servico'
   | 'sistema'
   | 'afastamentos-mes'
   | 'policiais'
@@ -42,9 +50,9 @@ export type TabKey =
   | 'gestao-sistema';
 
 export const AFastamentosSubTABS: { key: AfastamentosSubTabKey; label: string }[] = [
+  { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'afastamentos-mes', label: 'Afastamentos do mês' },
   { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
-  { key: 'afastamentos', label: 'Gerenciar afastamentos' },
 ];
 
 export const EfetivoSubTABS: { key: EfetivoSubTabKey; label: string }[] = [
@@ -61,6 +69,7 @@ export const SistemaSubTABS: { key: SistemaSubTabKey; label: string }[] = [
 export const TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'calendario', label: 'Calendário das Equipes' },
+  { key: 'escalas', label: 'Escalas' },
   { key: 'afastamentos', label: 'Afastamentos' },
   { key: 'equipe', label: 'Efetivo' },
   { key: 'sistema', label: 'Sistema' },
@@ -75,6 +84,9 @@ export const PERMISSION_TABS: { key: TabKey; label: string }[] = [
   { key: 'policiais', label: 'Cadastrar Policial' },
   { key: 'usuarios', label: 'Cadastrar usuários' },
   { key: 'calendario', label: 'Calendário das Equipes' },
+  { key: 'escalas-gerar', label: 'Escalas – Gerar' },
+  { key: 'escalas-consultar', label: 'Escalas – Consultar / imprimir' },
+  { key: 'troca-servico', label: 'Troca de serviço' },
   { key: 'equipe', label: 'Efetivo' },
   { key: 'gestao-sistema', label: 'Gestão do Sistema' },
   { key: 'relatorios', label: 'Relatórios' },

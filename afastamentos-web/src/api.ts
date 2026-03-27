@@ -30,6 +30,12 @@ import type {
   UpdateRestricaoAfastamentoInput,
   StatusPolicialOption,
   HorarioSvg,
+  EscalaParametros,
+  EscalaInformacao,
+  EscalaGerada,
+  EscalaGeradaResumo,
+  TrocaServico,
+  TrocaServicoAtivaListaItem,
 } from './types.ts';
 
 const envApiUrl = import.meta.env.VITE_API_URL;
@@ -1152,5 +1158,159 @@ export const api = {
       method: 'DELETE',
     });
     clearCache();
+  },
+
+  async getEscalaParametros(): Promise<EscalaParametros> {
+    const cacheKey = 'GET:/escalas/parametros';
+    const cached = getCached<EscalaParametros>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<EscalaParametros>('/escalas/parametros');
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async updateEscalaParametros(payload: Partial<EscalaParametros>): Promise<EscalaParametros> {
+    const data = await request<EscalaParametros>('/escalas/parametros', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async listEscalaInformacoes(options?: { todos?: boolean }): Promise<EscalaInformacao[]> {
+    const path = options?.todos ? '/escalas/informacoes?todos=1' : '/escalas/informacoes';
+    const data = await request<EscalaInformacao[]>(path);
+    return data;
+  },
+
+  async createEscalaInformacao(payload: {
+    titulo: string;
+    conteudo: string;
+    ordem?: number;
+  }): Promise<EscalaInformacao> {
+    const data = await request<EscalaInformacao>('/escalas/informacoes', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async updateEscalaInformacao(
+    id: number,
+    payload: Partial<Pick<EscalaInformacao, 'titulo' | 'conteudo' | 'ordem' | 'ativo'>>,
+  ): Promise<EscalaInformacao> {
+    const data = await request<EscalaInformacao>(`/escalas/informacoes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteEscalaInformacao(id: number): Promise<void> {
+    await request(`/escalas/informacoes/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+  },
+
+  async createEscalaGerada(payload: {
+    dataEscala: string;
+    tipoServico: string;
+    resumoEquipes?: string | null;
+    linhas: Array<{
+      lista: 'DISPONIVEL' | 'AFASTADO';
+      policialId: number;
+      nome: string;
+      matricula: string;
+      equipe?: string | null;
+      horarioServico: string;
+      funcaoNome?: string | null;
+      detalheAfastamento?: string | null;
+    }>;
+  }): Promise<EscalaGerada> {
+    const data = await request<EscalaGerada>('/escalas/geradas', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async listEscalaGeradas(params?: { take?: number; skip?: number }): Promise<EscalaGeradaResumo[]> {
+    const q = new URLSearchParams();
+    if (params?.take != null) q.set('take', String(params.take));
+    if (params?.skip != null) q.set('skip', String(params.skip));
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return request<EscalaGeradaResumo[]>(`/escalas/geradas${suffix}`);
+  },
+
+  async getEscalaGerada(id: number): Promise<EscalaGerada> {
+    return request<EscalaGerada>(`/escalas/geradas/${id}`);
+  },
+
+  async desativarEscalaGerada(id: number): Promise<void> {
+    await request(`/escalas/geradas/${id}/desativar`, {
+      method: 'PATCH',
+      body: JSON.stringify({}),
+    });
+    clearCache();
+  },
+
+  async deleteEscalaGerada(id: number): Promise<void> {
+    await request(`/escalas/geradas/${id}`, {
+      method: 'DELETE',
+    });
+    clearCache();
+  },
+
+  async processarRevertesTrocaServico(): Promise<{ policiaisRestaurados: number }> {
+    return request<{ policiaisRestaurados: number }>('/troca-servico/processar-revertes', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async createTrocaServico(payload: {
+    policialOrigemId: number;
+    policialOutroId: number;
+    dataServicoPolicialOrigem: string;
+    dataServicoPolicialOutro: string;
+  }): Promise<TrocaServico> {
+    const data = await request<TrocaServico>('/troca-servico', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async listTrocasServicoAtivas(): Promise<TrocaServicoAtivaListaItem[]> {
+    return request<TrocaServicoAtivaListaItem[]>('/troca-servico/ativas');
+  },
+
+  async updateTrocaServicoDatas(
+    id: number,
+    payload: { dataServicoA: string; dataServicoB: string },
+  ): Promise<TrocaServico> {
+    const data = await request<TrocaServico>(`/troca-servico/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  async cancelarTrocaServico(id: number): Promise<{ id: number; status: string }> {
+    const data = await request<{ id: number; status: string }>(`/troca-servico/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    clearCache();
+    return data;
   },
 };

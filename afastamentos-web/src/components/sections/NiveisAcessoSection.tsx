@@ -132,6 +132,15 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
       const base = criarPermissoesVazias();
       const data = await api.listUsuarioNivelPermissoes(nivel.id);
       data.forEach((item) => {
+        if (item.telaKey === 'escalas') {
+          (['escalas-gerar', 'escalas-consultar'] as TabKey[]).forEach((sub) => {
+            const telaPermiteAcao = item.acao === 'VISUALIZAR' || !TELAS_SOMENTE_VISUALIZAR.includes(sub);
+            if (base[item.acao] && sub in base[item.acao] && telaPermiteAcao) {
+              base[item.acao][sub] = true;
+            }
+          });
+          return;
+        }
         const telaKey = item.telaKey as TabKey;
         const telaPermiteAcao = item.acao === 'VISUALIZAR' || !TELAS_SOMENTE_VISUALIZAR.includes(telaKey);
         if (base[item.acao] && telaKey in base[item.acao] && telaPermiteAcao) {

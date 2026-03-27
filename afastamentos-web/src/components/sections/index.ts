@@ -9,4 +9,5 @@ export { CadastroUsuariosSection } from './CadastroUsuariosSection';
 export { RelatoriosSection } from './RelatoriosSection';
 export { GerarRestricaoAfastamentoSection } from './GerarRestricaoAfastamentoSection';
 export { CalendarioSection } from './CalendarioSection';
+export { EscalasSection } from './EscalasSection';
 export { NiveisAcessoSection } from './NiveisAcessoSection';

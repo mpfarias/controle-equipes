@@ -13,16 +13,19 @@ import {
 } from '../../constants/svgRegras';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox, Collapse, Grid } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, PictureAsPdf, Search, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox, Collapse, Grid, CircularProgress, Autocomplete } from '@mui/material';
+import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, SwapHoriz, PictureAsPdf, Search, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
 import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
-import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
+import { canEdit, canExcluir, canDesativar, podeGerenciarTrocaServicoElevado } from '../../utils/permissions';
+import { useEscalaParametros } from '../../hooks/useEscalaParametros';
 import { theme } from '../../constants/theme';
+import { nomeFuncaoIndicaExpedienteAdministrativo } from '../../utils/gerarEscalasCalculo';
+import { policialElegivelTrocaServico } from '../../utils/policialTrocaServico';
 import { PoliciaisSection } from './PoliciaisSection';
 
 const formFieldSx = {
@@ -45,6 +48,29 @@ interface MostrarEquipeSectionProps {
   onChanged?: () => void;
   refreshKey?: number;
   permissoes?: PermissoesPorTela | null;
+}
+
+function hojeIsoLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function normalizarTextoBusca(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '');
+}
+
+function matriculaExibicaoTroca(p: Policial): string {
+  return formatMatricula(
+    p.status === 'COMISSIONADO' && (p.matriculaComissionadoGdf ?? '').trim()
+      ? p.matriculaComissionadoGdf!.trim()
+      : p.matricula,
+  );
 }
 
 export function MostrarEquipeSection({
@@ -155,6 +181,7 @@ export function MostrarEquipeSection({
   const [excluirMotoristas, setExcluirMotoristas] = useState(true);
   const [excluirDesativados, setExcluirDesativados] = useState(true);
   const [tabAtiva, setTabAtiva] = useState<number>(0);
+  const { parsed: escalaParsed } = useEscalaParametros();
   const mostraCadastrarPolicial = Boolean(permissoes?.['policiais']?.VISUALIZAR);
   const tabsEfetivo = useMemo(
     () => [
@@ -169,7 +196,18 @@ export function MostrarEquipeSection({
   const [efetivoDisponivel, setEfetivoDisponivel] = useState<Policial[]>([]);
   const [loadingEfetivo, setLoadingEfetivo] = useState(false);
   const [funcaoExpedienteId, setFuncaoExpedienteId] = useState<number | null>(null);
+  /** Libera "Gerar efetivo" após listar funções (não exige cadastro "EXPEDIENTE ADM" se houver CMT/SUBCMT). */
+  const [funcoesEfetivoCarregadas, setFuncoesEfetivoCarregadas] = useState(false);
   const [modalEfetivoOpen, setModalEfetivoOpen] = useState(false);
+  const [trocaModalOpen, setTrocaModalOpen] = useState(false);
+  const [trocaPolicialOrigem, setTrocaPolicialOrigem] = useState<Policial | null>(null);
+  const [trocaPolicialOutroId, setTrocaPolicialOutroId] = useState<number | ''>('');
+  const [trocaDataPolicialOrigem, setTrocaDataPolicialOrigem] = useState('');
+  const [trocaDataPolicialOutro, setTrocaDataPolicialOutro] = useState('');
+  const [trocaCandidatos, setTrocaCandidatos] = useState<Policial[]>([]);
+  const [trocaCandidatosLoading, setTrocaCandidatosLoading] = useState(false);
+  const [trocaSubmitting, setTrocaSubmitting] = useState(false);
+  const [trocaModalError, setTrocaModalError] = useState<string | null>(null);
   const [dataSvg, setDataSvg] = useState<string>('');
   const [horarioSvg, setHorarioSvg] = useState<string>('');
   const [horariosSvg, setHorariosSvg] = useState<HorarioSvg[]>([]);
@@ -253,10 +291,19 @@ export function MostrarEquipeSection({
         }
       } catch (error) {
         console.error('Erro ao buscar funções:', error);
+      } finally {
+        setFuncoesEfetivoCarregadas(true);
       }
     };
     void buscarFuncoes();
   }, [usuarioEhCpmulher]);
+
+  const policialEhExpedienteAdministrativo = useCallback(
+    (p: Policial) =>
+      (funcaoExpedienteId != null && p.funcaoId === funcaoExpedienteId) ||
+      nomeFuncaoIndicaExpedienteAdministrativo(p.funcao?.nome),
+    [funcaoExpedienteId],
+  );
 
   // Carregar horários SVG quando a aba SVG estiver ativa
   useEffect(() => {
@@ -397,9 +444,6 @@ export function MostrarEquipeSection({
 
       const idsAfastados = new Set(afastamentos.filter(afastamentoAtivoNaData).map((af) => af.policialId));
 
-      const eExpediente = (p: Policial) =>
-        p.funcaoId === funcaoExpedienteId || (p.funcao?.nome?.toUpperCase().includes('EXPEDIENTE ADM') ?? false);
-
       const MIN_PER_HOUR = 60;
       const M24 = 24 * MIN_PER_HOUR;
       const intervaloEscalaMin = SVG_INTERVALO_ESCALAS_HORAS * MIN_PER_HOUR;
@@ -423,7 +467,7 @@ export function MostrarEquipeSection({
         if (idsAfastados.has(p.id)) return { disponivel: false, motivo: 'Em gozo de afastamento' };
 
         if (!p.equipe || p.equipe === 'SEM_EQUIPE') {
-          if (eExpediente(p)) {
+          if (policialEhExpedienteAdministrativo(p)) {
             if (!expedienteHorario) return { disponivel: true };
             const expedienteStart = timeToMin(expedienteHorario.inicio);
             const expedienteEnd = timeToMin(expedienteHorario.fim);
@@ -478,15 +522,22 @@ export function MostrarEquipeSection({
     } finally {
       setLoadingListaSvg(false);
     }
-  }, [dataSvg, horarioSvg, horariosSvg, funcaoExpedienteId]);
+  }, [
+    dataSvg,
+    horarioSvg,
+    horariosSvg,
+    policialEhExpedienteAdministrativo,
+    escalaParsed.dataInicioEquipes.getTime(),
+    escalaParsed.sequenciaEquipes.join(','),
+  ]);
 
-  // Constantes para cálculo de escalas (mesmas do CalendarioSection)
-  const DATA_INICIO_ESCALA = new Date(2026, 0, 20); // 20 de janeiro de 2026
-  const SEQUENCIA_EQUIPES: Equipe[] = ['D', 'E', 'B', 'A', 'C'];
+  const DATA_INICIO_ESCALA = escalaParsed.dataInicioEquipes;
+  const SEQUENCIA_EQUIPES = escalaParsed.sequenciaEquipes;
+  const nEquipes = SEQUENCIA_EQUIPES.length || 1;
 
   // Calcular qual equipe saiu do serviço noturno em uma data específica (às 07h)
   const calcularEquipeQueSaiuNoturno = (data: Date): Equipe | null => {
-    const dataInicio = new Date(DATA_INICIO_ESCALA);
+    const dataInicio = DATA_INICIO_ESCALA;
     
     // Se a data for anterior a 1 de janeiro de 2026, retornar null
     const dataMinima = new Date(2026, 0, 1);
@@ -506,8 +557,8 @@ export function MostrarEquipeSection({
     // Não retornar null se diffDaysAnterior for negativo, usar módulo mesmo assim
 
     // Calcular equipe que estava de noite no dia anterior
-    const posicaoDiaAnterior = ((diffDaysAnterior % 5) + 5) % 5;
-    const posicaoNoiteAnterior = (posicaoDiaAnterior - 1 + 5) % 5;
+    const posicaoDiaAnterior = ((diffDaysAnterior % nEquipes) + nEquipes) % nEquipes;
+    const posicaoNoiteAnterior = (posicaoDiaAnterior - 1 + nEquipes) % nEquipes;
     const equipe = SEQUENCIA_EQUIPES[posicaoNoiteAnterior];
     
     return equipe;
@@ -520,8 +571,8 @@ export function MostrarEquipeSection({
     if (dataAtual.getTime() < dataMinima.getTime()) return null;
     const diffTime = dataAtual.getTime() - DATA_INICIO_ESCALA.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-    const posicaoDia = ((diffDays % 5) + 5) % 5;
-    const posicaoNoite = (posicaoDia - 1 + 5) % 5;
+    const posicaoDia = ((diffDays % nEquipes) + nEquipes) % nEquipes;
+    const posicaoNoite = (posicaoDia - 1 + nEquipes) % nEquipes;
     const equipe = periodo === 'dia' ? SEQUENCIA_EQUIPES[posicaoDia] : SEQUENCIA_EQUIPES[posicaoNoite];
     return equipe;
   };
@@ -608,8 +659,8 @@ export function MostrarEquipeSection({
       return;
     }
 
-    if (!funcaoExpedienteId) {
-      setError('Função do expediente não encontrada. Aguarde o carregamento.');
+    if (!funcoesEfetivoCarregadas) {
+      setError('Aguarde o carregamento das funções e tente novamente.');
       return;
     }
 
@@ -689,7 +740,7 @@ export function MostrarEquipeSection({
         //    a) É do expediente OU
         //    b) É de alguma equipe e está na segunda ou terceira folga
         
-        const eDoExpediente = policial.funcaoId === funcaoExpedienteId;
+        const eDoExpediente = policialEhExpedienteAdministrativo(policial);
         const temEquipe = !!policial.equipe; // Verifica se tem equipe (não null/undefined)
         const estaNaFolga = temEquipe && policial.equipe ? equipeEstaNaSegundaOuTerceiraFolga(policial.equipe, dataSelecionada) : false;
         
@@ -839,6 +890,13 @@ export function MostrarEquipeSection({
   const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
       setLoading(true);
+      if (tabAtiva === 0) {
+        try {
+          await api.processarRevertesTrocaServico();
+        } catch {
+          /* não bloqueia carregar a lista */
+        }
+      }
       const nivelNome = currentUser.nivel?.nome;
       const usuarioPodeVerTodos =
         nivelNome === 'ADMINISTRADOR' ||
@@ -938,7 +996,19 @@ export function MostrarEquipeSection({
     } finally {
       setLoading(false);
     }
-  }, [currentUser, usuarioEhCpmulher, funcoesCpmulherIds, equipesSelecionadas, funcoesSelecionadas, statusSelecionados, ordenacao, debouncedSearchTerm, excluirMotoristas, excluirDesativados]);
+  }, [
+    currentUser,
+    usuarioEhCpmulher,
+    funcoesCpmulherIds,
+    equipesSelecionadas,
+    funcoesSelecionadas,
+    statusSelecionados,
+    ordenacao,
+    debouncedSearchTerm,
+    excluirMotoristas,
+    excluirDesativados,
+    tabAtiva,
+  ]);
 
   const carregarFuncoes = useCallback(async () => {
     try {
@@ -1040,6 +1110,112 @@ export function MostrarEquipeSection({
     setEditError(null);
     setEditCpfError(null);
     setShowImageCropper(false);
+  };
+
+  const fecharModalTroca = useCallback(() => {
+    setTrocaModalOpen(false);
+    setTrocaPolicialOrigem(null);
+    setTrocaPolicialOutroId('');
+    setTrocaModalError(null);
+    setTrocaCandidatos([]);
+  }, []);
+
+  useEffect(() => {
+    if (tabAtiva !== 0 && trocaModalOpen) fecharModalTroca();
+  }, [tabAtiva, trocaModalOpen, fecharModalTroca]);
+
+  const handleFazerTroca = useCallback(
+    async (policial: Policial) => {
+      if (!policialElegivelTrocaServico(policial)) {
+        setError(
+          'Troca de serviço só é permitida para policiais com equipe operacional, motorista de dia, Designado, PTTC ou comissionado.',
+        );
+        return;
+      }
+      setTrocaPolicialOrigem(policial);
+      setTrocaPolicialOutroId('');
+      const hoje = hojeIsoLocal();
+      setTrocaDataPolicialOrigem(hoje);
+      setTrocaDataPolicialOutro(hoje);
+      setTrocaModalError(null);
+      setTrocaModalOpen(true);
+      setTrocaCandidatosLoading(true);
+      setTrocaCandidatos([]);
+      try {
+        const nivelNome = currentUser.nivel?.nome;
+        const usuarioPodeVerTodos =
+          nivelNome === 'ADMINISTRADOR' ||
+          nivelNome === 'SAD' ||
+          nivelNome === 'COMANDO' ||
+          currentUser.isAdmin === true;
+        const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+          page: 1,
+          pageSize: 8000,
+          statuses: ['ATIVO', 'DESIGNADO'],
+          includeAfastamentos: false,
+          includeRestricoes: false,
+        };
+        if (!usuarioPodeVerTodos && currentUser.equipe) {
+          params.equipe = currentUser.equipe;
+        }
+        const data = await api.listPoliciaisPaginated(params);
+        const eqOrigem = policial.equipe ?? null;
+        const lista = data.Policiales.filter(
+          (p) =>
+            policialElegivelTrocaServico(p) &&
+            p.id !== policial.id &&
+            (p.equipe ?? null) !== eqOrigem &&
+            (p.status === 'ATIVO' || p.status === 'DESIGNADO'),
+        );
+        lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+        setTrocaCandidatos(lista);
+        if (lista.length === 0) {
+          setTrocaModalError(
+            usuarioPodeVerTodos
+              ? 'Não há outros policiais ativos (equipe operacional ou motorista) com equipe diferente da sua para trocar.'
+              : 'Não há policiais elegíveis (equipe operacional ou motorista, com equipe diferente da sua). Amplie o filtro ou use um perfil com visão de todas as equipes.',
+          );
+        }
+      } catch {
+        setTrocaModalError('Não foi possível carregar a lista de policiais.');
+        setTrocaCandidatos([]);
+      } finally {
+        setTrocaCandidatosLoading(false);
+      }
+    },
+    [currentUser],
+  );
+
+  const handleConfirmarTrocaServico = async () => {
+    if (!trocaPolicialOrigem || trocaPolicialOutroId === '') {
+      setTrocaModalError('Selecione o outro policial.');
+      return;
+    }
+    if (!trocaDataPolicialOrigem?.trim() || !trocaDataPolicialOutro?.trim()) {
+      setTrocaModalError('Informe as duas datas de serviço.');
+      return;
+    }
+    setTrocaSubmitting(true);
+    setTrocaModalError(null);
+    try {
+      await api.createTrocaServico({
+        policialOrigemId: trocaPolicialOrigem.id,
+        policialOutroId: Number(trocaPolicialOutroId),
+        dataServicoPolicialOrigem: trocaDataPolicialOrigem.trim(),
+        dataServicoPolicialOutro: trocaDataPolicialOutro.trim(),
+      });
+      await api.processarRevertesTrocaServico();
+      fecharModalTroca();
+      setSuccess(
+        'Troca de serviço registrada. As equipes foram invertidas imediatamente; após cada data de serviço (calendário de Brasília), o policial volta automaticamente à equipe de origem.',
+      );
+      void carregarPoliciais(paginaAtual, itensPorPagina);
+      onChanged?.();
+    } catch (e) {
+      setTrocaModalError(e instanceof Error ? e.message : 'Falha ao registrar a troca.');
+    } finally {
+      setTrocaSubmitting(false);
+    }
   };
 
   const closeEditModal = () => {
@@ -2360,6 +2536,24 @@ export function MostrarEquipeSection({
                           <Edit fontSize="small" />
                         </IconButton>
                       )}
+                      {podeGerenciarTrocaServicoElevado(permissoes, currentUser) &&
+                        policial.status !== 'DESATIVADO' &&
+                        policialElegivelTrocaServico(policial) && (
+                        <IconButton
+                          onClick={() => handleFazerTroca(policial)}
+                          title="Trocar serviço"
+                          aria-label="Trocar serviço"
+                          size="small"
+                          sx={{
+                            color: 'var(--accent-muted)',
+                            '&:hover': {
+                              backgroundColor: theme.alertInfoBg,
+                            },
+                          }}
+                        >
+                          <SwapHoriz fontSize="small" />
+                        </IconButton>
+                      )}
                       {policial.status === 'DESATIVADO' ? (
                         canDesativar(permissoes, 'equipe') && (
                           <IconButton
@@ -2481,6 +2675,122 @@ export function MostrarEquipeSection({
         )}
         </>
       )}
+
+      <Dialog open={trocaModalOpen} onClose={fecharModalTroca} maxWidth="sm" fullWidth>
+        <DialogTitle>Troca de serviço</DialogTitle>
+        <DialogContent>
+          {trocaPolicialOrigem && (
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Policial de origem (apenas equipes operacionais ou motoristas). A equipe é trocada na hora até as
+                datas abaixo; depois cada um retorna à equipe original.
+              </Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                {trocaPolicialOrigem.nome}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Equipe atual: {formatEquipeLabel(trocaPolicialOrigem.equipe)}
+              </Typography>
+
+              {trocaModalError && (
+                <Alert severity="error" onClose={() => setTrocaModalError(null)}>
+                  {trocaModalError}
+                </Alert>
+              )}
+
+              <Autocomplete<Policial, false, false, false>
+                size="small"
+                fullWidth
+                loading={trocaCandidatosLoading}
+                options={trocaCandidatos}
+                value={
+                  trocaPolicialOutroId === ''
+                    ? null
+                    : trocaCandidatos.find((p) => p.id === trocaPolicialOutroId) ?? null
+                }
+                onChange={(_, novo) => {
+                  setTrocaPolicialOutroId(novo?.id ?? '');
+                }}
+                getOptionLabel={(p) =>
+                  `${p.nome} — ${formatEquipeLabel(p.equipe)} · ${matriculaExibicaoTroca(p)}`
+                }
+                isOptionEqualToValue={(a, b) => a.id === b.id}
+                filterOptions={(options, { inputValue }) => {
+                  const t = normalizarTextoBusca(inputValue.trim());
+                  if (!t) return options;
+                  return options.filter((p) => {
+                    const mat = matriculaExibicaoTroca(p);
+                    const haystack = normalizarTextoBusca(
+                      `${p.nome} ${mat} ${p.matricula ?? ''} ${p.matriculaComissionadoGdf ?? ''} ${p.equipe ?? ''}`,
+                    );
+                    return haystack.includes(t);
+                  });
+                }}
+                noOptionsText={
+                  trocaCandidatosLoading ? 'Carregando…' : 'Nenhum policial encontrado para esta busca'
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Trocar com"
+                    placeholder="Digite nome, matrícula ou equipe…"
+                    InputProps={{
+                      ...params.InputProps,
+                      endAdornment: (
+                        <>
+                          {trocaCandidatosLoading ? (
+                            <CircularProgress color="inherit" size={18} sx={{ mr: 1 }} />
+                          ) : null}
+                          {params.InputProps.endAdornment}
+                        </>
+                      ),
+                    }}
+                  />
+                )}
+              />
+
+              <TextField
+                label="Data em que o policial de origem cumpre serviço na equipe do outro"
+                type="date"
+                size="small"
+                fullWidth
+                value={trocaDataPolicialOrigem}
+                onChange={(e) => setTrocaDataPolicialOrigem(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ min: hojeIsoLocal() }}
+              />
+              <TextField
+                label="Dia em que o outro policial cumpre na equipe de origem"
+                type="date"
+                size="small"
+                fullWidth
+                value={trocaDataPolicialOutro}
+                onChange={(e) => setTrocaDataPolicialOutro(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ min: hojeIsoLocal() }}
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button variant="outlined" onClick={fecharModalTroca} disabled={trocaSubmitting}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleConfirmarTrocaServico()}
+            disabled={
+              trocaSubmitting ||
+              trocaCandidatosLoading ||
+              trocaPolicialOutroId === '' ||
+              !trocaDataPolicialOrigem ||
+              !trocaDataPolicialOutro
+            }
+          >
+            {trocaSubmitting ? 'Registrando…' : 'Efetivar troca'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {editingPolicial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
@@ -3762,7 +4072,7 @@ export function MostrarEquipeSection({
             <Button
               variant="contained"
               onClick={handleGerarEfetivo}
-              disabled={!dataEfetivo || loadingEfetivo || !funcaoExpedienteId}
+              disabled={!dataEfetivo || loadingEfetivo || !funcoesEfetivoCarregadas}
               fullWidth
             >
               {loadingEfetivo ? 'Gerando...' : 'Gerar efetivo'}

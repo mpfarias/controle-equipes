@@ -6,6 +6,36 @@ export type PermissoesPorTela = Record<
   Partial<Record<PermissaoAcao, boolean>>
 >;
 
+const TODAS_ACOES: PermissaoAcao[] = ['VISUALIZAR', 'EDITAR', 'DESATIVAR', 'EXCLUIR'];
+
+/** Aba principal Escalas: legado `escalas` ou qualquer subárea. */
+export function temAcessoEscalas(permissoes: PermissoesPorTela | null | undefined): boolean {
+  if (!permissoes) return false;
+  return Boolean(
+    permissoes['escalas']?.VISUALIZAR ||
+      permissoes['escalas-gerar']?.VISUALIZAR ||
+      permissoes['escalas-consultar']?.VISUALIZAR,
+  );
+}
+
+/**
+ * Permissões antigas usavam só `escalas`. Após carregar o mapa do backend, copia cada ação liberada
+ * para `escalas-gerar` e `escalas-consultar`.
+ */
+export function expandirPermissoesLegadoEscalas(
+  base: Record<TabKey, Record<PermissaoAcao, boolean>>,
+): void {
+  const legado = base['escalas'];
+  if (!legado) return;
+  const gran: TabKey[] = ['escalas-gerar', 'escalas-consultar'];
+  for (const acao of TODAS_ACOES) {
+    if (!legado[acao]) continue;
+    for (const k of gran) {
+      if (base[k]) base[k][acao] = true;
+    }
+  }
+}
+
 /**
  * Verifica se o usuário tem uma permissão específica para uma tela
  */
@@ -32,6 +62,17 @@ export function canView(permissoes: PermissoesPorTela | null | undefined, tela: 
  */
 export function canEdit(permissoes: PermissoesPorTela | null | undefined, tela: TabKey): boolean {
   return hasPermission(permissoes, tela, 'EDITAR');
+}
+
+/** Compatível com regras antigas por nome de nível (além de isAdmin e permissão explícita). */
+export function podeGerenciarTrocaServicoElevado(
+  permissoes: PermissoesPorTela | null | undefined,
+  usuario: { isAdmin?: boolean; nivel?: { nome?: string | null } | null },
+): boolean {
+  if (usuario.isAdmin === true) return true;
+  const n = usuario.nivel?.nome?.toUpperCase() ?? '';
+  if (n === 'ADMINISTRADOR' || n === 'SAD' || n === 'COMANDO') return true;
+  return canEdit(permissoes, 'troca-servico');
 }
 
 /**

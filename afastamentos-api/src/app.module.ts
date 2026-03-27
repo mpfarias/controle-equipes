@@ -13,6 +13,8 @@ import { ErrosModule } from './erros/erros.module';
 import { AcessosModule } from './acessos/acessos.module';
 import { RestricoesAfastamentoModule } from './restricoes-afastamento/restricoes-afastamento.module';
 import { SvgModule } from './svg/svg.module';
+import { EscalasModule } from './escalas/escalas.module';
+import { TrocaServicoModule } from './troca-servico/troca-servico.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { APP_FILTER } from '@nestjs/core';
@@ -38,6 +40,8 @@ import { HttpExceptionFilter } from './erros/http-exception.filter';
     AcessosModule,
     RestricoesAfastamentoModule,
     SvgModule,
+    EscalasModule,
+    TrocaServicoModule,
   ],
   providers: [
     {

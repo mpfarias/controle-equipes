@@ -1,0 +1,676 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  Tab,
+  Tabs,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  TextField,
+  Tooltip,
+  Typography,
+} from '@mui/material';
+import { Block, Edit } from '@mui/icons-material';
+import { api } from '../../api';
+import type { EscalaGerada, EscalaGeradaResumo, TrocaServicoAtivaListaItem, Usuario } from '../../types';
+import { formatEquipeLabel } from '../../constants';
+import { formatDate, formatMatricula } from '../../utils/dateUtils';
+import type { PermissoesPorTela } from '../../utils/permissions';
+import { canDesativar, canExcluir, canView, podeGerenciarTrocaServicoElevado } from '../../utils/permissions';
+import { labelTipoServico, type EscalaGeradaDraftPayload } from '../../utils/gerarEscalasCalculo';
+import {
+  openEscalaGeradaBlankWindow,
+  writeEscalaGeradaLoadingWindow,
+  writeEscalaGeradaPrintWindow,
+} from '../../utils/escalaGeradaPrint';
+
+function hojeYmdBrasil(): string {
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = f.formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const m = parts.find((p) => p.type === 'month')?.value;
+  const d = parts.find((p) => p.type === 'day')?.value;
+  return `${y}-${m}-${d}`;
+}
+
+function ymdFromApi(value: string): string {
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1]! : value.slice(0, 10);
+}
+
+function escalaGeradaToDraft(eg: EscalaGerada): EscalaGeradaDraftPayload {
+  return {
+    dataEscala: ymdFromApi(eg.dataEscala),
+    tipoServico: eg.tipoServico,
+    resumoEquipes: eg.resumoEquipes ?? '',
+    linhas: eg.linhas.map((l) => ({
+      lista: l.lista,
+      policialId: l.policialId,
+      nome: l.nome,
+      matricula: l.matricula,
+      equipe: l.equipe,
+      horarioServico: l.horarioServico,
+      funcaoNome: l.funcaoNome,
+      detalheAfastamento: l.detalheAfastamento,
+    })),
+  };
+}
+
+interface VisualizarEscalasTabProps {
+  currentUser: Usuario;
+  permissoes?: PermissoesPorTela | null;
+}
+
+export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEscalasTabProps) {
+  const [mostrarTrocas, setMostrarTrocas] = useState(false);
+  const [loadingTrocas, setLoadingTrocas] = useState(false);
+  const [errorTrocas, setErrorTrocas] = useState<string | null>(null);
+  const [itensTrocas, setItensTrocas] = useState<TrocaServicoAtivaListaItem[]>([]);
+  const [trocasTab, setTrocasTab] = useState<'andamento' | 'efetivadas'>('andamento');
+
+  const [mostrarEscalasGeradas, setMostrarEscalasGeradas] = useState(false);
+  const [loadingEscalas, setLoadingEscalas] = useState(false);
+  const [errorEscalas, setErrorEscalas] = useState<string | null>(null);
+  const [itensEscalas, setItensEscalas] = useState<EscalaGeradaResumo[]>([]);
+  const [abrirEscalaError, setAbrirEscalaError] = useState<string | null>(null);
+
+  const [editRow, setEditRow] = useState<TrocaServicoAtivaListaItem | null>(null);
+  const [editDataA, setEditDataA] = useState('');
+  const [editDataB, setEditDataB] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const [cancelRow, setCancelRow] = useState<TrocaServicoAtivaListaItem | null>(null);
+  const [cancelSaving, setCancelSaving] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const [desativarEscala, setDesativarEscala] = useState<EscalaGeradaResumo | null>(null);
+  const [desativarSaving, setDesativarSaving] = useState(false);
+  const [desativarError, setDesativarError] = useState<string | null>(null);
+  const [excluirEscala, setExcluirEscala] = useState<EscalaGeradaResumo | null>(null);
+  const [excluirSaving, setExcluirSaving] = useState(false);
+  const [excluirError, setExcluirError] = useState<string | null>(null);
+
+  const hojeMin = hojeYmdBrasil();
+
+  const podeVerTrocas = canView(permissoes, 'troca-servico');
+  const podeGerenciarTrocas = podeGerenciarTrocaServicoElevado(permissoes, currentUser);
+  const podeDesativarEscala = canDesativar(permissoes, 'escalas-consultar');
+  const podeExcluirEscala = canExcluir(permissoes, 'escalas-consultar');
+
+  const carregarTrocas = useCallback(async () => {
+    setLoadingTrocas(true);
+    setErrorTrocas(null);
+    try {
+      await api.processarRevertesTrocaServico();
+      const data = await api.listTrocasServicoAtivas();
+      setItensTrocas(data);
+    } catch (e) {
+      setItensTrocas([]);
+      setErrorTrocas(e instanceof Error ? e.message : 'Não foi possível carregar as trocas.');
+    } finally {
+      setLoadingTrocas(false);
+    }
+  }, []);
+
+  const itensTrocasFiltradas = useMemo(() => {
+    const efetivadas = itensTrocas.filter((r) => r.restauradoA && r.restauradoB);
+    if (trocasTab === 'efetivadas') return efetivadas;
+    // Em andamento = ao menos um dos policiais ainda não retornou para a origem.
+    return itensTrocas.filter((r) => !r.restauradoA || !r.restauradoB);
+  }, [itensTrocas, trocasTab]);
+
+  const carregarEscalasGeradas = useCallback(async () => {
+    setLoadingEscalas(true);
+    setErrorEscalas(null);
+    try {
+      const data = await api.listEscalaGeradas({ take: 200 });
+      setItensEscalas(data);
+    } catch (e) {
+      setItensEscalas([]);
+      setErrorEscalas(e instanceof Error ? e.message : 'Não foi possível carregar as escalas.');
+    } finally {
+      setLoadingEscalas(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mostrarTrocas) {
+      void carregarTrocas();
+    }
+  }, [mostrarTrocas, carregarTrocas]);
+
+  useEffect(() => {
+    if (mostrarEscalasGeradas) {
+      void carregarEscalasGeradas();
+    }
+  }, [mostrarEscalasGeradas, carregarEscalasGeradas]);
+
+  const abrirEdicao = (row: TrocaServicoAtivaListaItem) => {
+    setEditError(null);
+    setEditRow(row);
+    setEditDataA(ymdFromApi(row.dataServicoA));
+    setEditDataB(ymdFromApi(row.dataServicoB));
+  };
+
+  const salvarEdicao = async () => {
+    if (!editRow) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await api.updateTrocaServicoDatas(editRow.id, {
+        dataServicoA: editDataA.trim(),
+        dataServicoB: editDataB.trim(),
+      });
+      setEditRow(null);
+      await carregarTrocas();
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Falha ao salvar.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const confirmarCancelamento = async () => {
+    if (!cancelRow) return;
+    setCancelSaving(true);
+    setCancelError(null);
+    try {
+      await api.cancelarTrocaServico(cancelRow.id);
+      setCancelRow(null);
+      await carregarTrocas();
+    } catch (e) {
+      setCancelError(e instanceof Error ? e.message : 'Falha ao cancelar.');
+    } finally {
+      setCancelSaving(false);
+    }
+  };
+
+  const podeAlterarDatas = (row: TrocaServicoAtivaListaItem) =>
+    !row.restauradoA && !row.restauradoB;
+
+  const confirmarDesativarEscala = async () => {
+    if (!desativarEscala) return;
+    setDesativarSaving(true);
+    setDesativarError(null);
+    try {
+      await api.desativarEscalaGerada(desativarEscala.id);
+      setDesativarEscala(null);
+      await carregarEscalasGeradas();
+    } catch (e) {
+      setDesativarError(e instanceof Error ? e.message : 'Falha ao desativar.');
+    } finally {
+      setDesativarSaving(false);
+    }
+  };
+
+  const confirmarExcluirEscala = async () => {
+    if (!excluirEscala) return;
+    setExcluirSaving(true);
+    setExcluirError(null);
+    try {
+      await api.deleteEscalaGerada(excluirEscala.id);
+      setExcluirEscala(null);
+      await carregarEscalasGeradas();
+    } catch (e) {
+      setExcluirError(e instanceof Error ? e.message : 'Falha ao excluir.');
+    } finally {
+      setExcluirSaving(false);
+    }
+  };
+
+  const abrirEscalaGeradaImpressao = (id: number) => {
+    setAbrirEscalaError(null);
+    const w = openEscalaGeradaBlankWindow();
+    if (!w) {
+      setAbrirEscalaError('O navegador bloqueou a nova janela. Permita pop-ups para este site.');
+      return;
+    }
+    writeEscalaGeradaLoadingWindow(w);
+    void (async () => {
+      try {
+        const full = await api.getEscalaGerada(id);
+        writeEscalaGeradaPrintWindow(w, escalaGeradaToDraft(full));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao carregar a escala.';
+        w.document.open();
+        w.document.write(
+          `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/><title>Erro</title></head><body><p>${msg.replace(/</g, '&lt;')}</p></body></html>`,
+        );
+        w.document.close();
+      }
+    })();
+  };
+
+  return (
+    <>
+      <p className="subtitle" style={{ marginTop: 0, marginBottom: 16 }}>
+        Clique em um cartão para expandir
+        {podeVerTrocas ? ' e consultar trocas de serviço ou' : ' e'} consultar escalas já salvas.
+      </p>
+
+      <div className="management-grid">
+        {podeVerTrocas ? (
+        <div className="management-item">
+          <button
+            type="button"
+            className="management-card"
+            onClick={() => setMostrarTrocas((v) => !v)}
+            aria-expanded={mostrarTrocas}
+          >
+            <span className="management-card-title">Ver trocas de serviço</span>
+            <span className="management-card-description">
+              Lista trocas ativas: alterar datas (quando ainda não houve retorno parcial) ou cancelar e restaurar
+              equipes de origem.
+            </span>
+          </button>
+          <div className={`management-panel ${mostrarTrocas ? 'management-panel--open' : ''}`}>
+            <div className="management-panel__content">
+              <Stack spacing={2}>
+                {errorTrocas && (
+                  <Alert severity="error" onClose={() => setErrorTrocas(null)}>
+                    {errorTrocas}
+                  </Alert>
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  {loadingTrocas && <CircularProgress size={22} />}
+                </Box>
+
+                {!loadingTrocas && itensTrocas.length === 0 && !errorTrocas && (
+                  <Typography variant="body2" color="text.secondary">
+                    Nenhuma troca ativa no momento.
+                  </Typography>
+                )}
+
+                {itensTrocas.length > 0 && (
+                  <>
+                    <Tabs
+                      value={trocasTab}
+                      onChange={(_, v) => setTrocasTab(v as 'andamento' | 'efetivadas')}
+                      variant="scrollable"
+                      scrollButtons="auto"
+                      allowScrollButtonsMobile
+                    >
+                      <Tab value="andamento" label="Trocas em andamento" />
+                      <Tab value="efetivadas" label="Trocas efetivadas" />
+                    </Tabs>
+
+                    {itensTrocasFiltradas.length > 0 ? (
+                      <TableContainer
+                        sx={{
+                          border: '1px solid var(--border-soft)',
+                          borderRadius: 1,
+                          maxWidth: '100%',
+                          overflowX: 'auto',
+                        }}
+                      >
+                        <Table size="small" stickyHeader sx={{ minWidth: 980 }}>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Policial A</TableCell>
+                              <TableCell
+                                sx={{ whiteSpace: 'nowrap', minWidth: 200 }}
+                                title="Data do serviço"
+                                align="center"
+                              >
+                                Data do serviço
+                              </TableCell>
+                              <TableCell>Policial B</TableCell>
+                              <TableCell
+                                sx={{ whiteSpace: 'nowrap', minWidth: 200 }}
+                                title="Data do serviço"
+                                align="center"
+                              >
+                                Data do serviço
+                              </TableCell>
+                              <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 140 }}>Situação</TableCell>
+                              <TableCell align="right" sx={{ minWidth: 170, whiteSpace: 'nowrap' }}>
+                                Ações
+                              </TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {itensTrocasFiltradas.map((row) => (
+                              <TableRow key={row.id} hover>
+                            <TableCell sx={{ minWidth: 240 }}>
+                              <Typography variant="body2" fontWeight={600} noWrap title={row.policialA.nome}>
+                                {row.policialA.nome}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {formatMatricula(row.policialA.matricula)} · equipe atual{' '}
+                                {formatEquipeLabel(row.policialA.equipe)}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Origem: {formatEquipeLabel(row.equipeOrigemA)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 200 }} align="center">
+                              {formatDate(row.dataServicoA)}
+                            </TableCell>
+                            <TableCell>
+                              <Typography
+                                variant="body2"
+                                fontWeight={600}
+                                noWrap
+                                title={row.policialB.nome}
+                              >
+                                {row.policialB.nome}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {formatMatricula(row.policialB.matricula)} · equipe atual{' '}
+                                {formatEquipeLabel(row.policialB.equipe)}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Origem: {formatEquipeLabel(row.equipeOrigemB)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 200 }} align="center">
+                              {formatDate(row.dataServicoB)}
+                            </TableCell>
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 140 }}>
+                              <Typography variant="caption" component="span" display="block" sx={{ whiteSpace: 'nowrap' }}>
+                                {row.restauradoA ? 'A: retornou à origem' : 'A: em troca'}
+                              </Typography>
+                              <Typography variant="caption" component="span" display="block" sx={{ whiteSpace: 'nowrap' }}>
+                                {row.restauradoB ? 'B: retornou à origem' : 'B: em troca'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right" sx={{ minWidth: 170, whiteSpace: 'nowrap' }}>
+                              {podeGerenciarTrocas && trocasTab === 'andamento' ? (
+                                <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="nowrap">
+                                  <Tooltip
+                                    title={
+                                      podeAlterarDatas(row)
+                                        ? 'Alterar datas'
+                                        : 'Após retorno parcial, altere apenas cancelando e registrando nova troca.'
+                                    }
+                                  >
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        color="warning"
+                                        onClick={() => abrirEdicao(row)}
+                                        disabled={!podeAlterarDatas(row)}
+                                        aria-label="Alterar datas"
+                                      >
+                                        <Edit fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                  <Tooltip title="Cancelar troca">
+                                    <IconButton
+                                      size="small"
+                                      color="error"
+                                      onClick={() => setCancelRow(row)}
+                                      aria-label="Cancelar troca"
+                                    >
+                                      <Block fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">
+                                  Somente leitura
+                                </Typography>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        {trocasTab === 'efetivadas'
+                          ? 'Nenhuma troca efetivada no momento.'
+                          : 'Nenhuma troca em andamento no momento.'}
+                      </Typography>
+                    )}
+                  </>
+                )}
+              </Stack>
+            </div>
+          </div>
+        </div>
+        ) : null}
+
+        <div className="management-item">
+          <button
+            type="button"
+            className="management-card"
+            onClick={() => setMostrarEscalasGeradas((v) => !v)}
+            aria-expanded={mostrarEscalasGeradas}
+          >
+            <span className="management-card-title">Ver escalas geradas</span>
+            <span className="management-card-description">
+              Escalas salvas a partir da aba Gerar Escalas. Abra para visualizar ou imprimir. Quem tem permissão pode
+              desativar (ocultar da lista) ou excluir definitivamente.
+            </span>
+          </button>
+          <div className={`management-panel ${mostrarEscalasGeradas ? 'management-panel--open' : ''}`}>
+            <div className="management-panel__content">
+              <Stack spacing={2}>
+                {abrirEscalaError && (
+                  <Alert severity="warning" onClose={() => setAbrirEscalaError(null)}>
+                    {abrirEscalaError}
+                  </Alert>
+                )}
+                {errorEscalas && (
+                  <Alert severity="error" onClose={() => setErrorEscalas(null)}>
+                    {errorEscalas}
+                  </Alert>
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => void carregarEscalasGeradas()}
+                    disabled={loadingEscalas}
+                  >
+                    Atualizar lista
+                  </Button>
+                  {loadingEscalas && <CircularProgress size={22} />}
+                </Box>
+
+                {!loadingEscalas && itensEscalas.length === 0 && !errorEscalas && (
+                  <Typography variant="body2" color="text.secondary">
+                    Nenhuma escala salva no momento.
+                  </Typography>
+                )}
+
+                {itensEscalas.length > 0 && (
+                  <TableContainer
+                    sx={{ border: '1px solid var(--border-soft)', borderRadius: 1, maxWidth: '100%' }}
+                  >
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Data da escala</TableCell>
+                          <TableCell>Tipo de serviço</TableCell>
+                          <TableCell>Resumo</TableCell>
+                          <TableCell align="right">Linhas</TableCell>
+                          <TableCell>Salva em</TableCell>
+                          <TableCell>Por</TableCell>
+                          <TableCell align="right">Ações</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {itensEscalas.map((row) => (
+                          <TableRow key={row.id} hover>
+                            <TableCell>{formatDate(row.dataEscala)}</TableCell>
+                            <TableCell>{labelTipoServico(row.tipoServico)}</TableCell>
+                            <TableCell sx={{ maxWidth: 280 }}>
+                              <Typography variant="body2" noWrap title={row.resumoEquipes ?? undefined}>
+                                {row.resumoEquipes?.trim() ? row.resumoEquipes : '—'}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="right">{row.linhasCount}</TableCell>
+                            <TableCell>{formatDate(row.createdAt)}</TableCell>
+                            <TableCell>{row.createdByName ?? '—'}</TableCell>
+                            <TableCell align="right">
+                              <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap">
+                                <Button size="small" variant="contained" onClick={() => abrirEscalaGeradaImpressao(row.id)}>
+                                  Abrir
+                                </Button>
+                                {podeDesativarEscala && (
+                                  <Button size="small" color="warning" variant="outlined" onClick={() => setDesativarEscala(row)}>
+                                    Desativar
+                                  </Button>
+                                )}
+                                {podeExcluirEscala && (
+                                  <Button size="small" color="error" variant="outlined" onClick={() => setExcluirEscala(row)}>
+                                    Excluir
+                                  </Button>
+                                )}
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Stack>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={Boolean(editRow)} onClose={() => !editSaving && setEditRow(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Alterar datas da troca</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            {editError && <Alert severity="error">{editError}</Alert>}
+            <TextField
+              label="Data do serviço"
+              type="date"
+              value={editDataA}
+              onChange={(e) => setEditDataA(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+              inputProps={{ min: hojeMin }}
+            />
+            <TextField
+              label="Data do serviço"
+              type="date"
+              value={editDataB}
+              onChange={(e) => setEditDataB(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              fullWidth
+              inputProps={{ min: hojeMin }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditRow(null)} disabled={editSaving}>
+            Fechar
+          </Button>
+          <Button variant="contained" onClick={() => void salvarEdicao()} disabled={editSaving}>
+            {editSaving ? 'Salvando…' : 'Salvar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(desativarEscala)}
+        onClose={() => !desativarSaving && setDesativarEscala(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Desativar escala gerada</DialogTitle>
+        <DialogContent>
+          {desativarError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {desativarError}
+            </Alert>
+          )}
+          <Typography variant="body2">
+            A escala do dia{' '}
+            <strong>{desativarEscala ? formatDate(desativarEscala.dataEscala) : '—'}</strong> (
+            {desativarEscala ? labelTipoServico(desativarEscala.tipoServico) : '—'}) deixará de aparecer nesta lista. O registro
+            permanece no banco (somente oculto). Para removê-lo por completo, use Excluir.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDesativarEscala(null)} disabled={desativarSaving}>
+            Cancelar
+          </Button>
+          <Button color="warning" variant="contained" onClick={() => void confirmarDesativarEscala()} disabled={desativarSaving}>
+            {desativarSaving ? 'Desativando…' : 'Desativar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(excluirEscala)} onClose={() => !excluirSaving && setExcluirEscala(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Excluir escala gerada</DialogTitle>
+        <DialogContent>
+          {excluirError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {excluirError}
+            </Alert>
+          )}
+          <Typography variant="body2">
+            Excluir definitivamente a escala do dia{' '}
+            <strong>{excluirEscala ? formatDate(excluirEscala.dataEscala) : '—'}</strong> (
+            {excluirEscala ? labelTipoServico(excluirEscala.tipoServico) : '—'}) e todas as linhas salvas? Esta ação não pode ser
+            desfeita.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExcluirEscala(null)} disabled={excluirSaving}>
+            Não
+          </Button>
+          <Button color="error" variant="contained" onClick={() => void confirmarExcluirEscala()} disabled={excluirSaving}>
+            {excluirSaving ? 'Excluindo…' : 'Sim, excluir'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(cancelRow)} onClose={() => !cancelSaving && setCancelRow(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Cancelar troca de serviço</DialogTitle>
+        <DialogContent>
+          {cancelError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {cancelError}
+            </Alert>
+          )}
+          <Typography variant="body2">
+            Os policiais voltarão às equipes de origem desta troca (A:{' '}
+            {cancelRow ? formatEquipeLabel(cancelRow.equipeOrigemA) : '—'}, B:{' '}
+            {cancelRow ? formatEquipeLabel(cancelRow.equipeOrigemB) : '—'}). Deseja continuar?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCancelRow(null)} disabled={cancelSaving}>
+            Não
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void confirmarCancelamento()}
+            disabled={cancelSaving}
+          >
+            {cancelSaving ? 'Cancelando…' : 'Sim, cancelar troca'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+}

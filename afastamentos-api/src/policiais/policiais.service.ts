@@ -1031,6 +1031,20 @@ export class PoliciaisService {
       updateData.fotoUrl = data.fotoUrl;
     }
 
+    const payloadFeriasPrevisao =
+      data.mesPrevisaoFerias !== undefined ||
+      data.anoPrevisaoFerias !== undefined ||
+      data.feriasConfirmadas !== undefined ||
+      data.feriasReprogramadas !== undefined;
+    const permaneceDesativado =
+      before.status?.nome === 'DESATIVADO' &&
+      (data.status === undefined || data.status === 'DESATIVADO');
+    if (permaneceDesativado && payloadFeriasPrevisao) {
+      throw new BadRequestException(
+        'Policiais desativados não podem ter previsão de férias alterada ou confirmada. Reative o policial antes, se aplicável.',
+      );
+    }
+
     if (data.funcaoId !== undefined) {
       if (data.funcaoId === null || data.funcaoId === 0) {
         throw new BadRequestException('A função é obrigatória. Informe uma função válida.');

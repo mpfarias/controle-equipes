@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { api, getToken, removeToken } from './api.ts';
 import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
 import { TABS, AFastamentosSubTABS, EfetivoSubTABS, SistemaSubTABS, type TabKey, type TabChangeOptions, type AfastamentosSubTabKey, type SistemaSubTabKey } from './constants';
+import { expandirPermissoesLegadoEscalas, temAcessoEscalas } from './utils/permissions';
 import { formatMatricula } from './utils/dateUtils';
 import { Avatar, IconButton, Menu, MenuItem } from '@mui/material';
 import { Logout, PhotoCamera } from '@mui/icons-material';
@@ -14,6 +15,7 @@ import {
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
 const DashboardHomeSection = lazy(() => import('./components/sections/DashboardHomeSection').then((m) => ({ default: m.DashboardHomeSection })));
 const CalendarioSection = lazy(() => import('./components/sections/CalendarioSection').then((m) => ({ default: m.CalendarioSection })));
+const EscalasSection = lazy(() => import('./components/sections/EscalasSection').then((m) => ({ default: m.EscalasSection })));
 const MostrarEquipeSection = lazy(() =>
   import('./components/sections/MostrarEquipeSection').then((m) => ({ default: m.MostrarEquipeSection })),
 );
@@ -46,7 +48,7 @@ export default function App() {
   /** Preencher formulário de cadastro ao abrir "Gerenciar afastamentos" (ex.: policial + motivo Férias). Consumida ao montar AfastamentosSection. */
   const [afastamentosPreencherCadastro, setAfastamentosPreencherCadastro] = useState<{ policialId: number; motivoNome: string } | null>(null);
   /** Sub-tab inicial ao navegar para aba Afastamentos (ex.: a partir do Dashboard). */
-  const [afastamentosInitialSubTab, setAfastamentosInitialSubTab] = useState<AfastamentosSubTabKey>('afastamentos-mes');
+  const [afastamentosInitialSubTab, setAfastamentosInitialSubTab] = useState<AfastamentosSubTabKey>('afastamentos');
   /** Sub-tab inicial ao navegar para aba Sistema. */
   const [sistemaInitialSubTab, setSistemaInitialSubTab] = useState<SistemaSubTabKey>('usuarios');
   const [avatarMenuAnchor, setAvatarMenuAnchor] = useState<HTMLElement | null>(null);
@@ -144,7 +146,15 @@ export default function App() {
         DESATIVAR: false,
         EXCLUIR: false,
       };
-      
+      for (const k of ['escalas-gerar', 'escalas-consultar', 'troca-servico'] as TabKey[]) {
+        base[k] = {
+          VISUALIZAR: false,
+          EDITAR: false,
+          DESATIVAR: false,
+          EXCLUIR: false,
+        };
+      }
+
       data.forEach((item: UsuarioNivelPermissao) => {
         const key = item.telaKey as TabKey;
         if (base[key]) {
@@ -153,6 +163,25 @@ export default function App() {
           console.warn('TelaKey não encontrada em base:', { telaKey: item.telaKey, telasDisponiveis: Object.keys(base) });
         }
       });
+
+      expandirPermissoesLegadoEscalas(base);
+
+      const ehAdminSistema =
+        currentUser?.isAdmin === true ||
+        currentUser?.nivel?.nome?.toUpperCase() === 'ADMINISTRADOR';
+      if (ehAdminSistema) {
+        (Object.keys(base) as TabKey[]).forEach((key) => {
+          if (base[key]) {
+            base[key] = {
+              VISUALIZAR: true,
+              EDITAR: true,
+              DESATIVAR: true,
+              EXCLUIR: true,
+            };
+          }
+        });
+      }
+
       setPermissoesPorTela(base);
     } catch (error) {
       console.warn('Não foi possível carregar permissões.', error);
@@ -287,9 +316,20 @@ export default function App() {
     }
   }, [confirmDialog, closeConfirm]);
 
+  /** Administrador do sistema: vê todas as abas principais mesmo sem linha explícita em UsuarioNivelPermissao (ex.: Escalas nova). */
+  const usuarioEhAdministrador = useMemo(() => {
+    if (!currentUser) return false;
+    if (currentUser.isAdmin === true) return true;
+    const nome = currentUser.nivel?.nome?.toUpperCase?.() ?? '';
+    return nome === 'ADMINISTRADOR';
+  }, [currentUser]);
+
   // Filtrar tabs baseado nas permissões do banco
   const tabsDisponiveis = useMemo(() => {
     if (!permissoesPorTela) return [];
+    if (usuarioEhAdministrador) {
+      return TABS;
+    }
     const temAcessoAfastamentos =
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
@@ -306,11 +346,12 @@ export default function App() {
       if (tab.key === 'sistema') return Boolean(temAcessoSistema);
       return Boolean(permissoesPorTela[tab.key]?.VISUALIZAR);
     });
-  }, [permissoesPorTela]);
+  }, [permissoesPorTela, usuarioEhAdministrador]);
 
   // Se o usuário não tem acesso à aba e está tentando acessá-la, redirecionar
   useEffect(() => {
     if (!currentUser || !permissoesPorTela) return;
+    if (usuarioEhAdministrador) return;
     const temAcessoAfastamentos =
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
@@ -328,9 +369,11 @@ export default function App() {
           ? temAcessoEfetivo
           : activeTab === 'sistema'
             ? temAcessoSistema
-            : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
+            : activeTab === 'escalas'
+              ? temAcessoEscalas(permissoesPorTela)
+              : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
     if (!podeAcessar) setActiveTab('dashboard');
-  }, [currentUser, activeTab, permissoesPorTela]);
+  }, [currentUser, activeTab, permissoesPorTela, usuarioEhAdministrador]);
 
   if (!currentUser) {
     const handleForgotPassword = () => {
@@ -529,7 +572,7 @@ export default function App() {
                 className={activeTab === tab.key ? 'tab active' : 'tab'}
                 onClick={() => {
               setActiveTab(tab.key);
-              if (tab.key === 'afastamentos') setAfastamentosInitialSubTab('afastamentos-mes');
+              if (tab.key === 'afastamentos') setAfastamentosInitialSubTab('afastamentos');
               if (tab.key === 'sistema') setSistemaInitialSubTab('usuarios');
             }}
               >
@@ -556,6 +599,9 @@ export default function App() {
           />
         )}
         {activeTab === 'calendario' && <CalendarioSection currentUser={currentUser} />}
+        {activeTab === 'escalas' && (
+          <EscalasSection currentUser={currentUser} permissoes={permissoesPorTela} />
+        )}
         {activeTab === 'afastamentos' && (
           <AfastamentosGroupSection
             currentUser={currentUser}

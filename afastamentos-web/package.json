@@ -20,10 +20,12 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.7",
     "@mui/material": "^7.3.7",
+    "pdfjs-dist": "^4.10.38",
     "jspdf": "^4.0.0",
     "jspdf-autotable": "^5.0.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-image-crop": "^11.0.10"
+    "react-image-crop": "^11.0.10",
+    "recharts": "^3.8.0"
   }
 }
