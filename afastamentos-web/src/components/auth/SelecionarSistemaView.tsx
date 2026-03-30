@@ -136,7 +136,7 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
                     </Typography>
                     <Typography variant="caption" sx={{ color: alpha('#e8eef4', 0.5), display: 'block', mt: 0.25 }}>
                       {ehAtual
-                        ? 'Abrir gestão de pessoal.'
+                        ? 'Abrir o Órion SAD (gestão de pessoal) neste navegador.'
                         : urlOk
                           ? 'Abrir em nova página / portal do sistema.'
                           : 'URL do sistema não configurada (defina VITE_SISTEMA_URL_* no ambiente).'}

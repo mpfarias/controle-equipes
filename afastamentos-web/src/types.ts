@@ -33,7 +33,7 @@ export interface Usuario {
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null };
   fotoUrl?: string | null;
-  /** Sistemas integrados aos quais o usuário tem acesso (ex.: SAD, PATRIMONIO, OPERACOES). */
+  /** Sistemas integrados (IDs: SAD, PATRIMONIO, OPERACOES — exibição: Órion SAD, Órion Patrimônio, Órion Operações). */
   sistemasPermitidos?: string[];
   createdById?: number | null;
   createdByName?: string | null;
