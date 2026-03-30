@@ -26,7 +26,8 @@ import {
   InputLabel,
   Tabs,
   Tab,
-  alpha
+  alpha,
+  Stack,
 } from '@mui/material';
 import { Close as CloseIcon, Groups, MilitaryTech, EventBusy, PersonSearch, BeachAccess, WbSunny, DirectionsCar, Diversity1, BusinessCenter } from '@mui/icons-material';
 import { api } from '../../api';
@@ -34,6 +35,153 @@ import { formatEquipeLabel } from '../../constants';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { DashboardGraficosPanel, type TipoGraficoDashboard } from './DashboardGraficosPanel';
+
+const EQUIPES_DASHBOARD = new Set(['A', 'B', 'C', 'D', 'E']);
+
+function contarStatusModalEquipe(policiais: Policial[]) {
+  return policiais.reduce(
+    (acc, p) => {
+      switch (p.status) {
+        case 'ATIVO':
+          acc.ativos += 1;
+          break;
+        case 'PTTC':
+          acc.pttc += 1;
+          break;
+        case 'DESIGNADO':
+          acc.designados += 1;
+          break;
+        case 'COMISSIONADO':
+          acc.comissionados += 1;
+          break;
+        default:
+          break;
+      }
+      return acc;
+    },
+    { ativos: 0, pttc: 0, designados: 0, comissionados: 0 },
+  );
+}
+
+type ComposicaoResumoEfetivo = ReturnType<typeof contarStatusModalEquipe>;
+
+function ModalDialogTitleComposicaoEfetivo({
+  title,
+  resumo,
+  onClose,
+}: {
+  title: string;
+  resumo: ComposicaoResumoEfetivo | null;
+  onClose: () => void;
+}) {
+  return (
+    <DialogTitle
+      sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
+        gap: 2,
+        pr: 1,
+        pb: resumo ? 2 : undefined,
+        bgcolor: resumo ? (theme) => alpha(theme.palette.primary.main, 0.03) : undefined,
+      }}
+    >
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography
+          variant="h6"
+          sx={{
+            fontWeight: 700,
+            letterSpacing: '-0.02em',
+            lineHeight: 1.25,
+            color: 'text.primary',
+          }}
+        >
+          {title}
+        </Typography>
+        {resumo && (
+          <Box sx={{ mt: 2 }}>
+            <Typography
+              variant="overline"
+              sx={{
+                display: 'block',
+                color: 'text.secondary',
+                letterSpacing: '0.12em',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                mb: 1.25,
+              }}
+            >
+              Composição do efetivo por status
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1.25}>
+              {(
+                [
+                  { label: 'Ativos', value: resumo.ativos, colorKey: 'success' as const },
+                  { label: 'PTTC', value: resumo.pttc, colorKey: 'info' as const },
+                  { label: 'Designados', value: resumo.designados, colorKey: 'warning' as const },
+                  { label: 'Comissionados', value: resumo.comissionados, colorKey: 'error' as const },
+                ] as const
+              ).map((item) => (
+                <Paper
+                  key={item.label}
+                  elevation={0}
+                  sx={{
+                    px: 1.75,
+                    py: 1.1,
+                    minWidth: 108,
+                    flex: '1 1 100px',
+                    maxWidth: 160,
+                    borderRadius: 2,
+                    border: '1px solid',
+                    borderColor: (theme) => alpha(theme.palette[item.colorKey].main, 0.28),
+                    background: (theme) =>
+                      `linear-gradient(145deg, ${alpha(theme.palette[item.colorKey].main, 0.1)} 0%, ${alpha(theme.palette[item.colorKey].main, 0.04)} 100%)`,
+                    transition: 'transform 0.18s ease, box-shadow 0.18s ease',
+                    '&:hover': {
+                      transform: 'translateY(-1px)',
+                      boxShadow: (theme) => `0 4px 14px ${alpha(theme.palette[item.colorKey].main, 0.18)}`,
+                    },
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      display: 'block',
+                      color: 'text.secondary',
+                      fontWeight: 700,
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      fontSize: '0.62rem',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {item.label}
+                  </Typography>
+                  <Typography
+                    variant="h5"
+                    sx={{
+                      mt: 0.35,
+                      fontWeight: 800,
+                      lineHeight: 1.1,
+                      letterSpacing: '-0.03em',
+                      color: (theme) => theme.palette[item.colorKey].main,
+                      fontFeatureSettings: '"tnum"',
+                    }}
+                  >
+                    {item.value}
+                  </Typography>
+                </Paper>
+              ))}
+            </Stack>
+          </Box>
+        )}
+      </Box>
+      <IconButton onClick={onClose} size="small" sx={{ flexShrink: 0, alignSelf: 'flex-start', mt: -0.25 }}>
+        <CloseIcon />
+      </IconButton>
+    </DialogTitle>
+  );
+}
 
 interface DashboardHomeSectionProps {
   currentUser: Usuario;
@@ -104,6 +252,10 @@ export function DashboardHomeSection({
   const [afastamentosModal, setAfastamentosModal] = useState<Afastamento[]>([]);
   const [afastamentosPorMotivoModal, setAfastamentosPorMotivoModal] = useState<{ motivo: string; count: number; porcentagem: number }[]>([]);
   const [loadingModal, setLoadingModal] = useState(false);
+  /** Resumo por status ao abrir "Total" (equipes A–E, Expediente, Motoristas, COPOM Mulher) */
+  const [modalResumoComposicaoEfetivo, setModalResumoComposicaoEfetivo] = useState<ComposicaoResumoEfetivo | null>(null);
+  /** Resumo na modal Efetivo por Posto (Oficiais, Praças, Civis, Outros) */
+  const [modalResumoComposicaoPosto, setModalResumoComposicaoPosto] = useState<ComposicaoResumoEfetivo | null>(null);
   // Aba ativa na modal "Afastamentos do Mês" (Por motivo | Do Efetivo Total)
   const [afastamentosMesModalTab, setAfastamentosMesModalTab] = useState<0 | 1>(0);
   // Lista completa de afastamentos do mês (para aba "Por afastamento" e cálculo do efetivo)
@@ -1078,6 +1230,7 @@ export function DashboardHomeSection({
     setModalPostoOpen(true);
     setLoadingModalPosto(true);
     setModalPostoPoliciais([]);
+    setModalResumoComposicaoPosto(null);
     try {
       const equipe = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
       // Mapear chaves do frontend (plural) para o esperado pela API (singular)
@@ -1088,9 +1241,11 @@ export function DashboardHomeSection({
       const lista = await api.getPoliciaisPorPosto(postoApi, equipe);
       const ordenados = sortPorPatenteENome(lista);
       setModalPostoPoliciais(ordenados);
+      setModalResumoComposicaoPosto(contarStatusModalEquipe(ordenados));
     } catch (error) {
       console.error('Erro ao carregar policiais por posto:', error);
       setModalPostoPoliciais([]);
+      setModalResumoComposicaoPosto(null);
     } finally {
       setLoadingModalPosto(false);
     }
@@ -1130,6 +1285,7 @@ export function DashboardHomeSection({
   const handleEfetivoTotalClick = async () => {
     setModalTitle('Efetivo Total');
     setModalOpen(true);
+    setModalResumoComposicaoEfetivo(null);
     setLoadingModal(true);
     setModalType('policiais');
     try {
@@ -1162,6 +1318,7 @@ export function DashboardHomeSection({
   ) => {
     setModalTitle(`${card.title} - ${tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}`);
     setModalOpen(true);
+    setModalResumoComposicaoEfetivo(null);
     setLoadingModal(true);
     setModalType('policiais');
 
@@ -1268,10 +1425,20 @@ export function DashboardHomeSection({
       } else {
         // total - mostrar todos
         setPoliciaisModal(sortPorPatenteENome(todosPoliciais));
+        if (
+          tipo === 'total' &&
+          ((card.equipe && EQUIPES_DASHBOARD.has(card.equipe)) ||
+            card.isExpediente === true ||
+            card.isMotoristas === true ||
+            card.isCopomMulher === true)
+        ) {
+          setModalResumoComposicaoEfetivo(contarStatusModalEquipe(todosPoliciais));
+        }
       }
     } catch (error) {
       console.error('Erro ao carregar dados do modal:', error);
       setModalOpen(false);
+      setModalResumoComposicaoEfetivo(null);
     } finally {
       setLoadingModal(false);
     }
@@ -1280,6 +1447,7 @@ export function DashboardHomeSection({
   const handleCardClick = async (card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number }; isEquipe?: boolean; isExpediente?: boolean }) => {
     setModalTitle(card.title);
     setModalOpen(true);
+    setModalResumoComposicaoEfetivo(null);
     setLoadingModal(true);
 
     try {
@@ -2866,19 +3034,24 @@ export function DashboardHomeSection({
       {/* Modal com lista de policiais/afastamentos */}
       <Dialog 
         open={modalOpen} 
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          setModalResumoComposicaoEfetivo(null);
+        }}
         maxWidth="md"
         fullWidth
         PaperProps={{
           sx: { maxHeight: '80vh' }
         }}
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {modalTitle}
-          <IconButton onClick={() => setModalOpen(false)} size="small">
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
+        <ModalDialogTitleComposicaoEfetivo
+          title={modalTitle}
+          resumo={modalResumoComposicaoEfetivo}
+          onClose={() => {
+            setModalOpen(false);
+            setModalResumoComposicaoEfetivo(null);
+          }}
+        />
         <DialogContent dividers>
           {loadingModal ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>
@@ -3208,20 +3381,32 @@ export function DashboardHomeSection({
       {/* Modal Efetivo por Posto - lista de policiais por categoria */}
       <Dialog
         open={modalPostoOpen}
-        onClose={() => setModalPostoOpen(false)}
+        onClose={() => {
+          setModalPostoOpen(false);
+          setModalResumoComposicaoPosto(null);
+        }}
         maxWidth="md"
         fullWidth
         PaperProps={{ sx: { maxHeight: '80vh' } }}
       >
-        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          {modalPostoTipo === 'oficiais' ? 'Oficiais' :
-           modalPostoTipo === 'pracas' ? 'Praças' :
-           modalPostoTipo === 'civis' ? 'Civis' :
-           modalPostoTipo === 'outros' ? 'Outros' : 'Efetivo por Posto'}
-          <IconButton onClick={() => setModalPostoOpen(false)} size="small">
-            <CloseIcon />
-          </IconButton>
-        </DialogTitle>
+        <ModalDialogTitleComposicaoEfetivo
+          title={
+            modalPostoTipo === 'oficiais'
+              ? 'Efetivo por Posto/Graduação — Oficiais'
+              : modalPostoTipo === 'pracas'
+                ? 'Efetivo por Posto/Graduação — Praças'
+                : modalPostoTipo === 'civis'
+                  ? 'Efetivo por Posto/Graduação — Civis'
+                  : modalPostoTipo === 'outros'
+                    ? 'Efetivo por Posto/Graduação — Outros'
+                    : 'Efetivo por Posto/Graduação'
+          }
+          resumo={loadingModalPosto ? null : modalResumoComposicaoPosto}
+          onClose={() => {
+            setModalPostoOpen(false);
+            setModalResumoComposicaoPosto(null);
+          }}
+        />
         <DialogContent dividers>
           {loadingModalPosto ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '200px' }}>

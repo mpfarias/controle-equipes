@@ -23,6 +23,7 @@ const POLICIAL_STATUS_VALUES = [
 
 /** CPF: apenas dígitos, 11 caracteres. Validação dos dígitos verificadores é feita no service. */
 const CPF_REGEX = /^\d{11}$/;
+const TELEFONE_REGEX = /^\d{11}$/;
 
 export class CreatePolicialDto {
   @IsString()
@@ -60,6 +61,15 @@ export class CreatePolicialDto {
   @IsEmail({}, { message: 'E-mail inválido.' })
   @MaxLength(255)
   email?: string | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.telefone != null && String(o.telefone).replace(/\D/g, '').length > 0)
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/\D/g, '') : value))
+  @IsString()
+  @Matches(TELEFONE_REGEX, {
+    message: 'Telefone deve conter exatamente 11 dígitos (apenas números).',
+  })
+  telefone?: string | null;
 
   @IsOptional()
   @IsString()

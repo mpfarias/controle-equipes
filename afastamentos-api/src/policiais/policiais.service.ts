@@ -100,6 +100,13 @@ export class PoliciaisService {
     return digits.length === 11 ? digits : null;
   }
 
+  /** Retorna apenas os 11 dígitos do telefone ou null se vazio/inválido. */
+  private sanitizeTelefone(telefone: string | null | undefined): string | null {
+    if (telefone == null || typeof telefone !== 'string') return null;
+    const digits = telefone.replace(/\D/g, '');
+    return digits.length === 11 ? digits : null;
+  }
+
   /** Valida CPF pelos dígitos verificadores (algoritmo oficial). */
   private validarCpf(cpf: string): boolean {
     if (cpf.length !== 11 || /^(\d)\1{10}$/.test(cpf)) return false;
@@ -416,12 +423,14 @@ export class PoliciaisService {
       ? new Date(data.dataNascimento)
       : null;
     const emailValue = data.email != null && data.email !== '' ? data.email.trim() : null;
+    const telefoneValue = this.sanitizeTelefone(data.telefone);
 
     const created = await this.prisma.policial.create({
       data: {
         nome: this.sanitizeNome(data.nome),
         matricula: matriculaNormalizada,
         cpf: cpfDigits ?? null,
+        telefone: telefoneValue,
         dataNascimento: dataNascimentoDate,
         email: emailValue,
         matriculaComissionadoGdf: data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null,
@@ -1019,6 +1028,9 @@ export class PoliciaisService {
     }
     if (data.email !== undefined) {
       updateData.email = data.email != null && data.email !== '' ? data.email.trim() : null;
+    }
+    if (data.telefone !== undefined) {
+      updateData.telefone = this.sanitizeTelefone(data.telefone);
     }
     if (data.matriculaComissionadoGdf !== undefined) {
       updateData.matriculaComissionadoGdf = data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null;
@@ -1714,6 +1726,72 @@ export class PoliciaisService {
     });
 
     return this.mapFeriasPrevisao(updatedWithFerias ?? updated);
+  }
+
+  async removeRestricaoMedicaHistorico(
+    id: number,
+    historicoId: number,
+    responsavelId?: number,
+  ): Promise<PolicialResponse> {
+    const actor = await this.audit.resolveActor(responsavelId);
+
+    const beforePolicial = await this.prisma.policial.findUnique({
+      where: { id },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
+        status: true,
+      },
+    });
+
+    if (!beforePolicial) {
+      throw new NotFoundException(`Policial ${id} não encontrado.`);
+    }
+
+    const historico = await this.prisma.restricaoMedicaHistorico.findUnique({
+      where: { id: historicoId },
+      include: { restricaoMedica: true },
+    });
+
+    if (!historico || historico.policialId !== id) {
+      throw new NotFoundException('Registro de histórico não encontrado para este policial.');
+    }
+
+    await this.prisma.restricaoMedicaHistorico.delete({
+      where: { id: historicoId },
+    });
+
+    await this.audit.record({
+      entity: 'RestricaoMedicaHistorico',
+      entityId: historicoId,
+      action: AuditAction.DELETE,
+      actor,
+      before: historico,
+      after: null,
+    });
+
+    const anoAtual = new Date().getFullYear();
+    const updatedPolicial = await this.prisma.policial.findUnique({
+      where: { id },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        restricoesMedicasHistorico: {
+          include: { restricaoMedica: true },
+          orderBy: { dataFim: 'desc' },
+        },
+        status: true,
+        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      },
+    });
+
+    return this.mapFeriasPrevisao(updatedPolicial ?? beforePolicial);
   }
 
   /**

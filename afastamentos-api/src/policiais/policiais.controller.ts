@@ -305,4 +305,14 @@ export class PoliciaisController {
   ) {
     return this.policiaisService.removeRestricaoMedica(id, body.senha, user.id);
   }
+
+  @Delete(':id/restricao-medica/historico/:historicoId')
+  @Roles('ADMINISTRADOR')
+  removeRestricaoMedicaHistorico(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('historicoId', ParseIntPipe) historicoId: number,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.removeRestricaoMedicaHistorico(id, historicoId, user.id);
+  }
 }

@@ -176,6 +176,7 @@ async function main() {
       status: UsuarioStatus.ATIVO,
       isAdmin: true,
       nivelId: nivelAdministrador.id,
+      sistemasPermitidos: ['SAD'],
     },
   });
 

@@ -525,6 +525,16 @@ export const api = {
     });
   },
 
+  async changePassword(payload: {
+    senhaAtual: string;
+    novaSenha: string;
+  }): Promise<{ message: string }> {
+    return request<{ message: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async removeUsuario(id: number): Promise<void> {
     await request(`/usuarios/${id}`, {
       method: 'DELETE',
@@ -812,6 +822,17 @@ export const api = {
     const data = await request<Policial>(`/policiais/${id}/restricao-medica`, {
       method: 'DELETE',
       body: JSON.stringify({ senha }),
+    });
+    clearCache();
+    return data;
+  },
+
+  async deleteRestricaoMedicaHistorico(
+    policialId: number,
+    historicoId: number,
+  ): Promise<Policial> {
+    const data = await request<Policial>(`/policiais/${policialId}/restricao-medica/historico/${historicoId}`, {
+      method: 'DELETE',
     });
     clearCache();
     return data;

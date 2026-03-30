@@ -33,6 +33,8 @@ export interface Usuario {
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null };
   fotoUrl?: string | null;
+  /** Sistemas integrados aos quais o usuário tem acesso (ex.: SAD, PATRIMONIO, OPERACOES). */
+  sistemasPermitidos?: string[];
   createdById?: number | null;
   createdByName?: string | null;
   createdAt: string;
@@ -49,6 +51,7 @@ export interface CreateUsuarioInput {
   nivelId: number;
   funcaoId?: number;
   fotoUrl?: string | null;
+  sistemasPermitidos: string[];
 }
 
 export interface LoginInput {
@@ -82,6 +85,7 @@ export interface Policial {
   nome: string;
   matricula: string;
   cpf?: string | null;
+  telefone?: string | null;
   dataNascimento?: string | null;
   email?: string | null;
   matriculaComissionadoGdf?: string | null;
@@ -116,6 +120,7 @@ export interface CreatePolicialInput {
   status: PolicialStatus;
   funcaoId: number;
   cpf?: string | null;
+  telefone?: string | null;
   dataNascimento?: string | null;
   email?: string | null;
   matriculaComissionadoGdf?: string | null;

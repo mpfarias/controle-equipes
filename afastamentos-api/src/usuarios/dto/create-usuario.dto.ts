@@ -7,7 +7,12 @@ import {
   MinLength,
   IsInt,
   Min,
+  IsArray,
+  ArrayMaxSize,
+  IsIn,
+  ArrayMinSize,
 } from 'class-validator';
+import { SISTEMAS_EXTERNOS_IDS } from '../constants/sistemas-externos';
 
 export class CreateUsuarioDto {
   @IsString()
@@ -63,5 +68,13 @@ export class CreateUsuarioDto {
   @IsOptional()
   @IsString()
   fotoUrl?: string | null;
+
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Selecione ao menos um sistema permitido.' })
+  @ArrayMaxSize(32)
+  @IsString({ each: true })
+  /** Aceita PATRIMONIO_OPERACOES por compatibilidade; normalizado para PATRIMONIO + OPERACOES no serviço. */
+  @IsIn([...SISTEMAS_EXTERNOS_IDS, 'PATRIMONIO_OPERACOES'], { each: true })
+  sistemasPermitidos: string[];
 }
 

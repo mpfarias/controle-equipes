@@ -17,6 +17,23 @@ export function cpfToDigits(cpf: string): string {
 }
 
 /**
+ * Aplica máscara de telefone celular: (00)00000-0000 (apenas dígitos, max 11).
+ */
+export function maskTelefone(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 7) return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  return `(${digits.slice(0, 2)})${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+/**
+ * Retorna apenas os 11 dígitos do telefone (para envio à API).
+ */
+export function telefoneToDigits(telefone: string): string {
+  return telefone.replace(/\D/g, '').slice(0, 11);
+}
+
+/**
  * Valida CPF pelos dígitos verificadores.
  */
 export function validarCpf(cpf: string): boolean {

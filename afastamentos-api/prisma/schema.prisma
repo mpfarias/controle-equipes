@@ -11,6 +11,7 @@ model Policial {
   nome                       String
   matricula                  String                     @unique
   cpf                        String?
+  telefone                   String?
   dataNascimento             DateTime?
   email                      String?
   matriculaComissionadoGdf   String?
@@ -138,6 +139,7 @@ model Usuario {
   funcaoId              Int?
   funcao                Funcao?       @relation(fields: [funcaoId], references: [id])
   fotoUrl               String?
+  sistemasPermitidos    String[]      @default([])
   createdById           Int?
   createdByName         String?
   updatedById           Int?

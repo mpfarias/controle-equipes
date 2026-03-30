@@ -15,6 +15,7 @@ import { DeleteUsuarioDto } from './dto/delete-usuario.dto';
 import { CreateUsuarioNivelDto } from './dto/create-usuario-nivel.dto';
 import { UpdateUsuarioNivelDto } from './dto/update-usuario-nivel.dto';
 import { SetUsuarioNivelPermissoesDto } from './dto/set-usuario-nivel-permissoes.dto';
+import { isSistemaExternoId } from './constants/sistemas-externos';
 
 type UsuarioEntity = Prisma.UsuarioGetPayload<{
   select: typeof usuarioSelect;
@@ -46,6 +47,7 @@ const usuarioSelect = {
     },
   },
   fotoUrl: true,
+  sistemasPermitidos: true,
   createdById: true,
   createdByName: true,
   createdAt: true,
@@ -73,6 +75,27 @@ export class UsuariosService {
 
   private sanitizeEquipeNome(nome: string): string {
     return nome.trim().toUpperCase();
+  }
+
+  /** Normaliza lista de sistemas (únicos, só IDs válidos). */
+  private normalizeSistemasPermitidos(ids?: string[]): string[] {
+    if (!ids?.length) {
+      return [];
+    }
+    const seen = new Set<string>();
+    for (const raw of ids) {
+      const id = String(raw).trim().toUpperCase();
+      // Legado: um único código antigo vira Patrimônio + Operações
+      if (id === 'PATRIMONIO_OPERACOES') {
+        seen.add('PATRIMONIO');
+        seen.add('OPERACOES');
+        continue;
+      }
+      if (isSistemaExternoId(id)) {
+        seen.add(id);
+      }
+    }
+    return [...seen];
   }
 
   private async ensureEquipeAtiva(nome: string): Promise<string> {
@@ -113,6 +136,7 @@ export class UsuariosService {
         nivel: { connect: { id: data.nivelId } },
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         fotoUrl: data.fotoUrl ?? null,
+        sistemasPermitidos: this.normalizeSistemasPermitidos(data.sistemasPermitidos),
         status: UsuarioStatus.ATIVO,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
@@ -878,6 +902,10 @@ export class UsuariosService {
 
     if (data.fotoUrl !== undefined) {
       updateData.fotoUrl = data.fotoUrl;
+    }
+
+    if (data.sistemasPermitidos !== undefined) {
+      updateData.sistemasPermitidos = this.normalizeSistemasPermitidos(data.sistemasPermitidos);
     }
 
     if (data.senha) {

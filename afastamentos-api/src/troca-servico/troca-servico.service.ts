@@ -47,16 +47,19 @@ export class TrocaServicoService {
     return new Date(Date.UTC(y, mo - 1, day, 12, 0, 0, 0));
   }
 
-  /** Equipe operacional (não SEM_EQUIPE) ou motorista de dia. */
+  /** Equipe operacional (não SEM_EQUIPE), motorista de dia, DESIGNADO, PTTC ou COMISSIONADO. */
   private policialElegivelTrocaServico(p: {
     equipe: string | null;
     funcao: { nome: string } | null;
+    status: { nome: string } | null;
   }): boolean {
     const fn = p.funcao?.nome?.toUpperCase() ?? '';
     const motorista = fn.includes('MOTORISTA DE DIA');
     const eq = p.equipe?.trim() ?? '';
     const equipeOperacional = Boolean(eq && eq !== 'SEM_EQUIPE');
-    return equipeOperacional || motorista;
+    const st = p.status?.nome?.toUpperCase() ?? '';
+    const statusPermite = st === 'DESIGNADO' || st === 'PTTC' || st === 'COMISSIONADO';
+    return equipeOperacional || motorista || statusPermite;
   }
 
   /**
@@ -132,25 +135,29 @@ export class TrocaServicoService {
     const nomeStatus = (s: { nome: string } | null) => s?.nome ?? '';
     const sa = nomeStatus(a.status);
     const sb = nomeStatus(b.status);
-    if (sa !== 'ATIVO' && sa !== 'DESIGNADO') {
+    const statusPermitido =
+      sa === 'ATIVO' || sa === 'DESIGNADO' || sa === 'PTTC' || sa === 'COMISSIONADO';
+    if (!statusPermitido) {
       throw new BadRequestException(
-        `O policial de origem precisa estar ativo ou designado (status atual: ${sa}).`,
+        `O policial de origem precisa estar ATIVO, DESIGNADO, PTTC ou COMISSIONADO (status atual: ${sa}).`,
       );
     }
-    if (sb !== 'ATIVO' && sb !== 'DESIGNADO') {
+    const statusOutroPermitido =
+      sb === 'ATIVO' || sb === 'DESIGNADO' || sb === 'PTTC' || sb === 'COMISSIONADO';
+    if (!statusOutroPermitido) {
       throw new BadRequestException(
-        `O outro policial precisa estar ativo ou designado (status atual: ${sb}).`,
+        `O outro policial precisa estar ATIVO, DESIGNADO, PTTC ou COMISSIONADO (status atual: ${sb}).`,
       );
     }
 
     if (!this.policialElegivelTrocaServico(a)) {
       throw new BadRequestException(
-        'Troca de serviço só é permitida para policiais com equipe operacional ou motoristas de dia.',
+        'Troca de serviço só é permitida para policiais com equipe operacional, motoristas de dia, DESIGNADO, PTTC ou COMISSIONADO.',
       );
     }
     if (!this.policialElegivelTrocaServico(b)) {
       throw new BadRequestException(
-        'O outro policial precisa ter equipe operacional ou ser motorista de dia.',
+        'O outro policial precisa ter equipe operacional, ser motorista de dia, DESIGNADO, PTTC ou COMISSIONADO.',
       );
     }
 

@@ -4,14 +4,32 @@ import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
 import { TABS, AFastamentosSubTABS, EfetivoSubTABS, SistemaSubTABS, type TabKey, type TabChangeOptions, type AfastamentosSubTabKey, type SistemaSubTabKey } from './constants';
 import { expandirPermissoesLegadoEscalas, temAcessoEscalas } from './utils/permissions';
 import { formatMatricula } from './utils/dateUtils';
-import { Avatar, IconButton, Menu, MenuItem } from '@mui/material';
-import { Logout, PhotoCamera } from '@mui/icons-material';
+import {
+  Avatar,
+  Box,
+  Button,
+  IconButton,
+  InputAdornment,
+  Menu,
+  MenuItem,
+  TextField,
+} from '@mui/material';
+import { Logout, PhotoCamera, Lock, Visibility, VisibilityOff } from '@mui/icons-material';
 import { ImageCropper } from './components/common/ImageCropper';
 import {
   LoginView,
   ForgotPasswordView,
   SecurityQuestionView,
+  SelecionarSistemaView,
 } from './components/auth';
+import {
+  clearSistemaSessao,
+  getSistemaDestino,
+  resolverFluxoSistemas,
+  SISTEMA_ID_APP_ATUAL,
+  sistemasPermitidosDoUsuario,
+  writeSistemaSessao,
+} from './constants/sistemaDestinos';
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
 const DashboardHomeSection = lazy(() => import('./components/sections/DashboardHomeSection').then((m) => ({ default: m.DashboardHomeSection })));
 const CalendarioSection = lazy(() => import('./components/sections/CalendarioSection').then((m) => ({ default: m.CalendarioSection })));
@@ -58,6 +76,20 @@ export default function App() {
   const [fotoError, setFotoError] = useState<string | null>(null);
   const [fotoSubmitting, setFotoSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [senhaModalOpen, setSenhaModalOpen] = useState(false);
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [senhaNova, setSenhaNova] = useState('');
+  const [senhaConfirmar, setSenhaConfirmar] = useState('');
+  const [senhaError, setSenhaError] = useState<string | null>(null);
+  const [senhaSuccess, setSenhaSuccess] = useState<string | null>(null);
+  const [senhaSubmitting, setSenhaSubmitting] = useState(false);
+  const [showSenhaAtual, setShowSenhaAtual] = useState(false);
+  const [showSenhaNova, setShowSenhaNova] = useState(false);
+  const [showSenhaConfirmar, setShowSenhaConfirmar] = useState(false);
+  /** Após o usuário sair do campo de confirmação (ou da nova senha com confirmação já preenchida) */
+  const [senhaConfirmarValidarAoSair, setSenhaConfirmarValidarAoSair] = useState(false);
+  /** Vários sistemas permitidos: aguardando escolha antes do painel principal. */
+  const [aguardandoEscolhaSistema, setAguardandoEscolhaSistema] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -74,6 +106,15 @@ export default function App() {
               // O token será enviado automaticamente pelo api.ts no header Authorization
               const usuario = await api.getUsuario(userId);
               setCurrentUser(usuario);
+              const fluxo = resolverFluxoSistemas(usuario);
+              if (fluxo.acao === 'escolher-sistema') {
+                setAguardandoEscolhaSistema(true);
+              } else {
+                setAguardandoEscolhaSistema(false);
+                if (fluxo.redirecionarExterno) {
+                  window.location.assign(fluxo.redirecionarExterno);
+                }
+              }
             }
           } catch (decodeError) {
             // Token inválido, remover
@@ -210,12 +251,37 @@ export default function App() {
 
   const handleLoginSuccess = (loginResponse: { accessToken: string; usuario: Usuario }) => {
     setCurrentUser(loginResponse.usuario);
-    setActiveTab('dashboard'); // Sempre volta para a tela "Afastamentos do mês" após login
-    // O token já foi armazenado pelo api.login()
+    const fluxo = resolverFluxoSistemas(loginResponse.usuario);
+    if (fluxo.acao === 'escolher-sistema') {
+      setAguardandoEscolhaSistema(true);
+      return;
+    }
+    setAguardandoEscolhaSistema(false);
+    setActiveTab('dashboard');
+    if (fluxo.redirecionarExterno) {
+      window.location.assign(fluxo.redirecionarExterno);
+    }
   };
+
+  const handleEscolherSistema = useCallback((sistemaId: string) => {
+    if (!currentUser || !sistemasPermitidosDoUsuario(currentUser).includes(sistemaId)) {
+      return;
+    }
+    writeSistemaSessao(sistemaId);
+    setAguardandoEscolhaSistema(false);
+    setActiveTab('dashboard');
+    if (sistemaId !== SISTEMA_ID_APP_ATUAL) {
+      const d = getSistemaDestino(sistemaId);
+      if (d.tipo === 'externo' && d.configurado) {
+        window.location.assign(d.url);
+      }
+    }
+  }, [currentUser]);
 
   const handleLogout = async () => {
     setAvatarMenuAnchor(null);
+    clearSistemaSessao();
+    setAguardandoEscolhaSistema(false);
     // Registrar logout no backend antes de limpar o estado
     await api.logout();
     setCurrentUser(null);
@@ -243,6 +309,79 @@ export default function App() {
     setImageForCrop('');
     setFotoError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const openSenhaModal = () => {
+    setAvatarMenuAnchor(null);
+    setSenhaModalOpen(true);
+    setSenhaAtual('');
+    setSenhaNova('');
+    setSenhaConfirmar('');
+    setSenhaError(null);
+    setSenhaSuccess(null);
+    setShowSenhaAtual(false);
+    setShowSenhaNova(false);
+    setShowSenhaConfirmar(false);
+    setSenhaConfirmarValidarAoSair(false);
+  };
+
+  const closeSenhaModal = () => {
+    setSenhaModalOpen(false);
+    setSenhaAtual('');
+    setSenhaNova('');
+    setSenhaConfirmar('');
+    setSenhaError(null);
+    setSenhaSuccess(null);
+    setSenhaConfirmarValidarAoSair(false);
+  };
+
+  const confirmacaoSenhaNaoConfere =
+    senhaConfirmarValidarAoSair &&
+    senhaConfirmar.length > 0 &&
+    senhaNova !== senhaConfirmar;
+
+  const handleAlterarSenhaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSenhaError(null);
+    setSenhaSuccess(null);
+
+    if (!senhaAtual.trim()) {
+      setSenhaError('Informe a senha atual.');
+      return;
+    }
+    if (!senhaNova) {
+      setSenhaError('Informe a nova senha.');
+      return;
+    }
+    if (senhaNova.length < 8) {
+      setSenhaError('A nova senha deve ter pelo menos 8 caracteres.');
+      return;
+    }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(senhaNova)) {
+      setSenhaError('A nova senha deve conter pelo menos uma letra minúscula, uma maiúscula e um número.');
+      return;
+    }
+    if (confirmacaoSenhaNaoConfere || senhaNova !== senhaConfirmar) {
+      setSenhaError('A confirmação não confere com a nova senha.');
+      return;
+    }
+
+    try {
+      setSenhaSubmitting(true);
+      const result = await api.changePassword({
+        senhaAtual: senhaAtual,
+        novaSenha: senhaNova,
+      });
+      setSenhaSuccess(result.message);
+      setSenhaAtual('');
+      setSenhaNova('');
+      setSenhaConfirmar('');
+      setSenhaConfirmarValidarAoSair(false);
+    } catch (err) {
+      setSenhaError(err instanceof Error ? err.message : 'Não foi possível alterar a senha.');
+    } finally {
+      setSenhaSubmitting(false);
+    }
   };
 
   const handleFileSelectUsuario = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -395,32 +534,62 @@ export default function App() {
     };
 
     return (
-      <div className="app-container">
-        <header className="auth-header">
-          <h1>Sistema Sentinela de Gestão de Pessoal - COPOM</h1>
-          <p>
-            {authView === 'login'}
-            {authView === 'forgot-password' && 'Recupere sua senha informando sua matrícula.'}
-          </p>
-        </header>
-        {authView === 'login' && (
-          <LoginView onSuccess={handleLoginSuccess} onForgotPassword={handleForgotPassword} />
-        )}
-        {authView === 'forgot-password' && (
-          <ForgotPasswordView
-            onBack={handleBackToLogin}
-            onSecurityQuestionReceived={handleSecurityQuestionReceived}
+      <div className="app-container app-container--auth">
+        <div className="auth-shell">
+          <header className="auth-header">
+            <h1 className="auth-header__title">Órion - Sistema Integrado de Gestão e Análise - COPOM</h1>
+            <p className="auth-header__subtitle">
+              {authView === 'login' && 'Acesse com matrícula e senha institucionais.'}
+              {authView === 'forgot-password' && 'Recupere sua senha informando sua matrícula.'}
+              {authView === 'security-question' && 'Redefina sua senha respondendo à pergunta de segurança.'}
+            </p>
+          </header>
+          {authView === 'login' && (
+            <LoginView onSuccess={handleLoginSuccess} onForgotPassword={handleForgotPassword} />
+          )}
+          {authView === 'forgot-password' && (
+            <ForgotPasswordView
+              onBack={handleBackToLogin}
+              onSecurityQuestionReceived={handleSecurityQuestionReceived}
+            />
+          )}
+          {authView === 'security-question' && securityQuestionData && (
+            <SecurityQuestionView
+              matricula={securityQuestionData.matricula}
+              pergunta={securityQuestionData.pergunta}
+              onBack={handleBackToLogin}
+              onSuccess={handleResetSuccess}
+            />
+          )}
+        </div>
+        <footer className="app-footer app-footer--auth">
+          <span className="app-footer__label">Desenvolvido por</span>
+          <div className="app-footer__credits">
+            <span className="app-footer__name">2º SGT M. Farias</span>
+            <span className="app-footer__separator">·</span>
+            <span className="app-footer__name">2º SGT Gadelha</span>
+          </div>
+          <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
+        </footer>
+      </div>
+    );
+  }
+
+  if (currentUser && aguardandoEscolhaSistema) {
+    return (
+      <div className="app-container app-container--auth">
+        <div className="auth-shell">
+          <header className="auth-header">
+            <h1 className="auth-header__title">Órion - Sistema Integrado de Gestão e Análise - COPOM</h1>
+            <p className="auth-header__subtitle">Selecione qual sistema deseja acessar nesta sessão.</p>
+          </header>
+          <SelecionarSistemaView
+            usuario={currentUser}
+            onEscolher={handleEscolherSistema}
+            onLogout={handleLogout}
           />
-        )}
-        {authView === 'security-question' && securityQuestionData && (
-          <SecurityQuestionView
-            matricula={securityQuestionData.matricula}
-            pergunta={securityQuestionData.pergunta}
-            onBack={handleBackToLogin}
-            onSuccess={handleResetSuccess}
-          />
-        )}
-        <footer className="app-footer">
+        </div>
+        <footer className="app-footer app-footer--auth">
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
             <span className="app-footer__name">2º SGT M. Farias</span>
@@ -438,7 +607,7 @@ export default function App() {
       <header>
         <div>
           <h1>
-          Sistema Sentinela de Gestão de Pessoal - COPOM
+          Sistema Órion de Gestão de Pessoal - COPOM
           </h1>
           <p>Gerencie usuários, policiais e afastamentos da equipe.</p>
         </div>
@@ -478,6 +647,10 @@ export default function App() {
             <MenuItem onClick={openFotoModal}>
               <PhotoCamera sx={{ mr: 1.5, fontSize: 20 }} />
               Carregar foto
+            </MenuItem>
+            <MenuItem onClick={openSenhaModal}>
+              <Lock sx={{ mr: 1.5, fontSize: 20 }} />
+              Alterar senha
             </MenuItem>
             <MenuItem onClick={handleLogout}>
               <Logout sx={{ mr: 1.5, fontSize: 20 }} />
@@ -555,6 +728,153 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {senhaModalOpen && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="alterar-senha-titulo"
+          onClick={closeSenhaModal}
+        >
+          <div
+            className="modal"
+            style={{ maxWidth: 440 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="alterar-senha-titulo">Alterar senha</h3>
+            <p style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+              Use uma senha forte (mínimo 8 caracteres, com letra minúscula, maiúscula e número).
+            </p>
+            {senhaError && (
+              <div className="feedback error" style={{ marginBottom: 12 }}>
+                {senhaError}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setSenhaError(null)}
+                  aria-label="Fechar aviso"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {senhaSuccess && (
+              <div className="feedback success" style={{ marginBottom: 12 }}>
+                {senhaSuccess}
+                <button
+                  type="button"
+                  className="feedback-close"
+                  onClick={() => setSenhaSuccess(null)}
+                  aria-label="Fechar"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            <Box component="form" onSubmit={handleAlterarSenhaSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="Senha atual"
+                type={showSenhaAtual ? 'text' : 'password'}
+                value={senhaAtual}
+                onChange={(ev) => setSenhaAtual(ev.target.value)}
+                fullWidth
+                required
+                variant="outlined"
+                size="small"
+                autoComplete="current-password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showSenhaAtual ? 'Ocultar senha' : 'Mostrar senha'}
+                        onClick={() => setShowSenhaAtual((v) => !v)}
+                        edge="end"
+                        size="small"
+                      >
+                        {showSenhaAtual ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                label="Nova senha"
+                type={showSenhaNova ? 'text' : 'password'}
+                value={senhaNova}
+                onChange={(ev) => setSenhaNova(ev.target.value)}
+                onBlur={() => {
+                  if (senhaConfirmar.length > 0) {
+                    setSenhaConfirmarValidarAoSair(true);
+                  }
+                }}
+                fullWidth
+                required
+                variant="outlined"
+                size="small"
+                autoComplete="new-password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showSenhaNova ? 'Ocultar senha' : 'Mostrar senha'}
+                        onClick={() => setShowSenhaNova((v) => !v)}
+                        edge="end"
+                        size="small"
+                      >
+                        {showSenhaNova ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                label="Confirmar nova senha"
+                type={showSenhaConfirmar ? 'text' : 'password'}
+                value={senhaConfirmar}
+                onChange={(ev) => setSenhaConfirmar(ev.target.value)}
+                onBlur={() => setSenhaConfirmarValidarAoSair(true)}
+                error={confirmacaoSenhaNaoConfere}
+                helperText={confirmacaoSenhaNaoConfere ? 'As senhas não conferem.' : undefined}
+                fullWidth
+                required
+                variant="outlined"
+                size="small"
+                autoComplete="new-password"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label={showSenhaConfirmar ? 'Ocultar senha' : 'Mostrar senha'}
+                        onClick={() => setShowSenhaConfirmar((v) => !v)}
+                        edge="end"
+                        size="small"
+                      >
+                        {showSenhaConfirmar ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <div className="modal-actions" style={{ marginTop: 8 }}>
+                <button type="button" className="secondary" onClick={closeSenhaModal} disabled={senhaSubmitting}>
+                  {senhaSuccess ? 'Fechar' : 'Cancelar'}
+                </button>
+                {!senhaSuccess && (
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    disabled={senhaSubmitting || confirmacaoSenhaNaoConfere}
+                    sx={{ minWidth: 160 }}
+                  >
+                    {senhaSubmitting ? 'Salvando…' : 'Salvar nova senha'}
+                  </Button>
+                )}
+              </div>
+            </Box>
           </div>
         </div>
       )}

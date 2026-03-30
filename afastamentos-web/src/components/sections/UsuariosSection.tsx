@@ -10,7 +10,8 @@ import type {
   UsuarioNivelOption,
 } from '../../types';
 import type { Policial } from '../../types';
-import { formatEquipeLabel, funcoesParaSelecao } from '../../constants';
+import { funcoesParaSelecao } from '../../constants';
+import { SISTEMAS_EXTERNOS_OPTIONS } from '../../constants/sistemasExternos';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
@@ -34,8 +35,190 @@ import {
   InputAdornment,
   Button,
   Alert,
+  Stack,
+  Paper,
+  ToggleButton,
+  ToggleButtonGroup,
+  FormLabel,
+  FormHelperText,
 } from '@mui/material';
-import { Edit, Block, CheckCircle, Delete, PhotoCamera, AddPhotoAlternate, Visibility, VisibilityOff } from '@mui/icons-material';
+import {
+  Edit,
+  Block,
+  CheckCircle,
+  Delete,
+  PhotoCamera,
+  AddPhotoAlternate,
+  Visibility,
+  VisibilityOff,
+  Description,
+  Inventory2,
+  Hub,
+} from '@mui/icons-material';
+
+const SISTEMA_ICON: Record<string, React.ReactNode> = {
+  SAD: <Description sx={{ fontSize: 22 }} />,
+  PATRIMONIO: <Inventory2 sx={{ fontSize: 22 }} />,
+  OPERACOES: <Hub sx={{ fontSize: 22 }} />,
+};
+
+function formatSistemasPermitidosList(ids?: string[] | null): string {
+  if (!ids?.length) {
+    return '—';
+  }
+  return ids
+    .map((id) => SISTEMAS_EXTERNOS_OPTIONS.find((o) => o.id === id)?.label ?? id)
+    .join(', ');
+}
+
+function SistemasPermitidosSelector({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+  disabled?: boolean;
+}) {
+  const handleChange = (_event: React.MouseEvent<HTMLElement>, next: string[]) => {
+    onChange(next);
+  };
+
+  return (
+    <FormControl component="fieldset" variant="standard" fullWidth disabled={disabled} sx={{ mt: 1 }}>
+      <FormLabel
+        component="legend"
+        required
+        focused={false}
+        sx={{
+          position: 'static',
+          transform: 'none',
+          typography: 'subtitle2',
+          fontWeight: 700,
+          letterSpacing: '0.04em',
+          color: 'text.primary',
+          mb: 0,
+        }}
+      >
+        Sistemas
+      </FormLabel>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 1.5, lineHeight: 1.5 }}>
+        Obrigatório: escolha ao menos um sistema. O usuário poderá acessar somente o que estiver selecionado.
+      </Typography>
+      <Paper
+        variant="outlined"
+        sx={(theme) => ({
+          p: 1.5,
+          borderRadius: 2,
+          borderColor: 'divider',
+          background:
+            theme.palette.mode === 'dark'
+              ? 'linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(0,0,0,0.18) 100%)'
+              : 'rgba(0,0,0,0.02)',
+          boxShadow: theme.palette.mode === 'dark' ? 'inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
+        })}
+      >
+        <ToggleButtonGroup
+          value={value}
+          exclusive={false}
+          onChange={handleChange}
+          aria-label="Sistemas permitidos"
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
+            gap: 1.25,
+            width: '100%',
+            '& .MuiToggleButtonGroup-grouped': {
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: '10px !important',
+              m: '0 !important',
+            },
+          }}
+        >
+          {SISTEMAS_EXTERNOS_OPTIONS.map((s) => {
+            const on = value.includes(s.id);
+            return (
+              <ToggleButton
+                key={s.id}
+                value={s.id}
+                sx={(theme) => ({
+                  py: 1.5,
+                  px: 1.75,
+                  textAlign: 'left',
+                  textTransform: 'none',
+                  justifyContent: 'flex-start',
+                  alignItems: 'flex-start',
+                  flexDirection: 'column',
+                  gap: 0.75,
+                  transition: 'border-color 0.2s, background-color 0.2s, box-shadow 0.2s',
+                  borderColor: on ? theme.palette.secondary.main : undefined,
+                  bgcolor: on
+                    ? theme.palette.mode === 'dark'
+                      ? 'rgba(255, 122, 26, 0.1)'
+                      : 'rgba(255, 122, 26, 0.06)'
+                    : 'transparent',
+                  boxShadow: on ? `0 0 0 1px ${theme.palette.secondary.main}40` : 'none',
+                  '&:hover': {
+                    bgcolor: on
+                      ? theme.palette.mode === 'dark'
+                        ? 'rgba(255, 122, 26, 0.14)'
+                        : 'rgba(255, 122, 26, 0.09)'
+                      : theme.palette.action.hover,
+                  },
+                  '&.Mui-selected': {
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 122, 26, 0.12)' : 'rgba(255, 122, 26, 0.08)',
+                    '&:hover': {
+                      bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 122, 26, 0.16)' : 'rgba(255, 122, 26, 0.1)',
+                    },
+                  },
+                })}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.25} sx={{ width: '100%' }}>
+                  <Box
+                    sx={(theme) => ({
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 40,
+                      height: 40,
+                      borderRadius: 1.5,
+                      flexShrink: 0,
+                      color: on ? theme.palette.secondary.main : 'text.secondary',
+                      bgcolor: on
+                        ? theme.palette.mode === 'dark'
+                          ? 'rgba(255, 122, 26, 0.15)'
+                          : 'rgba(255, 122, 26, 0.12)'
+                        : theme.palette.mode === 'dark'
+                          ? 'rgba(255,255,255,0.06)'
+                          : 'rgba(0,0,0,0.04)',
+                    })}
+                  >
+                    {SISTEMA_ICON[s.id]}
+                  </Box>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" fontWeight={on ? 700 : 600} color="text.primary" sx={{ lineHeight: 1.35 }}>
+                      {s.label}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, lineHeight: 1.4 }}>
+                      {on ? 'Acesso autorizado' : 'Clique para habilitar'}
+                    </Typography>
+                  </Box>
+                  {on ? (
+                    <CheckCircle sx={{ fontSize: 20, color: 'secondary.main', flexShrink: 0, opacity: 0.95 }} />
+                  ) : null}
+                </Stack>
+              </ToggleButton>
+            );
+          })}
+        </ToggleButtonGroup>
+      </Paper>
+      <FormHelperText sx={{ mt: 1.25, mx: 0, lineHeight: 1.45 }}>
+        É necessário manter ao menos um sistema selecionado para concluir o cadastro ou a edição.
+      </FormHelperText>
+    </FormControl>
+  );
+}
 
 interface UsuariosSectionProps {
   currentUser: Usuario;
@@ -61,6 +244,7 @@ export function UsuariosSection({
     nivelId: 0 as number, // Será preenchido quando os níveis forem carregados
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
+    sistemasPermitidos: ['SAD'] as string[],
   };
 
   const initialEditForm = {
@@ -74,9 +258,13 @@ export function UsuariosSection({
     nivelId: 0 as number, // Será preenchido quando os níveis forem carregados ou ao editar
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
+    sistemasPermitidos: ['SAD'] as string[],
   };
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  /** Lista completa (sem paginação) para validar matrícula e funções únicas — a tabela usa só a página atual */
+  const [usuariosParaValidacao, setUsuariosParaValidacao] = useState<Usuario[]>([]);
+  const [loadingUsuariosValidacao, setLoadingUsuariosValidacao] = useState(false);
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [usuarioNiveis, setUsuarioNiveis] = useState<UsuarioNivelOption[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
@@ -146,6 +334,18 @@ export function UsuariosSection({
       );
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const carregarUsuariosParaValidacao = useCallback(async () => {
+    try {
+      setLoadingUsuariosValidacao(true);
+      const lista = await api.listUsuarios();
+      setUsuariosParaValidacao(lista);
+    } catch (err) {
+      console.error('Erro ao carregar usuários para validação:', err);
+    } finally {
+      setLoadingUsuariosValidacao(false);
     }
   }, []);
 
@@ -288,7 +488,7 @@ export function UsuariosSection({
     }
 
     // Verificar se já existe outro usuário com essa função
-    const usuarioExistente = usuarios.find(u => {
+    const usuarioExistente = usuariosParaValidacao.find((u) => {
       // Excluir o próprio usuário sendo editado
       if (excluirUsuarioId && u.id === excluirUsuarioId) {
         return false;
@@ -300,11 +500,10 @@ export function UsuariosSection({
       existe: !!usuarioExistente,
       nomeFuncao: usuarioExistente ? nomeFuncao : null,
     };
-  }, [usuarios, funcoes]);
+  }, [usuariosParaValidacao, funcoes]);
 
   const validateMatricula = useCallback((matricula: string) => {
-    // Se a lista ainda não foi carregada, não valida
-    if (loading || usuarios.length === 0 && !error) {
+    if (loadingUsuariosValidacao) {
       return;
     }
 
@@ -314,7 +513,7 @@ export function UsuariosSection({
       return;
     }
 
-    const matriculaExists = usuarios.some(
+    const matriculaExists = usuariosParaValidacao.some(
       (usuario) => usuario.matricula.toUpperCase() === matriculaTrimmed,
     );
 
@@ -323,11 +522,15 @@ export function UsuariosSection({
     } else {
       setMatriculaError(null);
     }
-  }, [usuarios, loading, error]);
+  }, [usuariosParaValidacao, loadingUsuariosValidacao]);
 
   useEffect(() => {
     void carregarUsuarios(paginaAtual, itensPorPagina);
   }, [carregarUsuarios, paginaAtual, itensPorPagina]);
+
+  useEffect(() => {
+    void carregarUsuariosParaValidacao();
+  }, [carregarUsuariosParaValidacao]);
 
   useEffect(() => {
     void carregarNiveis();
@@ -374,12 +577,12 @@ export function UsuariosSection({
     }
   }, [niveisDisponiveis, form.nivelId]);
 
-  // Revalidar matrícula quando a lista de usuários for atualizada
+  // Revalidar matrícula quando a lista completa de usuários for atualizada
   useEffect(() => {
-    if (form.matricula.trim() && !loading) {
+    if (form.matricula.trim() && !loadingUsuariosValidacao) {
       validateMatricula(form.matricula);
     }
-  }, [usuarios, form.matricula, validateMatricula, loading]);
+  }, [usuariosParaValidacao, form.matricula, validateMatricula, loadingUsuariosValidacao]);
 
   const handleChange = (field: keyof typeof form, value: string | number | undefined) => {
     if (field === 'nome' && typeof value === 'string') {
@@ -557,6 +760,11 @@ export function UsuariosSection({
     setError(null);
     setSuccess(null);
 
+    if (loadingUsuariosValidacao) {
+      setError('Aguarde o carregamento dos dados para validar matrículas.');
+      return;
+    }
+
     const nome = form.nome.trim();
     const matricula = form.matricula.trim();
 
@@ -565,8 +773,8 @@ export function UsuariosSection({
       return;
     }
 
-    // Validar matrícula antes de submeter
-    const matriculaExists = usuarios.some(
+    // Validar matrícula antes de submeter (lista completa, não só a página da tabela)
+    const matriculaExists = usuariosParaValidacao.some(
       (usuario) => usuario.matricula.toUpperCase() === matricula.toUpperCase(),
     );
     if (matriculaExists) {
@@ -587,6 +795,11 @@ export function UsuariosSection({
 
     if (!form.nivelId || form.nivelId === 0) {
       setError('Selecione um nível para o usuário.');
+      return;
+    }
+
+    if (!form.sistemasPermitidos?.length) {
+      setError('Selecione ao menos um sistema permitido para o usuário.');
       return;
     }
 
@@ -620,11 +833,13 @@ export function UsuariosSection({
         // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar null (sem equipe)
         equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : undefined,
         fotoUrl: form.fotoUrl ?? undefined,
+        sistemasPermitidos: form.sistemasPermitidos,
       };
       await api.createUsuario(payload);
       resetForm();
       setSuccess('Usuário cadastrado com sucesso.');
       await carregarUsuarios(paginaAtual, itensPorPagina);
+      await carregarUsuariosParaValidacao();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Não foi possível criar o usuário.',
@@ -691,6 +906,10 @@ export function UsuariosSection({
         nivelId: nivelId,
         funcaoId: u.funcaoId ?? undefined,
         fotoUrl: u.fotoUrl ?? null,
+        sistemasPermitidos:
+          Array.isArray(u.sistemasPermitidos) && u.sistemasPermitidos.length > 0
+            ? [...u.sistemasPermitidos]
+            : ['SAD'],
       });
     };
     applyForm(usuario);
@@ -736,6 +955,11 @@ export function UsuariosSection({
       return;
     }
 
+    if (!editForm.sistemasPermitidos?.length) {
+      setEditError('Selecione ao menos um sistema permitido para o usuário.');
+      return;
+    }
+
     // Validar se está tentando editar usuário para ADMINISTRADOR sem permissão
     const nivelSelecionadoEdit = usuarioNiveis.find(n => n.id === editForm.nivelId);
     if (nivelSelecionadoEdit?.nome === 'ADMINISTRADOR' && !currentUserIsAdmin) {
@@ -752,6 +976,16 @@ export function UsuariosSection({
       }
     }
 
+    const matriculaDuplicada = usuariosParaValidacao.some(
+      (u) =>
+        u.id !== editingUsuario.id &&
+        u.matricula.toUpperCase() === matricula.toUpperCase(),
+    );
+    if (matriculaDuplicada) {
+      setEditError('Esta matrícula já está cadastrada para outro usuário.');
+      return;
+    }
+
     const novaSenha = editForm.senha;
     const payloadBase: Partial<CreateUsuarioInput> & { fotoUrl?: string | null } = {
       nome,
@@ -763,6 +997,7 @@ export function UsuariosSection({
       nivelId: editForm.nivelId,
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl ?? undefined,
+      sistemasPermitidos: editForm.sistemasPermitidos,
     };
 
     openConfirm({
@@ -780,7 +1015,8 @@ export function UsuariosSection({
           setSuccess('Usuário atualizado com sucesso.');
           resetEditForm();
           await carregarUsuarios(paginaAtual, itensPorPagina);
-          
+          await carregarUsuariosParaValidacao();
+
           // Se o usuário editado for o usuário logado, atualizar currentUser
           if (editingUsuario.id === currentUser.id && onCurrentUserUpdate) {
             try {
@@ -817,6 +1053,7 @@ export function UsuariosSection({
           }
           setSuccess('Usuário desativado.');
           await carregarUsuarios(paginaAtual, itensPorPagina);
+          await carregarUsuariosParaValidacao();
         } catch (err) {
           setError(
             err instanceof Error
@@ -842,6 +1079,7 @@ export function UsuariosSection({
           }
           setSuccess('Usuário ativado.');
           await carregarUsuarios(paginaAtual, itensPorPagina);
+          await carregarUsuariosParaValidacao();
         } catch (err) {
           setError(
             err instanceof Error
@@ -897,6 +1135,7 @@ export function UsuariosSection({
       setSuccess('Usuário excluído permanentemente.');
       handleCloseDeleteModal();
       await carregarUsuarios(paginaAtual, itensPorPagina);
+      await carregarUsuariosParaValidacao();
     } catch (err) {
       let errorMessage = 'Não foi possível excluir o usuário.';
       if (err instanceof Error) {
@@ -1082,6 +1321,10 @@ export function UsuariosSection({
             </Select>
           </FormControl>
         </Box>
+        <SistemasPermitidosSelector
+          value={form.sistemasPermitidos}
+          onChange={(ids) => setForm((prev) => ({ ...prev, sistemasPermitidos: ids }))}
+        />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 2 }}>
           <TextField
             label="Senha"
@@ -1261,10 +1504,10 @@ export function UsuariosSection({
           <Button
             type="submit"
             variant="contained"
-            disabled={submitting}
+            disabled={submitting || loadingUsuariosValidacao}
             sx={{ minWidth: 180 }}
           >
-            {submitting ? 'Salvando...' : 'Cadastrar usuário'}
+            {submitting ? 'Salvando...' : loadingUsuariosValidacao ? 'Carregando…' : 'Cadastrar usuário'}
           </Button>
         </Box>
       </form>
@@ -1307,7 +1550,7 @@ export function UsuariosSection({
             <tr>
               <th>Nome</th>
               <th>Matrícula</th>
-              <th>Equipe</th>
+              <th>Sistemas</th>
               <th>Nível</th>
               <th>Ações</th>
             </tr>
@@ -1324,7 +1567,7 @@ export function UsuariosSection({
               >
                 <td>{usuario.nome}</td>
                 <td>{formatMatricula(usuario.matricula)}</td>
-                <td>{formatEquipeLabel(usuario.equipe)}</td>
+                <td>{formatSistemasPermitidosList(usuario.sistemasPermitidos)}</td>
                 <td>{usuario.nivel?.nome || '-'}</td>
                 <td className="actions">
                   {usuario.status === 'ATIVO' && canEdit(permissoes, 'usuarios') && (
@@ -1661,6 +1904,10 @@ export function UsuariosSection({
                   </Select>
                 </FormControl>
               </Box>
+              <SistemasPermitidosSelector
+                value={editForm.sistemasPermitidos}
+                onChange={(ids) => setEditForm((prev) => ({ ...prev, sistemasPermitidos: ids }))}
+              />
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 2 }}>
                 <TextField
                   label="Nova senha"

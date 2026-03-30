@@ -14,7 +14,7 @@ import type {
 import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
-import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
+import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import {
@@ -58,6 +58,7 @@ export function PoliciaisSection({
     nome: '',
     matricula: '',
     cpf: '',
+    telefone: '',
     dataNascimento: '',
     email: '',
     matriculaComissionadoGdf: '',
@@ -78,6 +79,7 @@ export function PoliciaisSection({
   const [funcaoError, setFuncaoError] = useState<string | null>(null);
   const [cpfError, setCpfError] = useState<string | null>(null);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [telefoneError, setTelefoneError] = useState<string | null>(null);
   const matriculaTimeoutRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reativarModal, setReativarModal] = useState<{
@@ -340,7 +342,9 @@ export function PoliciaisSection({
       }
       
       const cpfDigits = cpfToDigits(form.cpf);
+      const telefoneDigits = telefoneToDigits(form.telefone);
       const cpfEnvio = cpfDigits.length === 11 ? cpfDigits : undefined;
+      const telefoneEnvio = telefoneDigits.length === 11 ? telefoneDigits : undefined;
       const dataNascimentoEnvio = form.dataNascimento.trim() || undefined;
       const emailEnvio = form.email.trim() || undefined;
 
@@ -350,6 +354,7 @@ export function PoliciaisSection({
         status: form.status,
         funcaoId: form.funcaoId!,
         cpf: cpfEnvio ?? null,
+        telefone: telefoneEnvio ?? null,
         dataNascimento: dataNascimentoEnvio ?? null,
         email: emailEnvio ?? null,
         matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
@@ -362,6 +367,7 @@ export function PoliciaisSection({
       setMatriculaError(null);
       setCpfError(null);
       setEmailError(null);
+      setTelefoneError(null);
       if (matriculaTimeoutRef.current) {
         clearTimeout(matriculaTimeoutRef.current);
         matriculaTimeoutRef.current = null;
@@ -421,6 +427,7 @@ export function PoliciaisSection({
     setSuccess(null);
     setCpfError(null);
     setEmailError(null);
+    setTelefoneError(null);
 
     const nome = form.nome.trim();
     const matricula = form.matricula.trim();
@@ -443,6 +450,13 @@ export function PoliciaisSection({
     if (cpfDigits.length === 11 && !validarCpf(form.cpf)) {
       setCpfError('CPF inválido (dígitos verificadores incorretos).');
       setError('CPF inválido (dígitos verificadores incorretos).');
+      return;
+    }
+
+    const telefoneDigits = telefoneToDigits(form.telefone);
+    if (telefoneDigits.length > 0 && telefoneDigits.length !== 11) {
+      setTelefoneError('Telefone deve conter 11 dígitos.');
+      setError('Telefone deve conter 11 dígitos.');
       return;
     }
 
@@ -513,6 +527,7 @@ export function PoliciaisSection({
     const equipeFinalLabel = equipeFinal ? formatEquipeLabel(equipeFinal) : '—';
 
     const cpfExibir = form.cpf ? form.cpf : '—';
+    const telefoneExibir = form.telefone ? form.telefone : '—';
     const dataNascExibir = form.dataNascimento ? new Date(form.dataNascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
     const emailExibir = form.email.trim() || '—';
 
@@ -521,6 +536,7 @@ export function PoliciaisSection({
       `Nome: ${nome}\n` +
       `Matrícula: ${matricula}\n` +
       (cpfExibir !== '—' ? `CPF: ${cpfExibir}\n` : '') +
+      (telefoneExibir !== '—' ? `Telefone: ${telefoneExibir}\n` : '') +
       (dataNascExibir !== '—' ? `Data de nascimento: ${dataNascExibir}\n` : '') +
       (emailExibir !== '—' ? `E-mail: ${emailExibir}\n` : '') +
       (form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? `Matrícula Comissionado (GDF): ${form.matriculaComissionadoGdf.trim()}\n` : '') +
@@ -649,6 +665,10 @@ export function PoliciaisSection({
         nome: form.nome.trim(),
         status: form.status,
         funcaoId: form.funcaoId,
+        telefone: (() => {
+          const digits = telefoneToDigits(form.telefone);
+          return digits.length === 11 ? digits : null;
+        })(),
         equipe: equipeFinalReativar === null ? null : (equipeFinalReativar || undefined),
         matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
         dataPosse: form.status === 'COMISSIONADO' && form.dataPosse ? form.dataPosse : null,
@@ -859,6 +879,35 @@ export function PoliciaisSection({
               inputProps={{ maxLength: 14 }}
               error={!!cpfError}
               helperText={cpfError}
+              sx={formFieldSx}
+            />
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Typography component="label" htmlFor="telefone-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
+              Telefone
+            </Typography>
+            <TextField
+              id="telefone-input"
+              fullWidth
+              size="small"
+              variant="outlined"
+              value={form.telefone}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, telefone: maskTelefone(e.target.value) }));
+                if (telefoneError) setTelefoneError(null);
+              }}
+              onBlur={() => {
+                const digits = telefoneToDigits(form.telefone);
+                if (digits.length > 0 && digits.length !== 11) {
+                  setTelefoneError('Telefone deve conter 11 dígitos.');
+                } else {
+                  setTelefoneError(null);
+                }
+              }}
+              placeholder="(00)00000-0000"
+              inputProps={{ maxLength: 14 }}
+              error={!!telefoneError}
+              helperText={telefoneError}
               sx={formFieldSx}
             />
           </Box>

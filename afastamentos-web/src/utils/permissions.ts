@@ -72,7 +72,8 @@ export function podeGerenciarTrocaServicoElevado(
   if (usuario.isAdmin === true) return true;
   const n = usuario.nivel?.nome?.toUpperCase() ?? '';
   if (n === 'ADMINISTRADOR' || n === 'SAD' || n === 'COMANDO') return true;
-  return canEdit(permissoes, 'troca-servico');
+  // Compatibilidade: antes a troca era controlada por permissões do Efetivo.
+  return canEdit(permissoes, 'troca-servico') || canEdit(permissoes, 'equipe');
 }
 
 /**

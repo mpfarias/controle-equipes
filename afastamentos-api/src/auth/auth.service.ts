@@ -197,4 +197,45 @@ export class AuthService {
     };
   }
 
+  async changePassword(
+    userId: number,
+    senhaAtual: string,
+    novaSenha: string,
+  ): Promise<{ message: string }> {
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: userId },
+      select: { id: true, senhaHash: true, status: true },
+    });
+
+    if (!usuario) {
+      throw new UnauthorizedException('Usuário não encontrado.');
+    }
+
+    if (usuario.status === UsuarioStatus.DESATIVADO) {
+      throw new ForbiddenException(
+        'Usuário desativado. Contate o administrador do sistema.',
+      );
+    }
+
+    const senhaAtualOk = await bcrypt.compare(senhaAtual, usuario.senhaHash);
+    if (!senhaAtualOk) {
+      throw new UnauthorizedException('Senha atual incorreta.');
+    }
+
+    const mesmaSenha = await bcrypt.compare(novaSenha, usuario.senhaHash);
+    if (mesmaSenha) {
+      throw new BadRequestException(
+        'A nova senha deve ser diferente da senha atual.',
+      );
+    }
+
+    const senhaHash = await bcrypt.hash(novaSenha, 10);
+    await this.prisma.usuario.update({
+      where: { id: userId },
+      data: { senhaHash },
+    });
+
+    return { message: 'Senha alterada com sucesso.' };
+  }
+
 }

@@ -1,4 +1,4 @@
-# Arquitetura do sistema — Sentinela (Gestão de Pessoal — COPOM)
+# Arquitetura do sistema — Órion (Gestão de Pessoal — COPOM)
 
 Este documento descreve a arquitetura de software e de dados do repositório **controle-equipes**, composto pelo backend **afastamentos-api**, pelo frontend **afastamentos-web** e pela infraestrutura local de banco (PostgreSQL via Docker).
 
@@ -6,7 +6,7 @@ Este documento descreve a arquitetura de software e de dados do repositório **c
 
 ## 1. Visão geral
 
-O sistema **“Sistema Sentinela de Gestão de Pessoal - COPOM”** é uma aplicação web para cadastro e gestão de **policiais**, **afastamentos**, **férias**, **restrições médicas**, **usuários**, **níveis de acesso com permissões por tela**, **restrições de afastamento** (janelas em que determinados motivos ficam bloqueados), relatórios e logs operacionais (auditoria, acessos, erros, geração de relatórios).
+O sistema **“Sistema Órion de Gestão de Pessoal - COPOM”** é uma aplicação web para cadastro e gestão de **policiais**, **afastamentos**, **férias**, **restrições médicas**, **usuários**, **níveis de acesso com permissões por tela**, **restrições de afastamento** (janelas em que determinados motivos ficam bloqueados), relatórios e logs operacionais (auditoria, acessos, erros, geração de relatórios).
 
 ### 1.1 Stack tecnológica
 

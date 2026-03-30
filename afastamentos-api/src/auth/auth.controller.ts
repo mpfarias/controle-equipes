@@ -5,7 +5,9 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ValidateSecurityQuestionDto } from './dto/validate-security-question.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from './public.decorator';
+import { CurrentUser } from './current-user.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -38,5 +40,14 @@ export class AuthController {
       validateDto.respostaSeguranca,
       validateDto.novaSenha,
     );
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('change-password')
+  changePassword(
+    @Body() dto: ChangePasswordDto,
+    @CurrentUser() user: { id: number },
+  ) {
+    return this.authService.changePassword(user.id, dto.senhaAtual, dto.novaSenha);
   }
 }

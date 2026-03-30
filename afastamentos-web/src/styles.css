@@ -1,4 +1,4 @@
-/* ===== Design System - Sistema Sentinela ===== */
+/* ===== Design System - Sistema Órion ===== */
 
 :root {
   /* Brand */
@@ -19,6 +19,9 @@
 
   /* Accent suave */
   --accent-muted: #6B9BC4;
+  --table-row-odd: rgba(255, 255, 255, 0.02);
+  --table-row-even: rgba(255, 255, 255, 0.05);
+  --table-row-hover: rgba(255, 255, 255, 0.08);
 
   /* Status */
   --success: #2E8B57;
@@ -48,6 +51,18 @@
   --btn-primary-hover: #0a1f35;
   --btn-accent-bg: var(--sentinela-orange);
   --btn-accent-hover: #e66d0f;
+
+  /* Fundo global — emblema Órion (bg.png) + camadas */
+  --bg-orion-base: #050a12;
+  --bg-orion-emblem: url('/bg.png');
+  --bg-orion-emblem-size: min(72vmin, 640px);
+  --bg-orion-emblem-pos: 50% 42%;
+  --bg-orion-scrim-top: rgba(6, 12, 22, 0.88);
+  --bg-orion-scrim-mid: rgba(8, 18, 34, 0.82);
+  --bg-orion-scrim-bot: rgba(4, 9, 16, 0.92);
+  --bg-orion-vignette: rgba(0, 0, 0, 0.52);
+  --bg-orion-halo-cyan: rgba(44, 123, 229, 0.09);
+  --bg-orion-halo-orange: rgba(255, 122, 26, 0.04);
 }
 
 /* Tema escuro (modo operacional) */
@@ -61,10 +76,25 @@
   --btn-primary-hover: var(--sentinela-blue);
   --btn-accent-bg: var(--sentinela-orange-glow);
   --btn-accent-hover: var(--sentinela-orange);
+  --table-row-odd: rgba(255, 255, 255, 0.01);
+  --table-row-even: rgba(255, 255, 255, 0.045);
+  --table-row-hover: rgba(255, 255, 255, 0.09);
+
+  --bg-orion-scrim-top: rgba(5, 12, 24, 0.92);
+  --bg-orion-scrim-mid: rgba(6, 16, 32, 0.86);
+  --bg-orion-scrim-bot: rgba(3, 8, 18, 0.94);
+  --bg-orion-vignette: rgba(0, 0, 0, 0.58);
+  --bg-orion-halo-cyan: rgba(74, 140, 220, 0.1);
 }
 
 [data-theme="dark"] .app-footer {
-  background: rgba(18, 42, 66, 0.7);
+  background: linear-gradient(180deg, rgba(12, 28, 48, 0.65) 0%, rgba(8, 27, 44, 0.88) 100%);
+  border-top-color: rgba(30, 58, 82, 0.8);
+}
+
+[data-theme="dark"] .app-footer__label {
+  background: rgba(8, 27, 44, 0.55);
+  border-color: rgba(107, 155, 196, 0.2);
 }
 
 *,
@@ -75,18 +105,85 @@
 
 html {
   min-height: 100%;
-  background-color: var(--bg-main);
+  /* Camadas: primeiro = por cima. Base escura + emblema + halos + vinheta + scrim legível */
+  background-color: var(--bg-orion-base);
+  background-image:
+    linear-gradient(
+      168deg,
+      var(--bg-orion-scrim-top) 0%,
+      var(--bg-orion-scrim-mid) 42%,
+      var(--bg-orion-scrim-bot) 100%
+    ),
+    radial-gradient(ellipse 110% 95% at 50% 50%, transparent 32%, var(--bg-orion-vignette) 100%),
+    radial-gradient(ellipse 55% 48% at 50% 40%, var(--bg-orion-halo-cyan) 0%, transparent 72%),
+    radial-gradient(ellipse 40% 35% at 18% 88%, var(--bg-orion-halo-orange) 0%, transparent 65%),
+    var(--bg-orion-emblem);
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    var(--bg-orion-emblem-size);
+  background-position:
+    center,
+    center,
+    center,
+    center,
+    var(--bg-orion-emblem-pos);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+@media (max-width: 900px) {
+  html {
+    background-attachment: scroll;
+  }
+}
+
+/* Mesmo tratamento do fundo Órion no card de login (fixed = alinha ao html) */
+.login-view-bg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--bg-orion-base);
+  background-image:
+    linear-gradient(
+      168deg,
+      var(--bg-orion-scrim-top) 0%,
+      var(--bg-orion-scrim-mid) 42%,
+      var(--bg-orion-scrim-bot) 100%
+    ),
+    radial-gradient(ellipse 110% 95% at 50% 50%, transparent 32%, var(--bg-orion-vignette) 100%),
+    radial-gradient(ellipse 55% 48% at 50% 40%, var(--bg-orion-halo-cyan) 0%, transparent 72%),
+    radial-gradient(ellipse 40% 35% at 18% 88%, var(--bg-orion-halo-orange) 0%, transparent 65%),
+    var(--bg-orion-emblem);
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    var(--bg-orion-emblem-size);
+  background-position:
+    center,
+    center,
+    center,
+    center,
+    var(--bg-orion-emblem-pos);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+@media (max-width: 900px) {
+  .login-view-bg-layer {
+    background-attachment: scroll;
+  }
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: var(--bg-main);
-  background-image: linear-gradient(rgba(30, 35, 42, 0.85), rgba(30, 35, 42, 0.9)), url('/bg.png');
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
-  background-attachment: fixed;
+  background-color: transparent;
 }
 
 #root {
@@ -101,6 +198,37 @@ body {
   display: flex;
   flex-direction: column;
   gap: 24px;
+}
+
+/* Fluxo de login: mesma coluna para título, card e rodapé + equilíbrio vertical */
+.app-container--auth {
+  max-width: none;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: clamp(20px, 4vw, 36px) clamp(16px, 3vw, 28px) 0;
+  gap: 0;
+  box-sizing: border-box;
+}
+
+.app-container--auth .auth-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+  gap: clamp(18px, 2.8vh, 28px);
+  min-height: 0;
+}
+
+@media (max-height: 700px) {
+  .app-container--auth .auth-shell {
+    justify-content: flex-start;
+    padding-bottom: 8px;
+  }
 }
 
 .app-container-dashboard {
@@ -118,17 +246,55 @@ header {
 .auth-header {
   justify-content: center;
   text-align: center;
+  flex-shrink: 0;
+  width: 100%;
+  margin-inline: auto;
+  padding-inline: clamp(4px, 1.5vw, 12px);
 }
 
 .auth-header h1 {
   width: 100%;
 }
 
+.auth-header__title {
+  margin: 0;
+  font-family: 'Space Grotesk', 'Roboto', system-ui, sans-serif;
+  font-weight: 600;
+  font-size: clamp(1.35rem, 3.2vw, 2rem);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  background: linear-gradient(
+    135deg,
+    var(--text-primary) 0%,
+    var(--text-primary) 42%,
+    var(--accent-muted) 72%,
+    var(--sentinela-orange-glow) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@supports not (background-clip: text) {
+  .auth-header__title {
+    color: var(--text-primary);
+    background: none;
+  }
+}
+
 .auth-header p {
   width: 100%;
 }
 
-header h1 {
+.auth-header__subtitle {
+  margin: 10px auto 0;
+  max-width: 36rem;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+header:not(.auth-header) h1 {
   margin: 0;
   font-size: clamp(1.5rem, 2vw, 1.75rem);
   font-weight: 700;
@@ -175,51 +341,103 @@ header p {
 }
 
 .app-footer {
+  position: relative;
   margin-top: auto;
-  padding: 20px 24px;
+  padding: 28px 20px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   text-align: center;
   font-size: 0.8125rem;
   color: var(--text-secondary);
-  border-top: 1px solid var(--border-soft);
-  background: rgba(30, 35, 42, 0.9);
-  backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(58, 68, 81, 0.6);
+  background: linear-gradient(180deg, rgba(20, 26, 34, 0.55) 0%, rgba(11, 31, 51, 0.72) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.app-footer--auth {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 1120px;
+  margin-inline: auto;
+  margin-top: clamp(24px, 4vh, 40px);
+  padding: 24px clamp(18px, 3vw, 28px) clamp(20px, 3vh, 28px);
+  border-radius: 14px 14px 0 0;
+  border-left: 1px solid rgba(58, 68, 81, 0.45);
+  border-right: 1px solid rgba(58, 68, 81, 0.45);
+  border-top: 1px solid rgba(58, 68, 81, 0.55);
+  box-sizing: border-box;
+  align-self: center;
+}
+
+.app-footer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(280px, 70%);
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 122, 26, 0.15) 20%,
+    var(--sentinela-orange) 50%,
+    rgba(255, 122, 26, 0.15) 80%,
+    transparent 100%
+  );
+  opacity: 0.85;
+  pointer-events: none;
 }
 
 .app-footer__label {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
   font-weight: 500;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  font-size: 0.7rem;
-  color: var(--text-secondary);
-  opacity: 0.9;
+  font-size: 0.625rem;
+  color: var(--accent-muted);
+  opacity: 0.95;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(107, 155, 196, 0.25);
+  background: rgba(15, 42, 68, 0.35);
 }
 
 .app-footer__credits {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px 14px;
   flex-wrap: wrap;
   justify-content: center;
 }
 
 .app-footer__name {
   font-weight: 600;
+  font-size: 0.875rem;
   color: var(--text-primary);
+  letter-spacing: 0.01em;
 }
 
 .app-footer__separator {
-  color: var(--border-soft);
+  color: var(--sentinela-orange);
+  opacity: 0.45;
   font-weight: 300;
   user-select: none;
 }
 
 .app-footer__meta {
-  font-size: 0.75rem;
-  opacity: 0.85;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  margin-top: 2px;
 }
 
 .login-card {
@@ -542,8 +760,29 @@ button:disabled {
   color: var(--text-primary);
 }
 
+.table tbody tr:nth-of-type(odd) {
+  background: var(--table-row-odd);
+}
+
+.table tbody tr:nth-of-type(even) {
+  background: var(--table-row-even);
+}
+
 .table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--table-row-hover);
+}
+
+/* Zebra striping para tabelas MUI usadas nas listas do sistema */
+.MuiTable-root .MuiTableBody-root .MuiTableRow-root:nth-of-type(odd) {
+  background-color: var(--table-row-odd);
+}
+
+.MuiTable-root .MuiTableBody-root .MuiTableRow-root:nth-of-type(even) {
+  background-color: var(--table-row-even);
+}
+
+.MuiTable-root .MuiTableBody-root .MuiTableRow-root:hover {
+  background-color: var(--table-row-hover);
 }
 
 .badge {
@@ -714,6 +953,7 @@ button:disabled {
   max-height: 2000px;
   opacity: 1;
   transform: translateY(0);
+  overflow: visible;
 }
 
 .management-panel__content {

@@ -321,12 +321,12 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                           overflowX: 'auto',
                         }}
                       >
-                        <Table size="small" stickyHeader sx={{ minWidth: 980 }}>
+                        <Table size="small" stickyHeader sx={{ minWidth: 860 }}>
                           <TableHead>
                             <TableRow>
                               <TableCell>Policial A</TableCell>
                               <TableCell
-                                sx={{ whiteSpace: 'nowrap', minWidth: 200 }}
+                                sx={{ whiteSpace: 'nowrap', minWidth: 130 }}
                                 title="Data do serviço"
                                 align="center"
                               >
@@ -334,14 +334,14 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                               </TableCell>
                               <TableCell>Policial B</TableCell>
                               <TableCell
-                                sx={{ whiteSpace: 'nowrap', minWidth: 200 }}
+                                sx={{ whiteSpace: 'nowrap', minWidth: 130 }}
                                 title="Data do serviço"
                                 align="center"
                               >
                                 Data do serviço
                               </TableCell>
-                              <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 140 }}>Situação</TableCell>
-                              <TableCell align="right" sx={{ minWidth: 170, whiteSpace: 'nowrap' }}>
+                              <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>Situação</TableCell>
+                              <TableCell align="right" sx={{ minWidth: 96, whiteSpace: 'nowrap' }}>
                                 Ações
                               </TableCell>
                             </TableRow>
@@ -349,7 +349,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                           <TableBody>
                             {itensTrocasFiltradas.map((row) => (
                               <TableRow key={row.id} hover>
-                            <TableCell sx={{ minWidth: 240 }}>
+                            <TableCell sx={{ minWidth: 220 }}>
                               <Typography variant="body2" fontWeight={600} noWrap title={row.policialA.nome}>
                                 {row.policialA.nome}
                               </Typography>
@@ -361,7 +361,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 Origem: {formatEquipeLabel(row.equipeOrigemA)}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 200 }} align="center">
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 130 }} align="center">
                               {formatDate(row.dataServicoA)}
                             </TableCell>
                             <TableCell>
@@ -381,10 +381,10 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 Origem: {formatEquipeLabel(row.equipeOrigemB)}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 200 }} align="center">
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 130 }} align="center">
                               {formatDate(row.dataServicoB)}
                             </TableCell>
-                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 140 }}>
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>
                               <Typography variant="caption" component="span" display="block" sx={{ whiteSpace: 'nowrap' }}>
                                 {row.restauradoA ? 'A: retornou à origem' : 'A: em troca'}
                               </Typography>
@@ -392,9 +392,9 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 {row.restauradoB ? 'B: retornou à origem' : 'B: em troca'}
                               </Typography>
                             </TableCell>
-                            <TableCell align="right" sx={{ minWidth: 170, whiteSpace: 'nowrap' }}>
+                            <TableCell align="right" sx={{ minWidth: 96, whiteSpace: 'nowrap' }}>
                               {podeGerenciarTrocas && trocasTab === 'andamento' ? (
-                                <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="nowrap">
+                                <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap">
                                   <Tooltip
                                     title={
                                       podeAlterarDatas(row)

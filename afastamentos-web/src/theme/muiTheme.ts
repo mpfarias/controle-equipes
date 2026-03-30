@@ -2,7 +2,7 @@ import { createTheme } from '@mui/material/styles';
 import { theme as designTokens } from '../constants/theme';
 
 /**
- * Tema MUI com cores do Design System - Sistema Sentinela (Dark)
+ * Tema MUI com cores do Design System - Sistema Órion (Dark)
  * Aplica as cores funcionais aos componentes MUI.
  */
 export const muiTheme = createTheme({
@@ -41,6 +41,14 @@ export const muiTheme = createTheme({
     fontFamily: designTokens.fontFamily,
   },
   components: {
+    MuiCssBaseline: {
+      styleOverrides: {
+        /* Deixa o fundo em camadas do html (emblema Órion + scrims) visível */
+        body: {
+          backgroundColor: 'transparent',
+        },
+      },
+    },
     MuiCheckbox: {
       styleOverrides: {
         root: {

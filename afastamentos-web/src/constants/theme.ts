@@ -1,5 +1,5 @@
 /**
- * Design System - Sistema Sentinela
+ * Design System - Sistema Órion
  * Tokens de cores e tipografia para uso em componentes
  */
 

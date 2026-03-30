@@ -18,7 +18,7 @@ import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
-import { maskCpf, cpfToDigits, validarCpf } from '../../utils/inputUtils';
+import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar, podeGerenciarTrocaServicoElevado } from '../../utils/permissions';
@@ -41,6 +41,21 @@ const formFieldSx = {
     '& input, & textarea, & .MuiSelect-select': { padding: '10px 12px' },
   },
 };
+
+const MESES_PT_BR = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+] as const;
 
 interface MostrarEquipeSectionProps {
   currentUser: Usuario;
@@ -158,6 +173,7 @@ export function MostrarEquipeSection({
     nome: '',
     matricula: '',
     cpf: '' as string,
+    telefone: '' as string,
     dataNascimento: '' as string,
     status: 'ATIVO' as PolicialStatus,
     matriculaComissionadoGdf: '' as string,
@@ -1095,10 +1111,12 @@ export function MostrarEquipeSection({
       ? new Date(policial.dataNascimento).toISOString().split('T')[0]
       : '';
     const cpfFormatado = policial.cpf ? maskCpf((policial.cpf || '').replace(/\D/g, '')) : '';
+    const telefoneFormatado = policial.telefone ? maskTelefone((policial.telefone || '').replace(/\D/g, '')) : '';
     setEditForm({
       nome: policial.nome,
       matricula: policial.matricula,
       cpf: cpfFormatado,
+      telefone: telefoneFormatado,
       dataNascimento: dataNascimentoStr,
       status: policial.status,
       matriculaComissionadoGdf: policial.matriculaComissionadoGdf ?? '',
@@ -1151,7 +1169,7 @@ export function MostrarEquipeSection({
         const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
           page: 1,
           pageSize: 8000,
-          statuses: ['ATIVO', 'DESIGNADO'],
+          statuses: ['ATIVO', 'DESIGNADO', 'PTTC', 'COMISSIONADO'],
           includeAfastamentos: false,
           includeRestricoes: false,
         };
@@ -1165,15 +1183,15 @@ export function MostrarEquipeSection({
             policialElegivelTrocaServico(p) &&
             p.id !== policial.id &&
             (p.equipe ?? null) !== eqOrigem &&
-            (p.status === 'ATIVO' || p.status === 'DESIGNADO'),
+            (p.status === 'ATIVO' || p.status === 'DESIGNADO' || p.status === 'PTTC' || p.status === 'COMISSIONADO'),
         );
         lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
         setTrocaCandidatos(lista);
         if (lista.length === 0) {
           setTrocaModalError(
             usuarioPodeVerTodos
-              ? 'Não há outros policiais ativos (equipe operacional ou motorista) com equipe diferente da sua para trocar.'
-              : 'Não há policiais elegíveis (equipe operacional ou motorista, com equipe diferente da sua). Amplie o filtro ou use um perfil com visão de todas as equipes.',
+              ? 'Não há outros policiais elegíveis (ATIVO, DESIGNADO, PTTC ou COMISSIONADO) com equipe diferente da sua para trocar.'
+              : 'Não há policiais elegíveis (equipe operacional/motorista ou status DESIGNADO, PTTC, COMISSIONADO, com equipe diferente da sua). Amplie o filtro ou use um perfil com visão de todas as equipes.',
           );
         }
       } catch {
@@ -1217,6 +1235,21 @@ export function MostrarEquipeSection({
       setTrocaSubmitting(false);
     }
   };
+
+  const handleExcluirHistoricoRestricao = useCallback((historicoId: number) => {
+    if (!viewingPolicial) return;
+    openConfirm({
+      title: 'Excluir registro do histórico',
+      message: 'Deseja excluir este registro de histórico de restrição médica? Esta ação não pode ser desfeita.',
+      confirmLabel: 'Excluir',
+      onConfirm: async () => {
+        const updatedPolicial = await api.deleteRestricaoMedicaHistorico(viewingPolicial.id, historicoId);
+        setViewingPolicial(updatedPolicial);
+        await carregarPoliciais(paginaAtual, itensPorPagina);
+        setSuccess('Registro de histórico removido com sucesso.');
+      },
+    });
+  }, [viewingPolicial, openConfirm, carregarPoliciais, paginaAtual, itensPorPagina]);
 
   const closeEditModal = () => {
     setEditingPolicial(null);
@@ -1282,12 +1315,17 @@ export function MostrarEquipeSection({
     }
 
     const cpfDigits = cpfToDigits(editForm.cpf);
+    const telefoneDigits = telefoneToDigits(editForm.telefone);
     if (cpfDigits.length > 0 && cpfDigits.length !== 11) {
       setEditError('CPF deve conter 11 dígitos.');
       return;
     }
     if (cpfDigits.length === 11 && !validarCpf(editForm.cpf)) {
       setEditError('CPF inválido (dígitos verificadores incorretos).');
+      return;
+    }
+    if (telefoneDigits.length > 0 && telefoneDigits.length !== 11) {
+      setEditError('Telefone deve conter 11 dígitos.');
       return;
     }
 
@@ -1316,12 +1354,14 @@ export function MostrarEquipeSection({
         ? editForm.dataPosse
         : null;
     const cpfEnvio = cpfDigits.length === 11 ? cpfDigits : null;
+    const telefoneEnvio = telefoneDigits.length === 11 ? telefoneDigits : null;
     const dataNascimentoEnvio = editForm.dataNascimento.trim() || null;
 
     const payload = {
       nome,
       matricula,
       cpf: cpfEnvio,
+      telefone: telefoneEnvio,
       dataNascimento: dataNascimentoEnvio,
       status: editForm.status,
       matriculaComissionadoGdf,
@@ -2414,6 +2454,7 @@ export function MostrarEquipeSection({
                     )}
                   </button>
                 </th>
+                <th style={{ color: 'var(--text-primary)' }}>Telefone</th>
                 <th style={{ color: 'var(--text-primary)' }}>Ações</th>
               </tr>
             </thead>
@@ -2516,6 +2557,13 @@ export function MostrarEquipeSection({
                     <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
                   ) : (
                     policial.equipe
+                  )}
+                </td>
+                <td>
+                  {policial.telefone ? (
+                    maskTelefone(policial.telefone)
+                  ) : (
+                    <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
                   )}
                 </td>
                 <td className="actions">
@@ -2975,6 +3023,19 @@ export function MostrarEquipeSection({
                   sx={formFieldSx}
                 />
                 <TextField
+                  label="Telefone"
+                  value={editForm.telefone}
+                  onChange={(event) =>
+                    setEditForm((prev) => ({ ...prev, telefone: maskTelefone(event.target.value) }))
+                  }
+                  fullWidth
+                  variant="outlined"
+                  size="small"
+                  placeholder="(00)00000-0000"
+                  inputProps={{ maxLength: 14 }}
+                  sx={formFieldSx}
+                />
+                <TextField
                   label="Data de nascimento"
                   type="date"
                   value={editForm.dataNascimento}
@@ -3287,11 +3348,44 @@ export function MostrarEquipeSection({
 
                       <Box>
                         <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Mês de previsão das férias
+                        </Typography>
+                        <Typography
+                          variant="body1"
+                          sx={{
+                            mt: 0.5,
+                            color: !viewingPolicial.mesPrevisaoFerias ? 'text.secondary' : 'inherit',
+                            fontStyle: !viewingPolicial.mesPrevisaoFerias ? 'italic' : 'inherit',
+                          }}
+                        >
+                          {viewingPolicial.mesPrevisaoFerias
+                            ? `${MESES_PT_BR[Math.max(0, Math.min(11, viewingPolicial.mesPrevisaoFerias - 1))]}${viewingPolicial.anoPrevisaoFerias ? `/${viewingPolicial.anoPrevisaoFerias}` : ''}`
+                            : 'Campo não preenchido'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           CPF
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.cpf ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.cpf ? 'italic' : 'inherit' }}>
                           {viewingPolicial.cpf
                             ? maskCpf((viewingPolicial.cpf || '').replace(/\D/g, ''))
+                            : 'Campo não preenchido'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Telefone
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.telefone ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.telefone ? 'italic' : 'inherit' }}>
+                          {viewingPolicial.telefone
+                            ? maskTelefone((viewingPolicial.telefone || '').replace(/\D/g, ''))
                             : 'Campo não preenchido'}
                         </Typography>
                       </Box>
@@ -3436,9 +3530,25 @@ export function MostrarEquipeSection({
                                       key={historico.id}
                                       sx={{ p: 1.5, backgroundColor: 'rgba(0,0,0,0.15)', borderRadius: 1, border: '1px solid var(--border-soft)' }}
                                     >
-                                      <Typography variant="body2" sx={{ fontSize: '0.875rem', color: 'text.secondary', mb: 0.75, fontWeight: 500 }}>
-                                        {formatNome(historico.restricaoMedica.nome)}
-                                      </Typography>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                                        <Typography variant="body2" sx={{ fontSize: '0.875rem', color: 'text.secondary', mb: 0.75, fontWeight: 500 }}>
+                                          {formatNome(historico.restricaoMedica.nome)}
+                                        </Typography>
+                                        {usuarioPodeExcluirPermanentemente && (
+                                          <IconButton
+                                            size="small"
+                                            title="Excluir registro do histórico"
+                                            aria-label="Excluir registro do histórico"
+                                            onClick={() => handleExcluirHistoricoRestricao(historico.id)}
+                                            sx={{
+                                              color: theme.statusComissionadoText,
+                                              '&:hover': { backgroundColor: theme.alertErrorBg },
+                                            }}
+                                          >
+                                            <Delete fontSize="small" />
+                                          </IconButton>
+                                        )}
+                                      </Box>
                                       <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
                                         Colocada em: {new Date(historico.dataInicio).toLocaleDateString('pt-BR')}
                                       </Typography>
