@@ -17,6 +17,8 @@ interface AfastamentosGroupSectionProps {
   initialSubTab?: AfastamentosSubTabKey;
   initialCadastro?: { policialId: number; motivoNome: string } | null;
   onPreencherCadastroConsumed?: () => void;
+  /** Atualiza o título da aba do navegador (subárea de Afastamentos). */
+  onPainelTituloChange?: (label: string | null) => void;
 }
 
 export function AfastamentosGroupSection({
@@ -27,6 +29,7 @@ export function AfastamentosGroupSection({
   initialSubTab = 'afastamentos',
   initialCadastro,
   onPreencherCadastroConsumed,
+  onPainelTituloChange,
 }: AfastamentosGroupSectionProps) {
   const [subTabAtiva, setSubTabAtiva] = useState<AfastamentosSubTabKey>(initialSubTab);
 
@@ -41,6 +44,19 @@ export function AfastamentosGroupSection({
   const subTabIndex = subTabsVisiveis.findIndex((st) => st.key === subTabAtiva);
   const subTabAtual: AfastamentosSubTabKey =
     subTabIndex >= 0 ? subTabAtiva : subTabsVisiveis[0]?.key ?? 'afastamentos-mes';
+
+  useEffect(() => {
+    if (!onPainelTituloChange) return;
+    const vis = AFastamentosSubTABS.filter((st) => Boolean(permissoes?.[st.key]?.VISUALIZAR));
+    if (vis.length === 0) {
+      onPainelTituloChange(null);
+      return;
+    }
+    const idx = vis.findIndex((st) => st.key === subTabAtiva);
+    const keyEfetivo: AfastamentosSubTabKey = idx >= 0 ? subTabAtiva : vis[0]!.key;
+    const st = vis.find((s) => s.key === keyEfetivo);
+    onPainelTituloChange(st?.label ?? null);
+  }, [subTabAtiva, permissoes, onPainelTituloChange]);
 
   if (subTabsVisiveis.length === 0) {
     return (

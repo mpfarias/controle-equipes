@@ -15,6 +15,8 @@ interface SistemaGroupSectionProps {
   onCurrentUserUpdate?: (updatedUser: Usuario) => void;
   permissoes?: PermissoesPorTela | null;
   initialSubTab?: SistemaSubTabKey;
+  /** Atualiza o título da aba do navegador (subárea de Sistema). */
+  onPainelTituloChange?: (label: string | null) => void;
 }
 
 export function SistemaGroupSection({
@@ -23,6 +25,7 @@ export function SistemaGroupSection({
   onCurrentUserUpdate,
   permissoes,
   initialSubTab = 'usuarios',
+  onPainelTituloChange,
 }: SistemaGroupSectionProps) {
   const [subTabAtiva, setSubTabAtiva] = useState<SistemaSubTabKey>(initialSubTab);
 
@@ -37,6 +40,19 @@ export function SistemaGroupSection({
   const subTabIndex = subTabsVisiveis.findIndex((st) => st.key === subTabAtiva);
   const subTabAtual: SistemaSubTabKey =
     subTabIndex >= 0 ? subTabAtiva : subTabsVisiveis[0]?.key ?? 'usuarios';
+
+  useEffect(() => {
+    if (!onPainelTituloChange) return;
+    const vis = SistemaSubTABS.filter((st) => Boolean(permissoes?.[st.key]?.VISUALIZAR));
+    if (vis.length === 0) {
+      onPainelTituloChange(null);
+      return;
+    }
+    const idx = vis.findIndex((st) => st.key === subTabAtiva);
+    const keyEfetivo: SistemaSubTabKey = idx >= 0 ? subTabAtiva : vis[0]!.key;
+    const st = vis.find((s) => s.key === keyEfetivo);
+    onPainelTituloChange(st?.label ?? null);
+  }, [subTabAtiva, permissoes, onPainelTituloChange]);
 
   if (subTabsVisiveis.length === 0) {
     return (

@@ -11,6 +11,8 @@ import {
   ArrayMaxSize,
   IsIn,
   ArrayMinSize,
+  IsBoolean,
+  ValidateIf,
 } from 'class-validator';
 import { SISTEMAS_EXTERNOS_IDS } from '../constants/sistemas-externos';
 
@@ -70,11 +72,20 @@ export class CreateUsuarioDto {
   fotoUrl?: string | null;
 
   @IsArray()
-  @ArrayMinSize(1, { message: 'Selecione ao menos um sistema permitido.' })
+  @ArrayMinSize(0)
   @ArrayMaxSize(32)
   @IsString({ each: true })
   /** Aceita PATRIMONIO_OPERACOES por compatibilidade; normalizado para PATRIMONIO + OPERACOES no serviço. */
   @IsIn([...SISTEMAS_EXTERNOS_IDS, 'PATRIMONIO_OPERACOES'], { each: true })
   sistemasPermitidos: string[];
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsBoolean()
+  /**
+   * Órion Suporte no cadastro: omit/null = herdar do nível; true = garantir;
+   * false = bloquear mesmo que o nível conceda.
+   */
+  acessoOrionSuporte?: boolean | null;
 }
 

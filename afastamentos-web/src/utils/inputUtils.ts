@@ -1,4 +1,32 @@
 /**
+ * Matrícula para exibição (escala, relatórios):
+ * 5 dígitos → X.XXX/X; 6 → XX.XXX/X; 7 → XXX.XXX/X.
+ * Ex.: 12345 → 1.234/5; 123456 → 12.345/6; 1234567 → 123.456/7.
+ */
+export function formatarMatriculaExibicao(matricula: string): string {
+  const s = matricula.trim();
+  if (!s) return s;
+  if (
+    /^\d{1}\.\d{3}\/\d$/u.test(s) ||
+    /^\d{2}\.\d{3}\/\d$/u.test(s) ||
+    /^\d{3}\.\d{3}\/\d$/u.test(s)
+  ) {
+    return s;
+  }
+  const digits = s.replace(/\D/g, '');
+  if (digits.length === 5) {
+    return `${digits.slice(0, 1)}.${digits.slice(1, 4)}/${digits.slice(4)}`;
+  }
+  if (digits.length === 6) {
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}/${digits.slice(5)}`;
+  }
+  if (digits.length === 7) {
+    return `${digits.slice(0, 3)}.${digits.slice(3, 6)}/${digits.slice(6)}`;
+  }
+  return s;
+}
+
+/**
  * Aplica máscara de CPF: 000.000.000-00 (apenas dígitos, max 11).
  */
 export function maskCpf(value: string): string {

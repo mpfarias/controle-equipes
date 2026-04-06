@@ -1,4 +1,4 @@
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateUsuarioNivelDto {
   @IsOptional()
@@ -10,4 +10,8 @@ export class UpdateUsuarioNivelDto {
   @IsString()
   @MaxLength(200)
   descricao?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  acessoOrionSuporte?: boolean;
 }

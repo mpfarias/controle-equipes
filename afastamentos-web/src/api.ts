@@ -36,7 +36,18 @@ import type {
   EscalaGeradaResumo,
   TrocaServico,
   TrocaServicoAtivaListaItem,
+  ErrorReport,
+  CreateErrorReportInput,
+  ErrorReportStatus,
 } from './types.ts';
+import {
+  gravarAcessoIdSession,
+  gravarTokenSession,
+  migrarELerAcessoIdSession,
+  migrarELerTokenSession,
+  removerAcessoIdSession,
+  removerTokenSession,
+} from './constants/orionEcossistemaAuth.ts';
 
 const envApiUrl = import.meta.env.VITE_API_URL;
 const fallbackApiUrl = `${window.location.protocol}//${window.location.hostname}:3002`;
@@ -51,32 +62,28 @@ const API_URL =
     ? fallbackApiUrl
     : apiUrlFromEnv ?? fallbackApiUrl;
 
-const TOKEN_STORAGE_KEY = 'afastamentos-web:token';
-const ACESSO_ID_STORAGE_KEY = 'afastamentos-web:acessoId';
-
 export function getToken(): string | null {
-  return sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  return migrarELerTokenSession();
 }
 
 export function setToken(token: string): void {
-  sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+  gravarTokenSession(token);
 }
 
 export function removeToken(): void {
-  sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+  removerTokenSession();
 }
 
 export function getAcessoId(): number | null {
-  const acessoId = sessionStorage.getItem(ACESSO_ID_STORAGE_KEY);
-  return acessoId ? parseInt(acessoId, 10) : null;
+  return migrarELerAcessoIdSession();
 }
 
 export function setAcessoId(acessoId: number): void {
-  sessionStorage.setItem(ACESSO_ID_STORAGE_KEY, acessoId.toString());
+  gravarAcessoIdSession(acessoId);
 }
 
 export function removeAcessoId(): void {
-  sessionStorage.removeItem(ACESSO_ID_STORAGE_KEY);
+  removerAcessoIdSession();
 }
 
 async function request<T>(
@@ -1333,5 +1340,51 @@ export const api = {
     });
     clearCache();
     return data;
+  },
+
+  async listErrorReports(): Promise<ErrorReport[]> {
+    return request<ErrorReport[]>('/error-reports');
+  },
+
+  async createErrorReport(payload: CreateErrorReportInput): Promise<ErrorReport> {
+    return request<ErrorReport>('/error-reports', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async cancelErrorReport(id: number, payload: { motivo: string }): Promise<ErrorReport> {
+    return request<ErrorReport>(`/error-reports/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async addErrorReportComentario(
+    id: number,
+    payload: { texto: string },
+  ): Promise<ErrorReport> {
+    return request<ErrorReport>(`/error-reports/${id}/comentarios`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateErrorReportStatus(
+    id: number,
+    payload: { status: ErrorReportStatus },
+  ): Promise<ErrorReport> {
+    return request<ErrorReport>(`/error-reports/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getErrorReportsAdminContagemAbertos(): Promise<{ total: number }> {
+    return request<{ total: number }>('/error-reports/admin/contagem-abertos');
+  },
+
+  async listErrorReportsAdminTodos(): Promise<ErrorReport[]> {
+    return request<ErrorReport[]>('/error-reports/admin/todos');
   },
 };

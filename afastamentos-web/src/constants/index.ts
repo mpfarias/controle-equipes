@@ -47,7 +47,9 @@ export type TabKey =
   | 'relatorios-sistema'
   | 'relatorios-servico'
   | 'restricao-afastamento'
-  | 'gestao-sistema';
+  | 'gestao-sistema'
+  /** Suporte: abrir chamado técnico (visível a todos os perfis). */
+  | 'reportar-erro';
 
 export const AFastamentosSubTABS: { key: AfastamentosSubTabKey; label: string }[] = [
   { key: 'afastamentos', label: 'Gerenciar afastamentos' },
@@ -73,6 +75,7 @@ export const TABS: { key: TabKey; label: string }[] = [
   { key: 'afastamentos', label: 'Afastamentos' },
   { key: 'equipe', label: 'Efetivo' },
   { key: 'sistema', label: 'Sistema' },
+  { key: 'reportar-erro', label: 'Reportar erro' },
 ];
 
 /** Telas usadas na configuração de permissões (Gestão do Sistema). Mantém as sub-telas de Afastamentos para controle granular. */

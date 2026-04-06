@@ -16,6 +16,10 @@ import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
+import {
+  acessoOrionSuporteParaApi,
+  temAcessoOrionSuporteEfetivo,
+} from '../../utils/orionSuporteEfetivo';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import { ImageCropper } from '../common/ImageCropper';
 import {
@@ -52,15 +56,27 @@ import {
   Visibility,
   VisibilityOff,
   Description,
+  FactCheck,
+  Gavel,
   Inventory2,
   Hub,
+  SupportAgent,
 } from '@mui/icons-material';
 
 const SISTEMA_ICON: Record<string, React.ReactNode> = {
   SAD: <Description sx={{ fontSize: 22 }} />,
   PATRIMONIO: <Inventory2 sx={{ fontSize: 22 }} />,
   OPERACOES: <Hub sx={{ fontSize: 22 }} />,
+  ORION_QUALIDADE: <FactCheck sx={{ fontSize: 22 }} />,
+  ORION_JURIDICO: <Gavel sx={{ fontSize: 22 }} />,
 };
+
+/** IDs enviados à API quando o perfil é Administrador (acesso a todos os sistemas integrados). */
+const TODOS_SISTEMAS_INTEGRADOS_IDS = SISTEMAS_EXTERNOS_OPTIONS.map((o) => o.id);
+
+const ROTULOS_TODOS_SISTEMAS_INTEGRADOS = SISTEMAS_EXTERNOS_OPTIONS.map((o) => o.label).join(', ');
+
+const ROTULO_ORION_SUPORTE = 'Órion Suporte';
 
 function formatSistemasPermitidosList(ids?: string[] | null): string {
   if (!ids?.length) {
@@ -75,14 +91,25 @@ function SistemasPermitidosSelector({
   value,
   onChange,
   disabled,
+  orionSuporte,
+  onOrionSuporteChange,
+  mostrarOrionSuporte = true,
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  /** Quando informado com `onOrionSuporteChange`, exibe o cartão no mesmo estilo dos demais sistemas. */
+  orionSuporte?: boolean;
+  onOrionSuporteChange?: (enabled: boolean) => void;
+  /** Apenas administradores veem o cartão Órion Suporte (conceder/negar acesso no usuário). */
+  mostrarOrionSuporte?: boolean;
 }) {
   const handleChange = (_event: React.MouseEvent<HTMLElement>, next: string[]) => {
     onChange(next);
   };
+
+  const showSuporteCard =
+    mostrarOrionSuporte && onOrionSuporteChange != null && typeof orionSuporte === 'boolean';
 
   return (
     <FormControl component="fieldset" variant="standard" fullWidth disabled={disabled} sx={{ mt: 1 }}>
@@ -103,7 +130,10 @@ function SistemasPermitidosSelector({
         Sistemas
       </FormLabel>
       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 1.5, lineHeight: 1.5 }}>
-        Obrigatório: escolha ao menos um sistema. O usuário poderá acessar somente o que estiver selecionado.
+        Módulos integrados do ecossistema (atalhos no SAD e tela de escolha de sistema).
+        {mostrarOrionSuporte
+          ? ' Se nenhum estiver marcado, o perfil precisa ter acesso ao Órion Suporte (nível ou usuário).'
+          : ' Se nenhum estiver marcado, o nível de acesso precisa prever acesso ao Órion Suporte (definido pelo administrador).'}
       </Typography>
       <Paper
         variant="outlined"
@@ -118,25 +148,30 @@ function SistemasPermitidosSelector({
           boxShadow: theme.palette.mode === 'dark' ? 'inset 0 1px 0 rgba(255,255,255,0.06)' : 'none',
         })}
       >
-        <ToggleButtonGroup
-          value={value}
-          exclusive={false}
-          onChange={handleChange}
-          aria-label="Sistemas permitidos"
+        <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' },
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' },
             gap: 1.25,
             width: '100%',
-            '& .MuiToggleButtonGroup-grouped': {
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: '10px !important',
-              m: '0 !important',
-            },
           }}
         >
-          {SISTEMAS_EXTERNOS_OPTIONS.map((s) => {
+          <ToggleButtonGroup
+            value={value}
+            exclusive={false}
+            onChange={handleChange}
+            aria-label="Sistemas permitidos"
+            sx={{
+              display: 'contents',
+              '& .MuiToggleButtonGroup-grouped': {
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: '10px !important',
+                m: '0 !important',
+              },
+            }}
+          >
+            {SISTEMAS_EXTERNOS_OPTIONS.map((s) => {
             const on = value.includes(s.id);
             return (
               <ToggleButton
@@ -194,7 +229,7 @@ function SistemasPermitidosSelector({
                           : 'rgba(0,0,0,0.04)',
                     })}
                   >
-                    {SISTEMA_ICON[s.id]}
+                    {SISTEMA_ICON[s.id] ?? <Hub sx={{ fontSize: 22 }} />}
                   </Box>
                   <Box sx={{ minWidth: 0, flex: 1 }}>
                     <Typography variant="body2" fontWeight={on ? 700 : 600} color="text.primary" sx={{ lineHeight: 1.35 }}>
@@ -211,10 +246,99 @@ function SistemasPermitidosSelector({
               </ToggleButton>
             );
           })}
-        </ToggleButtonGroup>
+          </ToggleButtonGroup>
+          {showSuporteCard ? (
+            <ToggleButton
+                value="__orion_suporte__"
+                selected={orionSuporte}
+                disabled={disabled}
+                onClick={() => onOrionSuporteChange!(!orionSuporte)}
+                aria-pressed={orionSuporte}
+                sx={(theme) => {
+                  const on = orionSuporte;
+                  return {
+                    py: 1.5,
+                    px: 1.75,
+                    width: '100%',
+                    textAlign: 'left',
+                    textTransform: 'none',
+                    justifyContent: 'flex-start',
+                    alignItems: 'flex-start',
+                    flexDirection: 'column',
+                    gap: 0.75,
+                    borderRadius: '10px !important',
+                    border: '1px solid',
+                    transition: 'border-color 0.2s, background-color 0.2s, box-shadow 0.2s',
+                    borderColor: on ? theme.palette.secondary.main : 'divider',
+                    bgcolor: on
+                      ? theme.palette.mode === 'dark'
+                        ? 'rgba(255, 122, 26, 0.1)'
+                        : 'rgba(255, 122, 26, 0.06)'
+                      : 'transparent',
+                    boxShadow: on ? `0 0 0 1px ${theme.palette.secondary.main}40` : 'none',
+                    '&:hover': {
+                      bgcolor: on
+                        ? theme.palette.mode === 'dark'
+                            ? 'rgba(255, 122, 26, 0.14)'
+                            : 'rgba(255, 122, 26, 0.09)'
+                        : theme.palette.action.hover,
+                    },
+                    '&.Mui-selected': {
+                      bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 122, 26, 0.12)' : 'rgba(255, 122, 26, 0.08)',
+                      '&:hover': {
+                        bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 122, 26, 0.16)' : 'rgba(255, 122, 26, 0.1)',
+                      },
+                    },
+                  };
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.25} sx={{ width: '100%' }}>
+                  <Box
+                    sx={(theme) => ({
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 40,
+                      height: 40,
+                      borderRadius: 1.5,
+                      flexShrink: 0,
+                      color: orionSuporte ? theme.palette.secondary.main : 'text.secondary',
+                      bgcolor: orionSuporte
+                        ? theme.palette.mode === 'dark'
+                          ? 'rgba(255, 122, 26, 0.15)'
+                          : 'rgba(255, 122, 26, 0.12)'
+                        : theme.palette.mode === 'dark'
+                          ? 'rgba(255,255,255,0.06)'
+                          : 'rgba(0,0,0,0.04)',
+                    })}
+                  >
+                    <SupportAgent sx={{ fontSize: 22 }} />
+                  </Box>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography
+                      variant="body2"
+                      fontWeight={orionSuporte ? 700 : 600}
+                      color="text.primary"
+                      sx={{ lineHeight: 1.35 }}
+                    >
+                      Órion Suporte
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, lineHeight: 1.4 }}>
+                      {orionSuporte ? 'Acesso autorizado' : 'Clique para habilitar'}
+                    </Typography>
+                  </Box>
+                  {orionSuporte ? (
+                    <CheckCircle sx={{ fontSize: 20, color: 'secondary.main', flexShrink: 0, opacity: 0.95 }} />
+                  ) : null}
+                </Stack>
+            </ToggleButton>
+          ) : null}
+        </Box>
       </Paper>
       <FormHelperText sx={{ mt: 1.25, mx: 0, lineHeight: 1.45 }}>
-        É necessário manter ao menos um sistema selecionado para concluir o cadastro ou a edição.
+        É necessário manter ao menos um módulo integrado selecionado para concluir o cadastro ou a edição (exceto quando
+        o acesso ao Órion Suporte cobre o perfil, conforme regras acima).
+        {mostrarOrionSuporte ? ' O Órion Suporte é opcional (somente administradores alteram aqui).' : ''}
       </FormHelperText>
     </FormControl>
   );
@@ -245,6 +369,7 @@ export function UsuariosSection({
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
     sistemasPermitidos: ['SAD'] as string[],
+    acessoOrionSuporte: false,
   };
 
   const initialEditForm = {
@@ -259,6 +384,7 @@ export function UsuariosSection({
     funcaoId: undefined as number | undefined,
     fotoUrl: undefined as string | null | undefined,
     sistemasPermitidos: ['SAD'] as string[],
+    acessoOrionSuporte: false,
   };
 
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -313,39 +439,52 @@ export function UsuariosSection({
     loading: false,
   });
 
-  const carregarUsuarios = useCallback(async (page: number, pageSize: number) => {
-    try {
-      setLoading(true);
-      const data = await api.listUsuariosPaginated({
-        page,
-        pageSize,
-      });
-      setUsuarios(data.usuarios);
-      const totalPages = Math.max(1, data.totalPages);
-      setTotalUsuarios(data.total);
-      setTotalPaginas(totalPages);
-      if (page > totalPages) {
-        setPaginaAtual(totalPages);
+  const carregarUsuarios = useCallback(
+    async (page: number, pageSize: number, opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      try {
+        if (!silent) {
+          setLoading(true);
+        }
+        const data = await api.listUsuariosPaginated({
+          page,
+          pageSize,
+        });
+        setUsuarios(data.usuarios);
+        const totalPages = Math.max(1, data.totalPages);
+        setTotalUsuarios(data.total);
+        setTotalPaginas(totalPages);
+        if (page > totalPages) {
+          setPaginaAtual(totalPages);
+        }
+        setError(null);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Não foi possível carregar os usuários.',
+        );
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
       }
-      setError(null);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Não foi possível carregar os usuários.',
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [],
+  );
 
-  const carregarUsuariosParaValidacao = useCallback(async () => {
+  const carregarUsuariosParaValidacao = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setLoadingUsuariosValidacao(true);
+      if (!silent) {
+        setLoadingUsuariosValidacao(true);
+      }
       const lista = await api.listUsuarios();
       setUsuariosParaValidacao(lista);
     } catch (err) {
       console.error('Erro ao carregar usuários para validação:', err);
     } finally {
-      setLoadingUsuariosValidacao(false);
+      if (!silent) {
+        setLoadingUsuariosValidacao(false);
+      }
     }
   }, []);
 
@@ -449,6 +588,25 @@ export function UsuariosSection({
     }
     return false;
   }, [usuarioNiveis]);
+
+  /** Sistemas integrados + Órion Suporte quando houver acesso (Suporte não entra em `sistemasPermitidos` na API). */
+  const textoSistemasPermitidosNaLista = useCallback(
+    (u: Usuario) => {
+      const ehAdmin = isUsuarioAdministrador(u);
+      const base = ehAdmin
+        ? ROTULOS_TODOS_SISTEMAS_INTEGRADOS
+        : formatSistemasPermitidosList(u.sistemasPermitidos);
+      const temSuporte = temAcessoOrionSuporteEfetivo(u) || ehAdmin;
+      if (!temSuporte) {
+        return base;
+      }
+      if (base === '—') {
+        return ROTULO_ORION_SUPORTE;
+      }
+      return `${base}, ${ROTULO_ORION_SUPORTE}`;
+    },
+    [isUsuarioAdministrador],
+  );
 
   // Verificar se o usuário logado é administrador
   const currentUserIsAdmin = useMemo(() => {
@@ -571,7 +729,13 @@ export function UsuariosSection({
       if (!nivelSelecionado && form.nivelId !== 0) {
         const primeiroNivel = niveisDisponiveis.find(n => n.nome === 'OPERAÇÕES') || niveisDisponiveis[0];
         if (primeiroNivel) {
-          setForm(prev => ({ ...prev, nivelId: primeiroNivel.id }));
+          const caiuEmAdmin = primeiroNivel.nome === 'ADMINISTRADOR';
+          setForm((prev) => ({
+            ...prev,
+            nivelId: primeiroNivel.id,
+            sistemasPermitidos: caiuEmAdmin ? [...TODOS_SISTEMAS_INTEGRADOS_IDS] : ['SAD'],
+            acessoOrionSuporte: caiuEmAdmin,
+          }));
         }
       }
     }
@@ -615,25 +779,35 @@ export function UsuariosSection({
     }
     // Se o campo alterado for nivelId, verificar se precisa limpar a equipe
     if (field === 'nivelId') {
-      const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
-      const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
-      
-      setForm((prev) => ({
-        ...prev,
-        nivelId: (value as number) || 0,
-        // Se não for OPERAÇÕES, manter 'A' como padrão (mas não será enviado)
-        equipe: isOperacoes ? prev.equipe : 'A' as Equipe,
-      }));
-      
-      // Verificar se a função atual ainda está na lista de funções disponíveis (após troca de nível)
       const funcoesFiltradas = funcoesParaSelecao(funcoes);
-      setForm((prevForm) => {
-        const funcaoAindaDisponivel = prevForm.funcaoId
-          ? funcoesFiltradas.some(f => f.id === prevForm.funcaoId)
+      setForm((prev) => {
+        const prevNivel = usuarioNiveis.find((n) => n.id === prev.nivelId);
+        const novoNivel = usuarioNiveis.find((n) => n.id === (value as number));
+        const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
+        const isAdminNivel = novoNivel?.nome === 'ADMINISTRADOR';
+        const wasAdmin = prevNivel?.nome === 'ADMINISTRADOR';
+
+        let sistemasPermitidos = prev.sistemasPermitidos;
+        let acessoOrionSuporte = prev.acessoOrionSuporte;
+        if (isAdminNivel) {
+          sistemasPermitidos = [...TODOS_SISTEMAS_INTEGRADOS_IDS];
+          acessoOrionSuporte = true;
+        } else if (wasAdmin && !isAdminNivel) {
+          sistemasPermitidos = ['SAD'];
+          acessoOrionSuporte = false;
+        }
+
+        const funcaoAindaDisponivel = prev.funcaoId
+          ? funcoesFiltradas.some((f) => f.id === prev.funcaoId)
           : true;
+
         return {
-          ...prevForm,
-          funcaoId: funcaoAindaDisponivel ? prevForm.funcaoId : undefined,
+          ...prev,
+          nivelId: (value as number) || 0,
+          equipe: isOperacoes ? prev.equipe : ('A' as Equipe),
+          sistemasPermitidos,
+          acessoOrionSuporte,
+          funcaoId: funcaoAindaDisponivel ? prev.funcaoId : undefined,
         };
       });
       return;
@@ -798,13 +972,36 @@ export function UsuariosSection({
       return;
     }
 
+    const nivelSelecionado = usuarioNiveis.find((n) => n.id === form.nivelId);
+
     if (!form.sistemasPermitidos?.length) {
-      setError('Selecione ao menos um sistema permitido para o usuário.');
-      return;
+      const ehPerfilAdminCriacao = nivelSelecionado?.nome === 'ADMINISTRADOR';
+      const acessoGravar = ehPerfilAdminCriacao
+        ? true
+        : currentUserIsAdmin
+          ? acessoOrionSuporteParaApi(
+              form.acessoOrionSuporte,
+              nivelSelecionado?.acessoOrionSuporte === true,
+            )
+          : null;
+      const podeSomenteSuporte = temAcessoOrionSuporteEfetivo({
+        isAdmin: Boolean(ehPerfilAdminCriacao),
+        acessoOrionSuporte: acessoGravar,
+        nivel: nivelSelecionado
+          ? { acessoOrionSuporte: nivelSelecionado.acessoOrionSuporte }
+          : undefined,
+      });
+      if (!podeSomenteSuporte) {
+        setError(
+          currentUserIsAdmin
+            ? 'Selecione ao menos um sistema integrado ou habilite o Órion Suporte (perfil ou nível).'
+            : 'Selecione ao menos um sistema integrado ou use um nível que já conceda Órion Suporte.',
+        );
+        return;
+      }
     }
 
     // Validar se está tentando criar usuário como ADMINISTRADOR sem permissão
-    const nivelSelecionado = usuarioNiveis.find(n => n.id === form.nivelId);
     if (nivelSelecionado?.nome === 'ADMINISTRADOR' && !currentUserIsAdmin) {
       setError('Apenas administradores podem cadastrar outros usuários como administradores.');
       return;
@@ -821,7 +1018,7 @@ export function UsuariosSection({
 
     try {
       setSubmitting(true);
-      const nivelSelecionado = usuarioNiveis.find(n => n.id === form.nivelId);
+      const ehPerfilAdmin = nivelSelecionado?.nome === 'ADMINISTRADOR';
       const payload: CreateUsuarioInput = {
         nome,
         matricula,
@@ -833,13 +1030,23 @@ export function UsuariosSection({
         // Enviar equipe: se for OPERAÇÕES, usar o valor selecionado; caso contrário, enviar null (sem equipe)
         equipe: nivelSelecionado?.nome === 'OPERAÇÕES' ? form.equipe : undefined,
         fotoUrl: form.fotoUrl ?? undefined,
-        sistemasPermitidos: form.sistemasPermitidos,
+        sistemasPermitidos: ehPerfilAdmin
+          ? [...TODOS_SISTEMAS_INTEGRADOS_IDS]
+          : [...form.sistemasPermitidos],
+        acessoOrionSuporte: ehPerfilAdmin
+          ? true
+          : currentUserIsAdmin
+            ? acessoOrionSuporteParaApi(
+                form.acessoOrionSuporte,
+                nivelSelecionado?.acessoOrionSuporte === true,
+              )
+            : null,
       };
       await api.createUsuario(payload);
       resetForm();
       setSuccess('Usuário cadastrado com sucesso.');
-      await carregarUsuarios(paginaAtual, itensPorPagina);
-      await carregarUsuariosParaValidacao();
+      await carregarUsuarios(paginaAtual, itensPorPagina, { silent: true });
+      await carregarUsuariosParaValidacao({ silent: true });
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Não foi possível criar o usuário.',
@@ -865,13 +1072,28 @@ export function UsuariosSection({
     // Se o campo alterado for nivelId, verificar se precisa limpar a equipe
     if (field === 'nivelId') {
       setEditForm((prev) => {
-        const novoNivel = usuarioNiveis.find(n => n.id === (value as number));
+        const prevNivel = usuarioNiveis.find((n) => n.id === prev.nivelId);
+        const novoNivel = usuarioNiveis.find((n) => n.id === (value as number));
         const isOperacoes = novoNivel?.nome === 'OPERAÇÕES';
-        
+        const isAdminNivel = novoNivel?.nome === 'ADMINISTRADOR';
+        const wasAdmin = prevNivel?.nome === 'ADMINISTRADOR';
+
+        let sistemasPermitidos = prev.sistemasPermitidos;
+        let acessoOrionSuporte = prev.acessoOrionSuporte;
+        if (isAdminNivel) {
+          sistemasPermitidos = [...TODOS_SISTEMAS_INTEGRADOS_IDS];
+          acessoOrionSuporte = true;
+        } else if (wasAdmin && !isAdminNivel) {
+          sistemasPermitidos = ['SAD'];
+          acessoOrionSuporte = false;
+        }
+
         return {
           ...prev,
           nivelId: (value as number) || 0,
           equipe: isOperacoes ? prev.equipe : 'A',
+          sistemasPermitidos,
+          acessoOrionSuporte,
         };
       });
       return;
@@ -895,6 +1117,7 @@ export function UsuariosSection({
       }
       const nivelDoUsuario = usuarioNiveis.find(n => n.id === nivelId);
       const isOperacoes = nivelDoUsuario?.nome === 'OPERAÇÕES';
+      const adminUser = isUsuarioAdministrador(u);
       setEditForm({
         nome: u.nome,
         matricula: u.matricula,
@@ -906,10 +1129,12 @@ export function UsuariosSection({
         nivelId: nivelId,
         funcaoId: u.funcaoId ?? undefined,
         fotoUrl: u.fotoUrl ?? null,
-        sistemasPermitidos:
-          Array.isArray(u.sistemasPermitidos) && u.sistemasPermitidos.length > 0
+        sistemasPermitidos: adminUser
+          ? [...TODOS_SISTEMAS_INTEGRADOS_IDS]
+          : Array.isArray(u.sistemasPermitidos) && u.sistemasPermitidos.length > 0
             ? [...u.sistemasPermitidos]
             : ['SAD'],
+        acessoOrionSuporte: adminUser ? true : temAcessoOrionSuporteEfetivo(u),
       });
     };
     applyForm(usuario);
@@ -955,13 +1180,34 @@ export function UsuariosSection({
       return;
     }
 
+    const nivelSelecionadoEdit = usuarioNiveis.find((n) => n.id === editForm.nivelId);
+    const ehPerfilAdminEdit = nivelSelecionadoEdit?.nome === 'ADMINISTRADOR';
+
     if (!editForm.sistemasPermitidos?.length) {
-      setEditError('Selecione ao menos um sistema permitido para o usuário.');
-      return;
+      const acessoGravarEdit = ehPerfilAdminEdit
+        ? true
+        : currentUserIsAdmin
+          ? acessoOrionSuporteParaApi(
+              editForm.acessoOrionSuporte,
+              nivelSelecionadoEdit?.acessoOrionSuporte === true,
+            )
+          : null;
+      const podeSomenteSuporteEdit = temAcessoOrionSuporteEfetivo({
+        isAdmin: Boolean(ehPerfilAdminEdit),
+        acessoOrionSuporte: acessoGravarEdit,
+        nivel: nivelSelecionadoEdit ?? undefined,
+      });
+      if (!podeSomenteSuporteEdit) {
+        setEditError(
+          currentUserIsAdmin
+            ? 'Selecione ao menos um sistema integrado ou habilite o Órion Suporte (perfil ou nível).'
+            : 'Selecione ao menos um sistema integrado ou use um nível que já conceda Órion Suporte.',
+        );
+        return;
+      }
     }
 
     // Validar se está tentando editar usuário para ADMINISTRADOR sem permissão
-    const nivelSelecionadoEdit = usuarioNiveis.find(n => n.id === editForm.nivelId);
     if (nivelSelecionadoEdit?.nome === 'ADMINISTRADOR' && !currentUserIsAdmin) {
       setEditError('Apenas administradores podem definir outros usuários como administradores.');
       return;
@@ -997,8 +1243,18 @@ export function UsuariosSection({
       nivelId: editForm.nivelId,
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl ?? undefined,
-      sistemasPermitidos: editForm.sistemasPermitidos,
+      sistemasPermitidos: ehPerfilAdminEdit
+        ? [...TODOS_SISTEMAS_INTEGRADOS_IDS]
+        : [...editForm.sistemasPermitidos],
     };
+    if (currentUserIsAdmin) {
+      payloadBase.acessoOrionSuporte = ehPerfilAdminEdit
+        ? true
+        : acessoOrionSuporteParaApi(
+            editForm.acessoOrionSuporte,
+            nivelSelecionadoEdit?.acessoOrionSuporte === true,
+          );
+    }
 
     openConfirm({
       title: 'Confirmar edição',
@@ -1011,11 +1267,12 @@ export function UsuariosSection({
           if (novaSenha) {
             payload.senha = novaSenha;
           }
-          await api.updateUsuario(editingUsuario.id, payload);
+          const atualizado = await api.updateUsuario(editingUsuario.id, payload);
+          setUsuarios((prev) => prev.map((u) => (u.id === atualizado.id ? atualizado : u)));
           setSuccess('Usuário atualizado com sucesso.');
           resetEditForm();
-          await carregarUsuarios(paginaAtual, itensPorPagina);
-          await carregarUsuariosParaValidacao();
+          await carregarUsuarios(paginaAtual, itensPorPagina, { silent: true });
+          await carregarUsuariosParaValidacao({ silent: true });
 
           // Se o usuário editado for o usuário logado, atualizar currentUser
           if (editingUsuario.id === currentUser.id && onCurrentUserUpdate) {
@@ -1078,8 +1335,8 @@ export function UsuariosSection({
             resetEditForm();
           }
           setSuccess('Usuário ativado.');
-          await carregarUsuarios(paginaAtual, itensPorPagina);
-          await carregarUsuariosParaValidacao();
+          await carregarUsuarios(paginaAtual, itensPorPagina, { silent: true });
+          await carregarUsuariosParaValidacao({ silent: true });
         } catch (err) {
           setError(
             err instanceof Error
@@ -1134,8 +1391,8 @@ export function UsuariosSection({
       
       setSuccess('Usuário excluído permanentemente.');
       handleCloseDeleteModal();
-      await carregarUsuarios(paginaAtual, itensPorPagina);
-      await carregarUsuariosParaValidacao();
+      await carregarUsuarios(paginaAtual, itensPorPagina, { silent: true });
+      await carregarUsuariosParaValidacao({ silent: true });
     } catch (err) {
       let errorMessage = 'Não foi possível excluir o usuário.';
       if (err instanceof Error) {
@@ -1324,6 +1581,14 @@ export function UsuariosSection({
         <SistemasPermitidosSelector
           value={form.sistemasPermitidos}
           onChange={(ids) => setForm((prev) => ({ ...prev, sistemasPermitidos: ids }))}
+          mostrarOrionSuporte={currentUserIsAdmin}
+          orionSuporte={currentUserIsAdmin ? form.acessoOrionSuporte : undefined}
+          onOrionSuporteChange={
+            currentUserIsAdmin
+              ? (enabled) => setForm((prev) => ({ ...prev, acessoOrionSuporte: enabled }))
+              : undefined
+          }
+          disabled={usuarioNiveis.find((n) => n.id === form.nivelId)?.nome === 'ADMINISTRADOR'}
         />
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mt: 2 }}>
           <TextField
@@ -1551,6 +1816,7 @@ export function UsuariosSection({
               <th>Nome</th>
               <th>Matrícula</th>
               <th>Sistemas</th>
+              <th>Órion Suporte</th>
               <th>Nível</th>
               <th>Ações</th>
             </tr>
@@ -1567,7 +1833,12 @@ export function UsuariosSection({
               >
                 <td>{usuario.nome}</td>
                 <td>{formatMatricula(usuario.matricula)}</td>
-                <td>{formatSistemasPermitidosList(usuario.sistemasPermitidos)}</td>
+                <td>{textoSistemasPermitidosNaLista(usuario)}</td>
+                <td>
+                  {temAcessoOrionSuporteEfetivo(usuario) || isUsuarioAdministrador(usuario)
+                    ? 'Sim'
+                    : 'Não'}
+                </td>
                 <td>{usuario.nivel?.nome || '-'}</td>
                 <td className="actions">
                   {usuario.status === 'ATIVO' && canEdit(permissoes, 'usuarios') && (
@@ -1907,6 +2178,15 @@ export function UsuariosSection({
               <SistemasPermitidosSelector
                 value={editForm.sistemasPermitidos}
                 onChange={(ids) => setEditForm((prev) => ({ ...prev, sistemasPermitidos: ids }))}
+                mostrarOrionSuporte={currentUserIsAdmin}
+                orionSuporte={currentUserIsAdmin ? editForm.acessoOrionSuporte : undefined}
+                onOrionSuporteChange={
+                  currentUserIsAdmin
+                    ? (enabled) =>
+                        setEditForm((prev) => ({ ...prev, acessoOrionSuporte: enabled }))
+                    : undefined
+                }
+                disabled={usuarioNiveis.find((n) => n.id === editForm.nivelId)?.nome === 'ADMINISTRADOR'}
               />
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 2 }}>
                 <TextField

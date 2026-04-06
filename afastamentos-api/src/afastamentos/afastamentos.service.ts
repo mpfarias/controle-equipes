@@ -210,6 +210,46 @@ export class AfastamentosService {
   }
 
   /**
+   * Impede cadastro/edição que sobreponha outro afastamento do mesmo policial
+   * (ATIVO ou ENCERRADO — evita duplicar o mesmo período no histórico; se o SEI for o mesmo, mensagem específica).
+   */
+  private async assertPolicialSemAfastamentoSobreposto(
+    policialId: number,
+    dataInicio: Date,
+    dataFim: Date | null,
+    excluirAfastamentoId: number | undefined,
+    seiNumeroNovo: string,
+  ): Promise<void> {
+    const existentes = await this.prisma.afastamento.findMany({
+      where: {
+        policialId,
+        ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
+      },
+      select: {
+        dataInicio: true,
+        dataFim: true,
+        seiNumero: true,
+      },
+    });
+
+    const seiNorm = seiNumeroNovo.trim();
+
+    for (const ex of existentes) {
+      if (
+        this.periodosSobrepostos(dataInicio, dataFim, ex.dataInicio, ex.dataFim)
+      ) {
+        const mesmoSei =
+          seiNorm.length > 0 && ex.seiNumero.trim() === seiNorm;
+        throw new BadRequestException(
+          mesmoSei
+            ? 'Já existe um registro de afastamento para este policial no mesmo período e com o mesmo número de processo (SEI). Não é permitido lançar em duplicidade.'
+            : 'Já existe um registro de afastamento para este policial que cobre parte ou a totalidade deste período (inclusive encerrado). Ajuste as datas ou exclua o registro anterior antes de lançar outro.',
+        );
+      }
+    }
+  }
+
+  /**
    * Calcula o total de dias usados no ano para um motivo específico
    */
   private async calcularDiasUsadosNoAno(
@@ -247,16 +287,23 @@ export class AfastamentosService {
   }
 
   /**
-   * Calcula o total de dias de afastamento de um policial (todos os tipos)
+   * Total de dias de afastamentos ATIVOS do policial para o limite PTTC (45 dias),
+   * excluindo o motivo Férias — abono, dispensa médica etc. entram na conta.
    */
-  private async calcularTotalDiasAfastamento(
+  private async calcularTotalDiasAfastamentoParaLimitePTTC(
     policialId: number,
     excluirAfastamentoId?: number,
   ): Promise<number> {
+    const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
+      where: { nome: 'Férias' },
+      select: { id: true },
+    });
+
     const afastamentos = await this.prisma.afastamento.findMany({
       where: {
         policialId,
         status: AfastamentoStatus.ATIVO,
+        ...(motivoFerias ? { motivoId: { not: motivoFerias.id } } : {}),
         ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
       },
     });
@@ -276,13 +323,14 @@ export class AfastamentosService {
   }
 
   /**
-   * Valida se policial PTTC não ultrapassa 45 dias de afastamento
+   * Valida se policial PTTC não ultrapassa 45 dias de afastamento (sem contar Férias).
    */
   private async validarLimitePTTC(
     policialId: number,
     dataInicio: Date,
     dataFim: Date | null,
     excluirAfastamentoId?: number,
+    motivoId?: number,
   ): Promise<void> {
     // Buscar o policial para verificar o status
     const policial = await this.prisma.policial.findUnique({
@@ -299,30 +347,37 @@ export class AfastamentosService {
       return;
     }
 
-    // Para PTTC, data fim é obrigatória
+    if (motivoId != null) {
+      const motivo = await this.prisma.motivoAfastamento.findUnique({
+        where: { id: motivoId },
+        select: { nome: true },
+      });
+      if ((motivo?.nome ?? '').toLowerCase() === 'férias') {
+        return;
+      }
+    }
+
+    // Para PTTC (demais motivos), data fim é obrigatória
     if (!dataFim) {
       throw new BadRequestException(
         'Para policiais PTTC, é necessário informar a data de término do afastamento.',
       );
     }
 
-    // Calcular total de dias já usados
-    const diasUsados = await this.calcularTotalDiasAfastamento(
+    const diasUsados = await this.calcularTotalDiasAfastamentoParaLimitePTTC(
       policialId,
       excluirAfastamentoId,
     );
 
-    // Calcular dias solicitados
     const diasSolicitados = this.calcularDiasEntreDatas(dataInicio, dataFim);
 
-    // Verificar se ultrapassa 45 dias
     const totalAposCadastro = diasUsados + diasSolicitados;
     const limiteDias = 45;
 
     if (totalAposCadastro > limiteDias) {
       const diasRestantes = limiteDias - diasUsados;
       throw new BadRequestException(
-        `Policial PTTC já possui ${diasUsados} dias de afastamento cadastrados, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite de ${limiteDias} dias por ano.`,
+        `Policial PTTC já possui ${diasUsados} dias de afastamento cadastrados (exceto férias), restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite de ${limiteDias} dias por ano para afastamentos que não sejam férias.`,
       );
     }
   }
@@ -780,11 +835,21 @@ export class AfastamentosService {
     const dataInicio = this.parseDateOnly(data.dataInicio);
     const dataFim = data.dataFim ? this.parseDateOnly(data.dataFim) : null;
 
-    // Validar limite de 45 dias para policiais PTTC
+    await this.assertPolicialSemAfastamentoSobreposto(
+      data.policialId,
+      dataInicio,
+      dataFim,
+      undefined,
+      data.seiNumero,
+    );
+
+    // Validar limite de 45 dias para policiais PTTC (férias fora deste limite)
     await this.validarLimitePTTC(
       data.policialId,
       dataInicio,
       dataFim,
+      undefined,
+      data.motivoId,
     );
 
     // Validar limites de dias para férias e abono
@@ -1051,12 +1116,24 @@ export class AfastamentosService {
       ? data.policialId 
       : before.policialId;
 
-    // Validar limite de 45 dias para policiais PTTC (excluindo o próprio afastamento)
+    const seiNumeroFinal =
+      data.seiNumero !== undefined ? data.seiNumero.trim() : before.seiNumero.trim();
+
+    await this.assertPolicialSemAfastamentoSobreposto(
+      policialIdFinal,
+      dataInicioFinal,
+      dataFimFinal,
+      id,
+      seiNumeroFinal,
+    );
+
+    // Validar limite de 45 dias para policiais PTTC (férias fora; exclui o próprio registro)
     await this.validarLimitePTTC(
       policialIdFinal,
       dataInicioFinal,
       dataFimFinal,
-      id, // Excluir este afastamento do cálculo
+      id,
+      motivoIdFinal,
     );
 
     // Validar limites de dias para férias e abono (excluindo o próprio afastamento)

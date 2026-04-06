@@ -16,6 +16,8 @@ export interface UsuarioNivel {
   nome: string;
   descricao?: string | null;
   ativo?: boolean;
+  /** Acesso ao aplicativo Órion Suporte (gestão de chamados). */
+  acessoOrionSuporte?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,10 +31,21 @@ export interface Usuario {
   status: UsuarioStatus;
   isAdmin?: boolean;
   nivelId?: number | null;
-  nivel?: { id: number; nome: string; descricao?: string | null; ativo?: boolean };
+  nivel?: {
+    id: number;
+    nome: string;
+    descricao?: string | null;
+    ativo?: boolean;
+    acessoOrionSuporte?: boolean;
+  };
   funcaoId?: number | null;
   funcao?: { id: number; nome: string; descricao?: string | null };
   fotoUrl?: string | null;
+  /**
+   * Órion Suporte: null/omitido = herdar `nivel.acessoOrionSuporte`;
+   * true = garantir; false = bloquear mesmo que o nível conceda.
+   */
+  acessoOrionSuporte?: boolean | null;
   /** Sistemas integrados (IDs: SAD, PATRIMONIO, OPERACOES — exibição: Órion SAD, Órion Patrimônio, Órion Operações). */
   sistemasPermitidos?: string[];
   createdById?: number | null;
@@ -52,11 +65,59 @@ export interface CreateUsuarioInput {
   funcaoId?: number;
   fotoUrl?: string | null;
   sistemasPermitidos: string[];
+  acessoOrionSuporte?: boolean | null;
 }
 
 export interface LoginInput {
   matricula: string;
   senha: string;
+}
+
+export type ErrorReportStatus =
+  | 'ABERTO'
+  | 'EM_ANALISE'
+  | 'RESOLVIDO'
+  | 'FECHADO'
+  | 'CANCELADO';
+
+export type ErrorReportCategoria = 'ERRO_SISTEMA' | 'DUVIDA' | 'MELHORIA' | 'OUTRO';
+
+export type ErrorReportAcaoTipo =
+  | 'CHAMADO_CRIADO'
+  | 'COMENTARIO'
+  | 'STATUS_ALTERADO'
+  | 'CHAMADO_CANCELADO';
+
+export interface ErrorReportAcao {
+  tipo: ErrorReportAcaoTipo;
+  em: string;
+  usuarioId: number;
+  usuarioNome: string;
+  detalhes?: Record<string, unknown>;
+}
+
+export interface ErrorReport {
+  id: number;
+  usuarioId: number;
+  /** Protocolo numérico de 15 dígitos (ano + categoria + mês + dia + ordem no dia). */
+  protocolo: string;
+  descricao: string;
+  categoria: ErrorReportCategoria;
+  status: ErrorReportStatus;
+  acoes: ErrorReportAcao[];
+  /** Data URL (imagem/PDF) quando o solicitante anexou arquivo. */
+  anexoDataUrl?: string | null;
+  anexoNome?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  usuario?: { id: number; nome: string; matricula: string };
+}
+
+export interface CreateErrorReportInput {
+  descricao: string;
+  categoria: ErrorReportCategoria;
+  anexoDataUrl?: string;
+  anexoNome?: string;
 }
 
 export interface RestricaoMedica {
@@ -264,6 +325,7 @@ export interface UsuarioNivelOption {
   nome: string;
   descricao?: string | null;
   ativo?: boolean;
+  acessoOrionSuporte?: boolean;
 }
 
 export interface EquipeOption {
@@ -282,11 +344,13 @@ export interface PerguntaSegurancaOption {
 export interface CreateUsuarioNivelInput {
   nome: string;
   descricao?: string;
+  acessoOrionSuporte?: boolean;
 }
 
 export interface UpdateUsuarioNivelInput {
   nome?: string;
   descricao?: string | null;
+  acessoOrionSuporte?: boolean;
 }
 
 export type PermissaoAcao = 'VISUALIZAR' | 'EDITAR' | 'DESATIVAR' | 'EXCLUIR';

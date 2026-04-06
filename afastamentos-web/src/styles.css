@@ -971,6 +971,124 @@ button:disabled {
   margin-top: 8px;
 }
 
+/* Card "Abrir chamado" (padrão Gestão do Sistema: borda, fundo, destaque laranja) */
+.abrir-chamado-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.abrir-chamado-wrap--compact {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.abrir-chamado-wrap--compact .abrir-chamado-institutional-link {
+  align-self: flex-end;
+  max-width: 280px;
+}
+
+button.abrir-chamado-card {
+  font: inherit;
+  width: 100%;
+  max-width: 440px;
+}
+
+.abrir-chamado-card {
+  display: block;
+  text-align: left;
+  text-decoration: none;
+  color: inherit;
+  box-sizing: border-box;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  border-left: 4px solid var(--sentinela-orange);
+  padding: 16px 18px;
+  background: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 12px rgba(15, 42, 68, 0.14);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
+    border-left-color 0.2s ease;
+  max-width: 440px;
+}
+
+.abrir-chamado-institutional-link {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.abrir-chamado-institutional-link:hover {
+  color: var(--sentinela-orange-glow);
+}
+
+.abrir-chamado-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--sentinela-orange);
+  box-shadow: 0 8px 22px rgba(255, 122, 26, 0.2);
+  border-left-color: var(--sentinela-orange-glow);
+}
+
+.abrir-chamado-card__eyebrow {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--sentinela-orange-glow);
+  margin-bottom: 6px;
+}
+
+.abrir-chamado-card__title {
+  display: block;
+  font-weight: 600;
+  font-size: 1.08rem;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  line-height: 1.25;
+}
+
+.abrir-chamado-card__desc {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.abrir-chamado-card--compact {
+  max-width: 300px;
+  padding: 12px 14px;
+}
+
+.abrir-chamado-card--compact .abrir-chamado-card__title {
+  font-size: 1rem;
+  margin-bottom: 6px;
+}
+
+.abrir-chamado-card--compact .abrir-chamado-card__desc {
+  font-size: 0.82rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.abrir-chamado-card--disabled {
+  cursor: not-allowed;
+  opacity: 0.78;
+  border-left-color: rgba(255, 122, 26, 0.35);
+}
+
+.abrir-chamado-card--disabled:hover {
+  transform: none;
+  border-color: var(--border-soft);
+  box-shadow: 0 2px 12px rgba(15, 42, 68, 0.14);
+  border-left-color: rgba(255, 122, 26, 0.35);
+}
+
 .niveis-acesso-embedded {
   display: flex;
   flex-direction: column;

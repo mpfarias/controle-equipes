@@ -1,5 +1,11 @@
 /** Identificadores dos sistemas integrados (permissão por usuário). */
-export const SISTEMAS_EXTERNOS_IDS = ['SAD', 'PATRIMONIO', 'OPERACOES'] as const;
+export const SISTEMAS_EXTERNOS_IDS = [
+  'SAD',
+  'PATRIMONIO',
+  'OPERACOES',
+  'ORION_QUALIDADE',
+  'ORION_JURIDICO',
+] as const;
 
 export type SistemaExternoId = (typeof SISTEMAS_EXTERNOS_IDS)[number];
 

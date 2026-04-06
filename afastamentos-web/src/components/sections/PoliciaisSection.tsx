@@ -184,25 +184,31 @@ export function PoliciaisSection({
     }
 
     const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-    
-    // Verificar se é CMT UPM ou SUBCMT UPM
+
+    // CMT UPM / SUBCMT UPM: só pode haver um policial ATIVO com a mesma função
     if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
-      // Verificar se já existe alguém com essa função
+      if (form.status !== 'ATIVO') {
+        setFuncaoError(null);
+        return;
+      }
       const jaExiste = policiais.some((policial) => {
+        if (policial.status !== 'ATIVO') return false;
         if (!policial.funcao) return false;
         const policialFuncaoUpper = policial.funcao.nome.toUpperCase();
         return policialFuncaoUpper === funcaoUpper;
       });
 
       if (jaExiste) {
-        setFuncaoError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
+        setFuncaoError(
+          `Já existe um policial ativo com a função "${funcaoSelecionada.nome}". Só pode haver um policial ativo nesta função.`,
+        );
       } else {
         setFuncaoError(null);
       }
     } else {
       setFuncaoError(null);
     }
-  }, [policiais, funcoes, loading, error]);
+  }, [policiais, funcoes, loading, error, form.status]);
 
   useEffect(() => {
     void carregarPoliciais();
@@ -232,7 +238,7 @@ export function PoliciaisSection({
     if (form.funcaoId && !loading) {
       validateFuncao(form.funcaoId);
     }
-  }, [policiais, form.funcaoId, validateFuncao, loading]);
+  }, [policiais, form.funcaoId, form.status, validateFuncao, loading]);
 
   // Limpar timeout ao desmontar o componente
   useEffect(() => {
@@ -478,21 +484,23 @@ export function PoliciaisSection({
       return;
     }
 
-    // Validar função antes de submeter (especialmente para CMT UPM e SUBCMT UPM)
-    if (form.funcaoId) {
+    // CMT UPM / SUBCMT UPM: no máximo um policial ATIVO com a mesma função
+    if (form.funcaoId && form.status === 'ATIVO') {
       const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
       if (funcaoSelecionada) {
         const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
         if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
           const jaExiste = policiais.some((policial) => {
+            if (policial.status !== 'ATIVO') return false;
             if (!policial.funcao) return false;
             const policialFuncaoUpper = policial.funcao.nome.toUpperCase();
             return policialFuncaoUpper === funcaoUpper;
           });
 
           if (jaExiste) {
-            setFuncaoError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
-            setError(`Já existe um policial cadastrado com a função "${funcaoSelecionada.nome}". Não pode haver mais de um.`);
+            const msg = `Já existe um policial ativo com a função "${funcaoSelecionada.nome}". Só pode haver um policial ativo nesta função.`;
+            setFuncaoError(msg);
+            setError(msg);
             return;
           }
         }

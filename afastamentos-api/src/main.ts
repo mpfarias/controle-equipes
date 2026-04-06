@@ -39,16 +39,27 @@ async function bootstrap() {
   }));
   
   // Configurar CORS com origens permitidas
+  const orionSuporteUrl = process.env.ORION_SUPORTE_FRONTEND_URL;
+
   const allowedOrigins = [
-    'http://localhost:5173', // Vite dev server
-    'http://localhost:4173', // Vite preview
+    'http://localhost:5173', // Vite dev Órion SAD
+    'http://localhost:5174', // legado / outro dev
+    'http://localhost:5180', // Vite dev Órion Suporte (porta dedicada)
+    'http://localhost:4173', // Vite preview SAD
+    'http://localhost:4180', // Vite preview Suporte
     'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+    'http://127.0.0.1:5180',
     'http://127.0.0.1:4173',
+    'http://127.0.0.1:4180',
   ];
 
   // Adicionar origem customizada se definida em variável de ambiente
   if (frontendUrl) {
     allowedOrigins.push(frontendUrl);
+  }
+  if (orionSuporteUrl) {
+    allowedOrigins.push(orionSuporteUrl);
   }
 
   app.enableCors({

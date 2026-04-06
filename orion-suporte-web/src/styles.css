@@ -1,0 +1,214 @@
+:root {
+  --suporte-accent: #2dd4bf;
+  --suporte-accent-dim: #14b8a6;
+  --suporte-accent-glow: rgba(45, 212, 191, 0.35);
+  --suporte-ink: #042f2e;
+  --suporte-panel: #0f172a;
+  /* Chips / ações na gestão (mantém contraste sem parecer a mesma identidade do login SAD) */
+  --sentinela-blue: #0f766e;
+  --sentinela-orange: #f59e0b;
+  --sentinela-orange-glow: #fbbf24;
+  --card-bg: rgba(15, 23, 42, 0.92);
+  --border-soft: rgba(45, 212, 191, 0.22);
+  --border-strong: rgba(45, 212, 191, 0.45);
+  --text-primary: #ecfdf5;
+  --text-secondary: rgba(236, 253, 245, 0.72);
+  --text-muted: rgba(236, 253, 245, 0.55);
+  --alert-error-bg: rgba(214, 69, 69, 0.18);
+  --alert-error-text: #fecaca;
+  --alert-success-bg: rgba(46, 139, 87, 0.22);
+  --alert-success-text: #86efac;
+  --btn-primary-hover: #0d9488;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: linear-gradient(160deg, #022c22 0%, #0f172a 42%, #134e4a 100%);
+  color: var(--text-primary);
+}
+
+.app-suporte {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-suporte--auth {
+  min-height: 100vh;
+}
+
+.app-suporte__main {
+  flex: 1;
+  padding: 1rem 1.25rem 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.section-header h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  max-width: 52rem;
+  line-height: 1.45;
+}
+
+.auth-suporte-footer {
+  text-align: center;
+  padding: 1rem 1rem 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* Modais (avatar: foto e senha) */
+button.primary {
+  background: var(--sentinela-blue);
+  border: 1px solid var(--sentinela-blue);
+  color: white;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-hover);
+}
+
+button.primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--text-secondary);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+}
+
+button.secondary:hover:not(:disabled) {
+  border-color: var(--suporte-accent);
+  color: var(--suporte-accent);
+}
+
+.feedback {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  position: relative;
+}
+
+.feedback.error {
+  background: var(--alert-error-bg);
+  color: var(--alert-error-text);
+  border: 1px solid rgba(214, 69, 69, 0.4);
+}
+
+.feedback.success {
+  background: var(--alert-success-bg);
+  color: var(--alert-success-text);
+  border: 1px solid rgba(46, 139, 87, 0.4);
+  padding-right: 36px;
+}
+
+.feedback-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  opacity: 0.7;
+  transition: opacity 0.2s, background-color 0.2s;
+}
+
+.feedback-close:hover {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.12);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 1400;
+  overflow-y: auto;
+}
+
+.modal {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 20px 45px -25px rgba(0, 0, 0, 0.55);
+  border: 1px solid var(--border-soft);
+  overflow-y: auto;
+  margin: auto;
+}
+
+.modal h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}

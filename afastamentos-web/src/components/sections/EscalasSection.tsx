@@ -11,6 +11,8 @@ import { VisualizarEscalasTab } from './VisualizarEscalasTab';
 interface EscalasSectionProps {
   currentUser: Usuario;
   permissoes?: PermissoesPorTela | null;
+  /** Atualiza o título da aba do navegador (subárea de Escalas). */
+  onPainelTituloChange?: (label: string | null) => void;
 }
 
 type EscalasPainelKey = 'gerar' | 'consultar';
@@ -32,7 +34,7 @@ function EscalasTabPanel(props: {
   );
 }
 
-export function EscalasSection({ currentUser, permissoes }: EscalasSectionProps) {
+export function EscalasSection({ currentUser, permissoes, onPainelTituloChange }: EscalasSectionProps) {
   const { parsed: escalaParsed, error: errorParametros } = useEscalaParametros();
   const [abaEscalas, setAbaEscalas] = useState(0);
 
@@ -50,6 +52,16 @@ export function EscalasSection({ currentUser, permissoes }: EscalasSectionProps)
   useEffect(() => {
     if (abaEscalas >= abasVisiveis.length) setAbaEscalas(0);
   }, [abasVisiveis.length, abaEscalas]);
+
+  useEffect(() => {
+    if (!onPainelTituloChange) return;
+    if (abasVisiveis.length === 0) {
+      onPainelTituloChange(null);
+      return;
+    }
+    const idx = Math.min(abaEscalas, abasVisiveis.length - 1);
+    onPainelTituloChange(abasVisiveis[idx]?.label ?? null);
+  }, [abaEscalas, abasVisiveis, onPainelTituloChange]);
 
   if (abasVisiveis.length === 0) {
     return (

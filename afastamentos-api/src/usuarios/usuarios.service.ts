@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -16,6 +17,7 @@ import { CreateUsuarioNivelDto } from './dto/create-usuario-nivel.dto';
 import { UpdateUsuarioNivelDto } from './dto/update-usuario-nivel.dto';
 import { SetUsuarioNivelPermissoesDto } from './dto/set-usuario-nivel-permissoes.dto';
 import { isSistemaExternoId } from './constants/sistemas-externos';
+import { usuarioTemAcessoOrionSuporteEfetivo } from './orion-suporte-access.util';
 
 type UsuarioEntity = Prisma.UsuarioGetPayload<{
   select: typeof usuarioSelect;
@@ -36,6 +38,7 @@ const usuarioSelect = {
       nome: true,
       descricao: true,
       ativo: true,
+      acessoOrionSuporte: true,
     },
   },
   funcaoId: true,
@@ -47,6 +50,7 @@ const usuarioSelect = {
     },
   },
   fotoUrl: true,
+  acessoOrionSuporte: true,
   sistemasPermitidos: true,
   createdById: true,
   createdByName: true,
@@ -98,6 +102,71 @@ export class UsuariosService {
     return [...seen];
   }
 
+  private async assertActorEhAdministrador(responsavelId?: number): Promise<void> {
+    if (!responsavelId) {
+      throw new UnauthorizedException('Não autenticado.');
+    }
+    const nivelAdmin = await this.prisma.usuarioNivel.findUnique({
+      where: { nome: 'ADMINISTRADOR' },
+      select: { id: true },
+    });
+    const actor = await this.prisma.usuario.findUnique({
+      where: { id: responsavelId },
+      select: { isAdmin: true, nivelId: true },
+    });
+    const ehAdmin =
+      actor?.isAdmin === true ||
+      (nivelAdmin != null && actor?.nivelId === nivelAdmin.id);
+    if (!ehAdmin) {
+      throw new ForbiddenException(
+        'Apenas administradores podem gerir o acesso ao Órion Suporte no cadastro do usuário.',
+      );
+    }
+  }
+
+  /**
+   * Na criação: não-admins só podem deixar herança (`undefined`/`null`);
+   * valores explícitos `true`/`false` em `Usuario.acessoOrionSuporte` exigem administrador.
+   */
+  private async assertAdministradorSeOverrideOrionSuporteExplicitoNaCriacao(
+    responsavelId: number | undefined,
+    valor: boolean | null | undefined,
+  ): Promise<void> {
+    if (valor === true || valor === false) {
+      await this.assertActorEhAdministrador(responsavelId);
+    }
+  }
+
+  /** Permite `sistemasPermitidos` vazio quando houver acesso efetivo ao Órion Suporte. */
+  private async assertSistemasIntegradosOuSuporte(
+    nivelId: number,
+    isAdmin: boolean,
+    sistemasNorm: string[],
+    acessoOrionSuporteUsuario: boolean | null,
+    nivelCached?: { acessoOrionSuporte?: boolean | null } | null,
+  ): Promise<void> {
+    if (sistemasNorm.length > 0) {
+      return;
+    }
+    const nivelRow =
+      nivelCached !== undefined
+        ? nivelCached
+        : await this.prisma.usuarioNivel.findUnique({
+            where: { id: nivelId },
+            select: { acessoOrionSuporte: true },
+          });
+    const ok = usuarioTemAcessoOrionSuporteEfetivo({
+      isAdmin,
+      acessoOrionSuporte: acessoOrionSuporteUsuario,
+      nivel: nivelRow ?? null,
+    });
+    if (!ok) {
+      throw new BadRequestException(
+        'Selecione ao menos um sistema integrado (SAD, Patrimônio, Operações, Órion Qualidade, Órion Jurídico) ou habilite o Órion Suporte para este perfil.',
+      );
+    }
+  }
+
   private async ensureEquipeAtiva(nome: string): Promise<string> {
     const normalizado = this.sanitizeEquipeNome(nome);
     const equipe = await this.prisma.equipeOption.findFirst({
@@ -125,6 +194,29 @@ export class UsuariosService {
       : null;
 
     const equipe = data.equipe ? await this.ensureEquipeAtiva(data.equipe) : null;
+    await this.assertAdministradorSeOverrideOrionSuporteExplicitoNaCriacao(
+      responsavelId,
+      data.acessoOrionSuporte,
+    );
+    const acessoOrionSuporteGravar: boolean | null =
+      data.acessoOrionSuporte === true
+        ? true
+        : data.acessoOrionSuporte === false
+          ? false
+          : null;
+    const nivelJoin = await this.prisma.usuarioNivel.findUnique({
+      where: { id: data.nivelId },
+      select: { nome: true, acessoOrionSuporte: true },
+    });
+    const isAdminNivel = nivelJoin?.nome === 'ADMINISTRADOR';
+    const sistemasNorm = this.normalizeSistemasPermitidos(data.sistemasPermitidos);
+    await this.assertSistemasIntegradosOuSuporte(
+      data.nivelId,
+      isAdminNivel,
+      sistemasNorm,
+      acessoOrionSuporteGravar,
+      nivelJoin,
+    );
     const created = await this.prisma.usuario.create({
       data: {
         nome: this.sanitizeNome(data.nome),
@@ -136,7 +228,8 @@ export class UsuariosService {
         nivel: { connect: { id: data.nivelId } },
         funcao: data.funcaoId ? { connect: { id: data.funcaoId } } : undefined,
         fotoUrl: data.fotoUrl ?? null,
-        sistemasPermitidos: this.normalizeSistemasPermitidos(data.sistemasPermitidos),
+        acessoOrionSuporte: acessoOrionSuporteGravar,
+        sistemasPermitidos: sistemasNorm,
         status: UsuarioStatus.ATIVO,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
@@ -261,6 +354,7 @@ export class UsuariosService {
         nome,
         descricao: data.descricao?.trim() || null,
         ativo: true,
+        acessoOrionSuporte: data.acessoOrionSuporte === true,
       },
     });
 
@@ -306,6 +400,10 @@ export class UsuariosService {
 
     if (data.descricao !== undefined) {
       updateData.descricao = data.descricao?.trim() || null;
+    }
+
+    if (data.acessoOrionSuporte !== undefined) {
+      updateData.acessoOrionSuporte = data.acessoOrionSuporte;
     }
 
     const updated = await this.prisma.usuarioNivel.update({
@@ -908,9 +1006,44 @@ export class UsuariosService {
       updateData.sistemasPermitidos = this.normalizeSistemasPermitidos(data.sistemasPermitidos);
     }
 
+    if (data.acessoOrionSuporte !== undefined) {
+      await this.assertActorEhAdministrador(responsavelId);
+      updateData.acessoOrionSuporte = data.acessoOrionSuporte;
+    }
+
     if (data.senha) {
       // Fazer hash da nova senha antes de salvar
       updateData.senhaHash = await bcrypt.hash(data.senha, 10);
+    }
+
+    const sistemasFinais =
+      data.sistemasPermitidos !== undefined
+        ? this.normalizeSistemasPermitidos(data.sistemasPermitidos)
+        : [...(before.sistemasPermitidos ?? [])];
+    const nivelIdFinal =
+      data.nivelId !== undefined && data.nivelId !== null && data.nivelId > 0
+        ? data.nivelId
+        : before.nivelId ?? 0;
+    const acessoFinal =
+      data.acessoOrionSuporte !== undefined ? data.acessoOrionSuporte : before.acessoOrionSuporte;
+
+    if (
+      (data.sistemasPermitidos !== undefined ||
+        data.nivelId !== undefined ||
+        data.acessoOrionSuporte !== undefined) &&
+      nivelIdFinal > 0
+    ) {
+      const nivelRow = await this.prisma.usuarioNivel.findUnique({
+        where: { id: nivelIdFinal },
+        select: { nome: true, acessoOrionSuporte: true },
+      });
+      await this.assertSistemasIntegradosOuSuporte(
+        nivelIdFinal,
+        nivelRow?.nome === 'ADMINISTRADOR',
+        sistemasFinais,
+        acessoFinal ?? null,
+        nivelRow,
+      );
     }
 
     const updated = await this.prisma.usuario.update({

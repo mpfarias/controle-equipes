@@ -26,12 +26,15 @@ import {
   type LinhaEscalaGeradaDraft,
   type TipoServicoGerar,
 } from '../../utils/gerarEscalasCalculo';
+import { ESCALA_DEFINITIVA_RENDER_MESSAGE, writeEscalaGeradaEditorWindow } from '../../utils/escalaGeradaEditor';
 import {
   ESCALA_GERADA_SALVAR_MESSAGE,
+  linhasEscalaDraftParaApi,
   openEscalaGeradaBlankWindow,
   writeEscalaGeradaLoadingWindow,
   writeEscalaGeradaPrintWindow,
 } from '../../utils/escalaGeradaPrint';
+import type { EscalaGeradaDraftPayload } from '../../utils/gerarEscalasCalculo';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit } from '../../utils/permissions';
 
@@ -149,19 +152,26 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         dataEscala: p.dataEscala,
         tipoServico: p.tipoServico,
         resumoEquipes: p.resumoEquipes ?? null,
-        linhas: p.linhas as LinhaEscalaGeradaDraft[],
+        linhas: linhasEscalaDraftParaApi(p.linhas as LinhaEscalaGeradaDraft[]),
       });
       setSuccess(`Escala salva com sucesso (registro nº ${created.id}).`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Erro ao salvar a escala.');
     }
-  }, []);
+  }, [podeEditar]);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (!printWinRef.current || e.source !== printWinRef.current) return;
-      if (e.data?.type !== ESCALA_GERADA_SALVAR_MESSAGE) return;
-      void handleSalvarFromPrint(e.data.payload);
+      const win = printWinRef.current;
+      if (!win || e.source !== win) return;
+      if (e.data?.type === ESCALA_DEFINITIVA_RENDER_MESSAGE) {
+        const draft = e.data.draft as EscalaGeradaDraftPayload;
+        writeEscalaGeradaPrintWindow(win, draft);
+        return;
+      }
+      if (e.data?.type === ESCALA_GERADA_SALVAR_MESSAGE) {
+        void handleSalvarFromPrint(e.data.payload);
+      }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
@@ -233,10 +243,12 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
           funcoesExpedienteIds: [...idsExpGeracao],
           operacionalTurnos:
             tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined,
+          dataGeracaoIso: new Date().toISOString(),
         },
       );
 
-      writeEscalaGeradaPrintWindow(win, draft);
+      const funcoesOpts = ativasGeracao.map((f) => ({ id: f.id, nome: f.nome }));
+      writeEscalaGeradaEditorWindow(win, draft, policiais, funcoesOpts);
     } catch (e) {
       try {
         win.close();
@@ -268,9 +280,10 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         </Alert>
       )}
       <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6, maxWidth: 800 }}>
-        Marque um ou mais tipos de serviço e a data da escala. A lista única reúne todos os tipos escolhidos (cada
-        linha indica o tipo entre colchetes no horário). Policiais afastados na data aparecem uma vez na lista de
-        afastados.
+        Marque os tipos de serviço e a data; em seguida abre-se uma <strong>nova aba</strong> para revisar a escala
+        (cabeçalho com selects, troca de policial/função). Os horários das linhas são automáticos (regras do sistema).
+        Use <strong>Gerar escala definitiva</strong> na aba para obter o documento final (imprimir / salvar).{' '}
+        <strong>Cancelar</strong> na aba de edição fecha sem salvar.
       </Typography>
 
       {error && (

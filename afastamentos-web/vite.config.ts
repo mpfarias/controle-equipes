@@ -18,6 +18,8 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    /** Impede que o SAD “roube” 5174/5175 quando 5173 estiver ocupada — o link do Órion Suporte não pode apontar para o front errado. */
+    strictPort: true,
   },
   preview: {
     host: '0.0.0.0',

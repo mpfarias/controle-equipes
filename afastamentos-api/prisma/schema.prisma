@@ -106,6 +106,8 @@ model UsuarioNivel {
   nome       String                  @unique
   descricao  String?
   ativo      Boolean                 @default(true)
+  /** Quando true, usuários deste nível podem acessar o app Órion Suporte (gestão de chamados). */
+  acessoOrionSuporte Boolean         @default(false)
   usuarios   Usuario[]
   permissoes UsuarioNivelPermissao[]
   createdAt  DateTime                @default(now())
@@ -139,6 +141,10 @@ model Usuario {
   funcaoId              Int?
   funcao                Funcao?       @relation(fields: [funcaoId], references: [id])
   fotoUrl               String?
+  /**
+   * Órion Suporte: null = herdar do nível; true = garantir acesso; false = bloquear mesmo que o nível conceda.
+   */
+  acessoOrionSuporte    Boolean?
   sistemasPermitidos    String[]      @default([])
   createdById           Int?
   createdByName         String?
@@ -146,6 +152,7 @@ model Usuario {
   updatedByName         String?
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
+  errorReports          ErrorReport[]
 }
 
 enum AfastamentoStatus {
@@ -392,4 +399,50 @@ model TrocaServico {
   @@index([status])
   @@index([policialAId])
   @@index([policialBId])
+}
+
+enum ErrorReportStatus {
+  ABERTO
+  EM_ANALISE
+  RESOLVIDO
+  FECHADO
+  CANCELADO
+}
+
+enum ErrorReportCategoria {
+  ERRO_SISTEMA
+  DUVIDA
+  MELHORIA
+  OUTRO
+}
+
+/** Contador sequencial por ano civil (America/Sao_Paulo): os 5 últimos dígitos do protocolo reiniciam em 01/01. */
+model ErrorReportProtocolSequence {
+  anoReferencia String @id @db.VarChar(4)
+  contador      Int    @default(0)
+
+  @@map("error_report_protocol_sequence")
+}
+
+/** Chamados de erro / suporte registrados pelos usuários. Coluna de histórico `acoes` guarda todas as ações (criação, comentários, mudança de status). */
+model ErrorReport {
+  id        Int                  @id @default(autoincrement())
+  usuarioId Int
+  usuario   Usuario              @relation(fields: [usuarioId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  /** Protocolo numérico de 15 dígitos (ano + categoria + mês + dia + ordem no ano). */
+  protocolo String               @unique @db.VarChar(15)
+  descricao String               @db.Text
+  categoria ErrorReportCategoria
+  status    ErrorReportStatus    @default(ABERTO)
+  acoes          Json    @default("[]")
+  /** Data URL (base64) de imagem ou PDF anexado pelo solicitante; opcional. */
+  anexoDataUrl   String? @db.Text
+  /** Nome original do arquivo enviado (exibição / download). */
+  anexoNome      String? @db.VarChar(255)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([usuarioId])
+  @@index([status])
+  @@map("errorReport")
 }

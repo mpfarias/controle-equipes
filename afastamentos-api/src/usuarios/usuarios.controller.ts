@@ -21,6 +21,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { AnyAuthenticated } from '../auth/any-authenticated.decorator';
 import type { Usuario } from '@prisma/client';
+import { PatchMeDto } from './dto/patch-me.dto';
 
 @Controller('usuarios')
 @Roles('ADMINISTRADOR', 'SAD')
@@ -196,6 +197,13 @@ export class UsuariosController {
     @CurrentUser() user: Usuario,
   ) {
     return this.usuariosService.deletePerguntaSeguranca(id, user.id);
+  }
+
+  /** Foto / perfil do próprio usuário (inclui app Órion Suporte, sem role SAD). */
+  @Patch('me')
+  @AnyAuthenticated()
+  patchMe(@CurrentUser() user: Usuario, @Body() body: PatchMeDto) {
+    return this.usuariosService.update(user.id, { fotoUrl: body.fotoUrl }, user.id);
   }
 
   @Get(':id')

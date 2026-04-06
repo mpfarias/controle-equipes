@@ -1,6 +1,7 @@
-import { Body, Controller, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
+import type { Usuario } from '@prisma/client';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -8,6 +9,7 @@ import { ValidateSecurityQuestionDto } from './dto/validate-security-question.dt
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Public } from './public.decorator';
 import { CurrentUser } from './current-user.decorator';
+import { AnyAuthenticated } from './any-authenticated.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -40,6 +42,15 @@ export class AuthController {
       validateDto.respostaSeguranca,
       validateDto.novaSenha,
     );
+  }
+
+  /** Perfil do usuário autenticado (para apps como Órion Suporte que não usam GET /usuarios/:id). */
+  @Get('me')
+  @AnyAuthenticated()
+  me(@CurrentUser() user: Usuario) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { senhaHash, ...perfil } = user;
+    return perfil;
   }
 
   @Throttle({ default: { limit: 10, ttl: 60000 } })

@@ -15,6 +15,9 @@ import { RestricoesAfastamentoModule } from './restricoes-afastamento/restricoes
 import { SvgModule } from './svg/svg.module';
 import { EscalasModule } from './escalas/escalas.module';
 import { TrocaServicoModule } from './troca-servico/troca-servico.module';
+import { ErrorReportsModule } from './error-reports/error-reports.module';
+import { OrionQualidadeModule } from './orion-qualidade/orion-qualidade.module';
+import { OrionJuridicoModule } from './orion-juridico/orion-juridico.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { APP_FILTER } from '@nestjs/core';
@@ -42,6 +45,9 @@ import { HttpExceptionFilter } from './erros/http-exception.filter';
     SvgModule,
     EscalasModule,
     TrocaServicoModule,
+    ErrorReportsModule,
+    OrionQualidadeModule,
+    OrionJuridicoModule,
   ],
   providers: [
     {

@@ -2,10 +2,22 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { api, getToken, removeToken } from './api.ts';
 import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
 import { TABS, AFastamentosSubTABS, EfetivoSubTABS, SistemaSubTABS, type TabKey, type TabChangeOptions, type AfastamentosSubTabKey, type SistemaSubTabKey } from './constants';
+import { ORIAN_NAVIGATE_TAB, type NavigateTabEventDetail } from './constants/appNavigation';
+import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
+import { getUrlOrionJuridico } from './constants/orionJuridico';
+import { getUrlOrionQualidade } from './constants/orionQualidade';
+import { getUrlOrionSuporte } from './constants/orionSuporte';
 import { expandirPermissoesLegadoEscalas, temAcessoEscalas } from './utils/permissions';
+import { temAcessoOrionSuporteEfetivo } from './utils/orionSuporteEfetivo';
+import {
+  BROWSER_TITLE_APP_SAD,
+  formatDocumentTitleSAD,
+  rotuloAbaPrincipalSAD,
+} from './utils/browserTitleSAD';
 import { formatMatricula } from './utils/dateUtils';
 import {
   Avatar,
+  Badge,
   Box,
   Button,
   IconButton,
@@ -13,8 +25,18 @@ import {
   Menu,
   MenuItem,
   TextField,
+  Tooltip,
 } from '@mui/material';
-import { Logout, PhotoCamera, Lock, Visibility, VisibilityOff } from '@mui/icons-material';
+import {
+  FactCheck,
+  Gavel,
+  Logout,
+  PhotoCamera,
+  Lock,
+  SupportAgent,
+  Visibility,
+  VisibilityOff,
+} from '@mui/icons-material';
 import { ImageCropper } from './components/common/ImageCropper';
 import {
   LoginView,
@@ -25,12 +47,27 @@ import {
 import {
   clearSistemaSessao,
   getSistemaDestino,
+  listaDestinosPosLogin,
   resolverFluxoSistemas,
   SISTEMA_ID_APP_ATUAL,
-  sistemasPermitidosDoUsuario,
+  SISTEMA_ID_ORION_JURIDICO,
+  SISTEMA_ID_ORION_QUALIDADE,
+  SISTEMA_ID_ORION_SUPORTE,
   writeSistemaSessao,
 } from './constants/sistemaDestinos';
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
+
+function navegarComHandoffJwt(urlBase: string) {
+  const t = getToken();
+  window.location.assign(t ? buildUrlComHandoffJwt(urlBase, t) : urlBase);
+}
+
+function abrirNovaAbaComHandoffJwt(urlBase: string) {
+  const t = getToken();
+  const url = t ? buildUrlComHandoffJwt(urlBase, t) : urlBase;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 const DashboardHomeSection = lazy(() => import('./components/sections/DashboardHomeSection').then((m) => ({ default: m.DashboardHomeSection })));
 const CalendarioSection = lazy(() => import('./components/sections/CalendarioSection').then((m) => ({ default: m.CalendarioSection })));
 const EscalasSection = lazy(() => import('./components/sections/EscalasSection').then((m) => ({ default: m.EscalasSection })));
@@ -42,6 +79,9 @@ const AfastamentosGroupSection = lazy(() =>
 );
 const SistemaGroupSection = lazy(() =>
   import('./components/sections/SistemaGroupSection').then((m) => ({ default: m.SistemaGroupSection })),
+);
+const ReportarErroSection = lazy(() =>
+  import('./components/sections/ReportarErroSection').then((m) => ({ default: m.ReportarErroSection })),
 );
 
 type AuthView = 'login' | 'forgot-password' | 'security-question';
@@ -59,6 +99,8 @@ export default function App() {
     title: '',
     message: '',
   });
+  const confirmDialogActionRef = useRef<ConfirmDialogConfig['onConfirm']>(undefined);
+  confirmDialogActionRef.current = confirmDialog.onConfirm;
   const [policiaisVersion, setPoliciaisVersion] = useState(0);
   const [afastamentosVersion, setAfastamentosVersion] = useState(0);
   const [permissoesPorTela, setPermissoesPorTela] = useState<Record<TabKey, Record<PermissaoAcao, boolean>> | null>(null);
@@ -90,6 +132,36 @@ export default function App() {
   const [senhaConfirmarValidarAoSair, setSenhaConfirmarValidarAoSair] = useState(false);
   /** Vários sistemas permitidos: aguardando escolha antes do painel principal. */
   const [aguardandoEscolhaSistema, setAguardandoEscolhaSistema] = useState(false);
+  /** Incrementado ao pedir foco no formulário de chamado (ex.: botão "Abrir chamado"). */
+  const [focusChamadoFormSeq, setFocusChamadoFormSeq] = useState(0);
+  const [tituloPainelDetalhe, setTituloPainelDetalhe] = useState<string | null>(null);
+
+  const handlePainelTituloSAD = useCallback((label: string | null) => {
+    setTituloPainelDetalhe(label);
+  }, []);
+
+  useEffect(() => {
+    setTituloPainelDetalhe(null);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      document.title =
+        authView === 'forgot-password'
+          ? `${BROWSER_TITLE_APP_SAD} — Recuperar senha`
+          : authView === 'security-question'
+            ? `${BROWSER_TITLE_APP_SAD} — Redefinir senha`
+            : `${BROWSER_TITLE_APP_SAD} — Entrar`;
+      return;
+    }
+    if (aguardandoEscolhaSistema) {
+      document.title = `${BROWSER_TITLE_APP_SAD} — Escolher sistema`;
+      return;
+    }
+    const ctx = tituloPainelDetalhe ?? rotuloAbaPrincipalSAD(activeTab);
+    const primeiroNome = currentUser.nome.split(' ').filter(Boolean)[0];
+    document.title = formatDocumentTitleSAD(ctx, { primeiroNomeUsuario: primeiroNome });
+  }, [currentUser, authView, aguardandoEscolhaSistema, activeTab, tituloPainelDetalhe]);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -111,7 +183,11 @@ export default function App() {
                 setAguardandoEscolhaSistema(true);
               } else {
                 setAguardandoEscolhaSistema(false);
-                if (fluxo.redirecionarExterno) {
+                if (fluxo.redirecionarOrionSuporteComHandoff) {
+                  navegarComHandoffJwt(getUrlOrionSuporte());
+                } else if (fluxo.redirecionarOrionHandoffUrl) {
+                  navegarComHandoffJwt(fluxo.redirecionarOrionHandoffUrl);
+                } else if (fluxo.redirecionarExterno) {
                   window.location.assign(fluxo.redirecionarExterno);
                 }
               }
@@ -238,6 +314,25 @@ export default function App() {
 
   useEffect(() => {
     const handler = (event: Event) => {
+      const detail = (event as CustomEvent<NavigateTabEventDetail>).detail;
+      if (!detail?.tab) return;
+      setActiveTab(detail.tab);
+      if (detail.focusChamadoForm) {
+        setFocusChamadoFormSeq((n) => n + 1);
+      }
+    };
+    window.addEventListener(ORIAN_NAVIGATE_TAB, handler);
+    return () => window.removeEventListener(ORIAN_NAVIGATE_TAB, handler);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'reportar-erro') {
+      setFocusChamadoFormSeq(0);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ nivelId?: number }>).detail;
       const nivelId = currentUser?.nivelId ?? currentUser?.nivel?.id;
       if (!nivelId) return;
@@ -251,27 +346,43 @@ export default function App() {
 
   const handleLoginSuccess = (loginResponse: { accessToken: string; usuario: Usuario }) => {
     setCurrentUser(loginResponse.usuario);
-    const fluxo = resolverFluxoSistemas(loginResponse.usuario);
+    const fluxo = resolverFluxoSistemas(loginResponse.usuario, { aposLogin: true });
     if (fluxo.acao === 'escolher-sistema') {
       setAguardandoEscolhaSistema(true);
       return;
     }
     setAguardandoEscolhaSistema(false);
     setActiveTab('dashboard');
+    if (fluxo.redirecionarOrionSuporteComHandoff) {
+      navegarComHandoffJwt(getUrlOrionSuporte());
+      return;
+    }
+    if (fluxo.redirecionarOrionHandoffUrl) {
+      navegarComHandoffJwt(fluxo.redirecionarOrionHandoffUrl);
+      return;
+    }
     if (fluxo.redirecionarExterno) {
       window.location.assign(fluxo.redirecionarExterno);
     }
   };
 
   const handleEscolherSistema = useCallback((sistemaId: string) => {
-    if (!currentUser || !sistemasPermitidosDoUsuario(currentUser).includes(sistemaId)) {
+    if (!currentUser || !listaDestinosPosLogin(currentUser).includes(sistemaId)) {
       return;
     }
     writeSistemaSessao(sistemaId);
     setAguardandoEscolhaSistema(false);
     setActiveTab('dashboard');
+    if (sistemaId === SISTEMA_ID_ORION_SUPORTE) {
+      navegarComHandoffJwt(getUrlOrionSuporte());
+      return;
+    }
     if (sistemaId !== SISTEMA_ID_APP_ATUAL) {
       const d = getSistemaDestino(sistemaId);
+      if (d.tipo === 'orion-handoff' && d.configurado) {
+        navegarComHandoffJwt(d.url);
+        return;
+      }
       if (d.tipo === 'externo' && d.configurado) {
         window.location.assign(d.url);
       }
@@ -447,13 +558,14 @@ export default function App() {
 
   const handleConfirmDialog = useCallback(async () => {
     try {
-      if (confirmDialog.onConfirm) {
-        await confirmDialog.onConfirm();
+      const action = confirmDialogActionRef.current;
+      if (action) {
+        await action();
       }
     } finally {
       closeConfirm();
     }
-  }, [confirmDialog, closeConfirm]);
+  }, [closeConfirm]);
 
   /** Administrador do sistema: vê todas as abas principais mesmo sem linha explícita em UsuarioNivelPermissao (ex.: Escalas nova). */
   const usuarioEhAdministrador = useMemo(() => {
@@ -462,6 +574,60 @@ export default function App() {
     const nome = currentUser.nivel?.nome?.toUpperCase?.() ?? '';
     return nome === 'ADMINISTRADOR';
   }, [currentUser]);
+
+  /** Alinhado à API: gestão de chamados no app Órion Suporte (respeita negação explícita no usuário). */
+  const usuarioPodeAcessarOrionSuporte = useMemo(() => {
+    if (!currentUser) return false;
+    return temAcessoOrionSuporteEfetivo(currentUser);
+  }, [currentUser]);
+
+  const usuarioPodeOrionQualidade = useMemo(() => {
+    if (!currentUser) return false;
+    return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_QUALIDADE);
+  }, [currentUser]);
+
+  const usuarioPodeOrionJuridico = useMemo(() => {
+    if (!currentUser) return false;
+    return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_JURIDICO);
+  }, [currentUser]);
+
+  const [chamadosAbertosGestao, setChamadosAbertosGestao] = useState<number | null>(null);
+
+  const carregarContagemChamadosGestao = useCallback(async () => {
+    if (!usuarioPodeAcessarOrionSuporte) return;
+    try {
+      const { total } = await api.getErrorReportsAdminContagemAbertos();
+      setChamadosAbertosGestao(total);
+    } catch {
+      setChamadosAbertosGestao(null);
+    }
+  }, [usuarioPodeAcessarOrionSuporte]);
+
+  useEffect(() => {
+    if (!currentUser || !usuarioPodeAcessarOrionSuporte) {
+      setChamadosAbertosGestao(null);
+      return;
+    }
+    void carregarContagemChamadosGestao();
+    const intervalId = window.setInterval(() => {
+      void carregarContagemChamadosGestao();
+    }, 60_000);
+    const onFocus = () => {
+      void carregarContagemChamadosGestao();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void carregarContagemChamadosGestao();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [currentUser, usuarioPodeAcessarOrionSuporte, carregarContagemChamadosGestao]);
 
   // Filtrar tabs baseado nas permissões do banco
   const tabsDisponiveis = useMemo(() => {
@@ -480,12 +646,54 @@ export default function App() {
       permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
       permissoesPorTela['relatorios']?.VISUALIZAR;
     return TABS.filter((tab) => {
+      if (tab.key === 'reportar-erro') return true;
       if (tab.key === 'afastamentos') return Boolean(temAcessoAfastamentos);
       if (tab.key === 'equipe') return Boolean(temAcessoEfetivo);
       if (tab.key === 'sistema') return Boolean(temAcessoSistema);
       return Boolean(permissoesPorTela[tab.key]?.VISUALIZAR);
     });
   }, [permissoesPorTela, usuarioEhAdministrador]);
+
+  /**
+   * Evita loop de `location.replace` ao Órion Suporte quando o perfil só tem gestão de chamados
+   * (cadastro com SAD mínimo, mas sem permissão de telas do SAD além de “Reportar erro”).
+   */
+  const redirecionouPerfilSomenteSuporteRef = useRef(false);
+
+  useEffect(() => {
+    if (!currentUser) {
+      redirecionouPerfilSomenteSuporteRef.current = false;
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (
+      !currentUser ||
+      !permissoesPorTela ||
+      permissoesCarregando ||
+      aguardandoEscolhaSistema ||
+      usuarioEhAdministrador
+    ) {
+      return;
+    }
+    if (!usuarioPodeAcessarOrionSuporte) return;
+    if (redirecionouPerfilSomenteSuporteRef.current) return;
+
+    const temTelaSADAlemReportar = tabsDisponiveis.some((t) => t.key !== 'reportar-erro');
+    if (temTelaSADAlemReportar) return;
+
+    redirecionouPerfilSomenteSuporteRef.current = true;
+    const t = getToken();
+    window.location.replace(t ? buildUrlComHandoffJwt(getUrlOrionSuporte(), t) : getUrlOrionSuporte());
+  }, [
+    currentUser,
+    permissoesPorTela,
+    permissoesCarregando,
+    aguardandoEscolhaSistema,
+    usuarioEhAdministrador,
+    usuarioPodeAcessarOrionSuporte,
+    tabsDisponiveis,
+  ]);
 
   // Se o usuário não tem acesso à aba e está tentando acessá-la, redirecionar
   useEffect(() => {
@@ -502,15 +710,17 @@ export default function App() {
       permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
       permissoesPorTela['relatorios']?.VISUALIZAR;
     const podeAcessar =
-      activeTab === 'afastamentos'
-        ? temAcessoAfastamentos
-        : activeTab === 'equipe'
-          ? temAcessoEfetivo
-          : activeTab === 'sistema'
-            ? temAcessoSistema
-            : activeTab === 'escalas'
-              ? temAcessoEscalas(permissoesPorTela)
-              : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
+      activeTab === 'reportar-erro'
+        ? true
+        : activeTab === 'afastamentos'
+          ? temAcessoAfastamentos
+          : activeTab === 'equipe'
+            ? temAcessoEfetivo
+            : activeTab === 'sistema'
+              ? temAcessoSistema
+              : activeTab === 'escalas'
+                ? temAcessoEscalas(permissoesPorTela)
+                : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
     if (!podeAcessar) setActiveTab('dashboard');
   }, [currentUser, activeTab, permissoesPorTela, usuarioEhAdministrador]);
 
@@ -607,7 +817,7 @@ export default function App() {
       <header>
         <div>
           <h1>
-          Sistema Órion de Gestão de Pessoal - COPOM
+          Sistema Órion SAD
           </h1>
           <p>Gerencie usuários, policiais e afastamentos da equipe.</p>
         </div>
@@ -615,6 +825,60 @@ export default function App() {
           <span>
             {currentUser.nome} — {formatMatricula(currentUser.matricula)}
           </span>
+          {usuarioPodeAcessarOrionSuporte ? (
+            <Tooltip
+              title={
+                (chamadosAbertosGestao ?? 0) > 0
+                  ? `${chamadosAbertosGestao} chamado(s) aguardando análise (abertos ou em análise). Clique para abrir o Órion Suporte.`
+                  : 'Órion Suporte — gestão de chamados. Nenhum chamado pendente no momento.'
+              }
+            >
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionSuporte())}
+                aria-label={
+                  (chamadosAbertosGestao ?? 0) > 0
+                    ? `Órion Suporte: ${chamadosAbertosGestao} chamado(s) em aberto ou em análise`
+                    : 'Abrir Órion Suporte'
+                }
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <Badge
+                  color="error"
+                  badgeContent={chamadosAbertosGestao && chamadosAbertosGestao > 0 ? chamadosAbertosGestao : 0}
+                  invisible={!chamadosAbertosGestao || chamadosAbertosGestao < 1}
+                  max={99}
+                  overlap="circular"
+                >
+                  <SupportAgent sx={{ fontSize: 24 }} />
+                </Badge>
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {usuarioPodeOrionQualidade ? (
+            <Tooltip title="Órion Qualidade — abrir em nova aba">
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionQualidade())}
+                aria-label="Abrir Órion Qualidade"
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <FactCheck sx={{ fontSize: 24 }} />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {usuarioPodeOrionJuridico ? (
+            <Tooltip title="Órion Jurídico — abrir em nova aba">
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionJuridico())}
+                aria-label="Abrir Órion Jurídico"
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <Gavel sx={{ fontSize: 24 }} />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           <IconButton
             onClick={(e) => setAvatarMenuAnchor(e.currentTarget)}
             aria-label="Menu do usuário"
@@ -652,6 +916,39 @@ export default function App() {
               <Lock sx={{ mr: 1.5, fontSize: 20 }} />
               Alterar senha
             </MenuItem>
+            {usuarioPodeAcessarOrionSuporte ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionSuporte());
+                }}
+              >
+                <SupportAgent sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Suporte
+              </MenuItem>
+            ) : null}
+            {usuarioPodeOrionQualidade ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionQualidade());
+                }}
+              >
+                <FactCheck sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Qualidade
+              </MenuItem>
+            ) : null}
+            {usuarioPodeOrionJuridico ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionJuridico());
+                }}
+              >
+                <Gavel sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Jurídico
+              </MenuItem>
+            ) : null}
             <MenuItem onClick={handleLogout}>
               <Logout sx={{ mr: 1.5, fontSize: 20 }} />
               Sair
@@ -920,7 +1217,11 @@ export default function App() {
         )}
         {activeTab === 'calendario' && <CalendarioSection currentUser={currentUser} />}
         {activeTab === 'escalas' && (
-          <EscalasSection currentUser={currentUser} permissoes={permissoesPorTela} />
+          <EscalasSection
+            currentUser={currentUser}
+            permissoes={permissoesPorTela}
+            onPainelTituloChange={handlePainelTituloSAD}
+          />
         )}
         {activeTab === 'afastamentos' && (
           <AfastamentosGroupSection
@@ -931,6 +1232,7 @@ export default function App() {
             initialSubTab={afastamentosInitialSubTab}
             initialCadastro={afastamentosPreencherCadastro}
             onPreencherCadastroConsumed={() => setAfastamentosPreencherCadastro(null)}
+            onPainelTituloChange={handlePainelTituloSAD}
           />
         )}
         {activeTab === 'equipe' && (
@@ -940,6 +1242,7 @@ export default function App() {
             onChanged={notifyPoliciaisChanged}
             refreshKey={policiaisVersion}
             permissoes={permissoesPorTela}
+            onPainelTituloChange={handlePainelTituloSAD}
           />
         )}
         {activeTab === 'sistema' && (
@@ -949,7 +1252,11 @@ export default function App() {
             onCurrentUserUpdate={(updatedUser) => setCurrentUser(updatedUser)}
             permissoes={permissoesPorTela}
             initialSubTab={sistemaInitialSubTab}
+            onPainelTituloChange={handlePainelTituloSAD}
           />
+        )}
+        {activeTab === 'reportar-erro' && (
+          <ReportarErroSection currentUser={currentUser} focusChamadoFormSeq={focusChamadoFormSeq} />
         )}
       </Suspense>
 

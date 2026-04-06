@@ -63,6 +63,8 @@ interface MostrarEquipeSectionProps {
   onChanged?: () => void;
   refreshKey?: number;
   permissoes?: PermissoesPorTela | null;
+  /** Atualiza o título da aba do navegador (subárea de Efetivo). */
+  onPainelTituloChange?: (label: string | null) => void;
 }
 
 function hojeIsoLocal(): string {
@@ -94,6 +96,7 @@ export function MostrarEquipeSection({
   onChanged,
   refreshKey,
   permissoes,
+  onPainelTituloChange,
 }: MostrarEquipeSectionProps) {
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [, setTotalPoliciaisGeral] = useState<number>(0);
@@ -196,6 +199,7 @@ export function MostrarEquipeSection({
   const [funcoesSelecionadas, setFuncoesSelecionadas] = useState<number[]>([]);
   const [excluirMotoristas, setExcluirMotoristas] = useState(true);
   const [excluirDesativados, setExcluirDesativados] = useState(true);
+  const [somenteComRestricaoMedica, setSomenteComRestricaoMedica] = useState(false);
   const [tabAtiva, setTabAtiva] = useState<number>(0);
   const { parsed: escalaParsed } = useEscalaParametros();
   const mostraCadastrarPolicial = Boolean(permissoes?.['policiais']?.VISUALIZAR);
@@ -208,6 +212,17 @@ export function MostrarEquipeSection({
     ],
     [mostraCadastrarPolicial]
   );
+
+  useEffect(() => {
+    if (!onPainelTituloChange) return;
+    if (tabsEfetivo.length === 0) {
+      onPainelTituloChange(null);
+      return;
+    }
+    const idx = Math.min(tabAtiva, tabsEfetivo.length - 1);
+    onPainelTituloChange(tabsEfetivo[idx]?.label ?? null);
+  }, [tabAtiva, tabsEfetivo, onPainelTituloChange]);
+
   const [dataEfetivo, setDataEfetivo] = useState<string>('');
   const [efetivoDisponivel, setEfetivoDisponivel] = useState<Policial[]>([]);
   const [loadingEfetivo, setLoadingEfetivo] = useState(false);
@@ -939,7 +954,13 @@ export function MostrarEquipeSection({
       const buscarTodosParaExcluirMotoristas = excluirMotoristas;
       // Quando excluir desativados está marcado, precisamos buscar todos para filtrar e contar corretamente
       const buscarTodosParaExcluirDesativados = excluirDesativados;
-      const buscarTodos = buscarTodosParaFiltro || buscarTodosParaOrdenacaoPorPatente || buscarTodosParaExcluirMotoristas || buscarTodosParaExcluirDesativados;
+      const buscarTodosParaRestricaoMedica = somenteComRestricaoMedica;
+      const buscarTodos =
+        buscarTodosParaFiltro ||
+        buscarTodosParaOrdenacaoPorPatente ||
+        buscarTodosParaExcluirMotoristas ||
+        buscarTodosParaExcluirDesativados ||
+        buscarTodosParaRestricaoMedica;
 
       const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
         page: buscarTodos ? 1 : page,
@@ -1023,6 +1044,7 @@ export function MostrarEquipeSection({
     debouncedSearchTerm,
     excluirMotoristas,
     excluirDesativados,
+    somenteComRestricaoMedica,
     tabAtiva,
   ]);
 
@@ -1676,6 +1698,10 @@ export function MostrarEquipeSection({
       resultado = resultado.filter((policial) => policial.status !== 'DESATIVADO');
     }
 
+    if (somenteComRestricaoMedica) {
+      resultado = resultado.filter((policial) => policial.restricaoMedicaId != null);
+    }
+
     // Aplicar ordenação (desativados sempre por último)
     if (ordenacao) {
       resultado = [...resultado].sort((a, b) => {
@@ -1723,7 +1749,18 @@ export function MostrarEquipeSection({
     }
 
     return resultado;
-  }, [policiaisDaEquipe, normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, excluirMotoristas, excluirDesativados, ordenacao, paginacaoNoServidor]);
+  }, [
+    policiaisDaEquipe,
+    normalizedSearch,
+    equipesSelecionadas,
+    statusSelecionados,
+    funcoesSelecionadas,
+    excluirMotoristas,
+    excluirDesativados,
+    somenteComRestricaoMedica,
+    ordenacao,
+    paginacaoNoServidor,
+  ]);
 
   // Recalcular total e paginação baseado nos dados filtrados
   const totalPoliciaisFiltrado = useMemo(() => {
@@ -1780,7 +1817,7 @@ export function MostrarEquipeSection({
   // Resetar para página 1 quando filtros ou busca mudarem
   useEffect(() => {
     setPaginaAtual(1);
-  }, [normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas]);
+  }, [normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, somenteComRestricaoMedica]);
 
   const handleOrdenacao = (campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') => {
     setOrdenacao((prev) => {
@@ -1848,6 +1885,9 @@ export function MostrarEquipeSection({
         return !nomeFuncao.includes('MOTORISTA DE DIA');
       });
     }
+    if (somenteComRestricaoMedica) {
+      listaPdf = listaPdf.filter((p) => p.restricaoMedicaId != null);
+    }
     const totalRegistros = listaPdf.length;
 
     const doc = new jsPDF('p', 'mm', 'a4');
@@ -1859,7 +1899,12 @@ export function MostrarEquipeSection({
     y += 10;
 
     doc.setFontSize(10);
-    const temFiltro = !!busca || equipesSelecionadas.length > 0 || statusSelecionados.length > 0 || funcoesSelecionadas.length > 0;
+    const temFiltro =
+      !!busca ||
+      equipesSelecionadas.length > 0 ||
+      statusSelecionados.length > 0 ||
+      funcoesSelecionadas.length > 0 ||
+      somenteComRestricaoMedica;
     doc.text(
       temFiltro
         ? 'Lista de policiais disponíveis com os filtros aplicados'
@@ -1929,6 +1974,7 @@ export function MostrarEquipeSection({
     funcoesSelecionadas,
     excluirMotoristas,
     excluirDesativados,
+    somenteComRestricaoMedica,
     ordenacao,
   ]);
 
@@ -2060,7 +2106,11 @@ export function MostrarEquipeSection({
             policiais disponíveis.
           </Typography>
         </Box>
-        {(searchTerm || equipesSelecionadas.length > 0 || statusSelecionados.length > 0 || funcoesSelecionadas.length > 0) && (
+        {(searchTerm ||
+          equipesSelecionadas.length > 0 ||
+          statusSelecionados.length > 0 ||
+          funcoesSelecionadas.length > 0 ||
+          somenteComRestricaoMedica) && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
               Com filtros aplicados:
@@ -2265,6 +2315,34 @@ export function MostrarEquipeSection({
                 )}
               </Box>
             </Grid>
+
+            <Grid size={{ xs: 12, sm: 12, md: 12, lg: 12 }}>
+              <Divider sx={{ my: 2 }} />
+              <Typography variant="h6" sx={{ mb: 2, fontWeight: 600, color: 'text.primary' }}>
+                Restrição médica
+              </Typography>
+              <Box
+                component="label"
+                sx={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 1,
+                  cursor: 'pointer',
+                  width: 'fit-content',
+                }}
+              >
+                <Checkbox
+                  checked={somenteComRestricaoMedica}
+                  onChange={(e) => setSomenteComRestricaoMedica(e.target.checked)}
+                  size="small"
+                  sx={{ '& .MuiSvgIcon-root': { fontSize: '1.25rem' } }}
+                />
+                <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                  Mostrar somente policiais com restrição médica cadastrada
+                </Typography>
+              </Box>
+            </Grid>
           </Grid>
 
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
@@ -2275,9 +2353,15 @@ export function MostrarEquipeSection({
                 setEquipesSelecionadas([]);
                 setStatusSelecionados([]);
                 setFuncoesSelecionadas([]);
+                setSomenteComRestricaoMedica(false);
               }}
               sx={{ textTransform: 'none', fontSize: '0.75rem' }}
-              disabled={equipesSelecionadas.length === 0 && statusSelecionados.length === 0 && funcoesSelecionadas.length === 0}
+              disabled={
+                equipesSelecionadas.length === 0 &&
+                statusSelecionados.length === 0 &&
+                funcoesSelecionadas.length === 0 &&
+                !somenteComRestricaoMedica
+              }
             >
               Limpar Todos os Filtros
             </Button>

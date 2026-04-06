@@ -36,6 +36,7 @@ export class AuthService {
             nome: true,
             descricao: true,
             ativo: true,
+            acessoOrionSuporte: true,
           },
         },
         funcao: {

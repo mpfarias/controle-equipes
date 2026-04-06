@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AbrirChamadoLink } from '../common/AbrirChamadoLink';
 import type { Usuario } from '../../types';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { NiveisAcessoSection } from './NiveisAcessoSection';
@@ -24,8 +25,18 @@ export function GestaoSistemaSection({
           <h2>Gestão do Sistema</h2>
           <p className="subtitle">Centralize as ações administrativas.</p>
         </div>
-        <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-          Usuário: {currentUser.nome}
+        <div
+          style={{
+            fontSize: '0.9rem',
+            color: 'var(--text-secondary)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: 8,
+          }}
+        >
+          <AbrirChamadoLink compact />
+          <span>Usuário: {currentUser.nome}</span>
         </div>
       </div>
 

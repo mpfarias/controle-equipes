@@ -1,7 +1,7 @@
 {
   "name": "controle-equipes",
   "version": "1.0.0",
-  "description": "Sistema de Controle de Afastamentos - Projeto completo",
+  "description": "Órion SAD + Órion Suporte. Dev: API :3002, SAD Vite :5173 (strict), Suporte Vite :5180 (strict). npm run start:full sobe os três.",
   "private": true,
   "scripts": {
     "setup": "node setup.js",
@@ -10,10 +10,13 @@
     "db:logs": "docker compose logs -f postgres",
     "start:api": "cd afastamentos-api && npm run start:dev",
     "start:web": "cd afastamentos-web && npm run dev",
-    "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install",
+    "start:orion-suporte": "cd orion-suporte-web && npm run dev",
+    "start:full": "concurrently -n api,sad,suporte -c cyan,green,magenta \"npm run start:api\" \"npm run start:web\" \"npm run start:orion-suporte\"",
+    "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install && cd ../orion-suporte-web && npm install",
     "setup:db": "cd afastamentos-api && npm run db:setup"
   },
   "devDependencies": {
-    "baseline-browser-mapping": "^2.10.8"
+    "baseline-browser-mapping": "^2.10.8",
+    "concurrently": "^9.1.2"
   }
 }

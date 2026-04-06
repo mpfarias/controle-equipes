@@ -333,6 +333,43 @@ export class PoliciaisService {
     return withoutLeadingZeros || '0';
   }
 
+  /**
+   * CMT UPM / SUBCMT UPM: no máximo um policial com status ATIVO por função.
+   * Policiais desativados (ou outros status) não ocupam a vaga.
+   */
+  private async assertApenasUmAtivoComFuncaoCmtSubcmt(
+    funcaoId: number,
+    statusNome: string,
+    excludePolicialId?: number,
+  ): Promise<void> {
+    if (statusNome !== 'ATIVO') {
+      return;
+    }
+    const funcao = await this.prisma.funcao.findUnique({
+      where: { id: funcaoId },
+      select: { nome: true },
+    });
+    if (!funcao) {
+      return;
+    }
+    const nomeUpper = funcao.nome.toUpperCase();
+    if (!nomeUpper.includes('CMT UPM') && !nomeUpper.includes('SUBCMT UPM')) {
+      return;
+    }
+    const jaExiste = await this.prisma.policial.findFirst({
+      where: {
+        funcaoId,
+        status: { nome: 'ATIVO' },
+        ...(excludePolicialId != null ? { id: { not: excludePolicialId } } : {}),
+      },
+    });
+    if (jaExiste) {
+      throw new BadRequestException(
+        `Já existe um policial ativo com a função "${funcao.nome}". Só pode haver um policial ativo nesta função.`,
+      );
+    }
+  }
+
   async create(
     data: Omit<CreatePolicialDto, 'responsavelId'>,
     responsavelId?: number,
@@ -340,30 +377,11 @@ export class PoliciaisService {
     const actor = await this.audit.resolveActor(responsavelId);
     const matriculaNormalizada = this.sanitizeMatricula(data.matricula);
 
-    // Validar que nÃ£o pode haver mais de um CMT UPM ou SUBCMT UPM
     if (data.funcaoId) {
-      const funcao = await this.prisma.funcao.findUnique({
-        where: { id: data.funcaoId },
-      });
-
-      if (funcao) {
-        const funcaoUpper = funcao.nome.toUpperCase();
-        if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
-          // Verificar se jÃ¡ existe alguÃ©m com essa funÃ§Ã£o (ativo)
-          const jaExiste = await this.prisma.policial.findFirst({
-            where: {
-              funcaoId: data.funcaoId,
-              status: { nome: { not: 'DESATIVADO' } },
-            },
-          });
-
-          if (jaExiste) {
-            throw new BadRequestException(
-              `JÃ¡ existe um policial cadastrado com a funÃ§Ã£o "${funcao.nome}". NÃ£o pode haver mais de um.`,
-            );
-          }
-        }
-      }
+      await this.assertApenasUmAtivoComFuncaoCmtSubcmt(
+        data.funcaoId,
+        data.status ?? 'ATIVO',
+      );
     }
 
     // Verificar se jÃ¡ existe um Policial (ativo ou desativado) com a mesma matrÃ­cula
@@ -901,32 +919,6 @@ export class PoliciaisService {
     data: UpdatePolicialDto,
     responsavelId?: number,
   ): Promise<PolicialResponse> {
-    // Validar que nÃ£o pode haver mais de um CMT UPM ou SUBCMT UPM (apenas se a funÃ§Ã£o estiver sendo alterada)
-    if (data.funcaoId !== undefined && data.funcaoId !== null) {
-      const funcao = await this.prisma.funcao.findUnique({
-        where: { id: data.funcaoId },
-      });
-
-      if (funcao) {
-        const funcaoUpper = funcao.nome.toUpperCase();
-        if (funcaoUpper.includes('CMT UPM') || funcaoUpper.includes('SUBCMT UPM')) {
-          // Verificar se jÃ¡ existe alguÃ©m com essa funÃ§Ã£o (ativo), excluindo o prÃ³prio registro sendo atualizado
-          const jaExiste = await this.prisma.policial.findFirst({
-            where: {
-              funcaoId: data.funcaoId,
-              status: { nome: { not: 'DESATIVADO' } },
-              id: { not: id },
-            },
-          });
-
-          if (jaExiste) {
-            throw new BadRequestException(
-              `JÃ¡ existe um policial cadastrado com a funÃ§Ã£o "${funcao.nome}". NÃ£o pode haver mais de um.`,
-            );
-          }
-        }
-      }
-    }
     const before = await this.prisma.policial.findUnique({
       where: { id },
       include: { afastamentos: true, status: true },
@@ -934,6 +926,20 @@ export class PoliciaisService {
 
     if (!before) {
         throw new NotFoundException(`Policial ${id} não encontrado.`);
+    }
+
+    const finalFuncaoId =
+      data.funcaoId !== undefined && data.funcaoId !== null && data.funcaoId > 0
+        ? data.funcaoId
+        : (before.funcaoId ?? 0);
+    if (finalFuncaoId > 0) {
+      const finalStatusNome =
+        data.status !== undefined ? data.status : before.status?.nome ?? 'ATIVO';
+      await this.assertApenasUmAtivoComFuncaoCmtSubcmt(
+        finalFuncaoId,
+        finalStatusNome,
+        id,
+      );
     }
 
     const actor = await this.audit.resolveActor(responsavelId);
@@ -1315,6 +1321,11 @@ export class PoliciaisService {
         };
 
         createData.funcao = { connect: { id: policialData.funcaoId } };
+
+        await this.assertApenasUmAtivoComFuncaoCmtSubcmt(
+          policialData.funcaoId,
+          policialData.status,
+        );
 
         await this.prisma.policial.create({
           data: createData,

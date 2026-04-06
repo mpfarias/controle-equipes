@@ -72,6 +72,19 @@ import {
 /** `true` para voltar a exibir o botão &quot;Testar leitura do PDF&quot; na aba Cadastrar. */
 const EXIBIR_BOTAO_TESTE_PDF = false;
 
+/** Mensagens da API em `assertPolicialSemAfastamentoSobreposto` (afastamentos.service.ts). */
+function isApiErroSobreposicaoPeriodoPolicial(message: string): boolean {
+  return (
+    message.includes('Já existe um registro de afastamento para este policial') ||
+    message.includes(
+      'Já existe um afastamento ativo para este policial no mesmo período e com o mesmo número de processo (SEI)',
+    ) ||
+    message.includes(
+      'Já existe um afastamento ativo para este policial que cobre parte ou a totalidade deste período',
+    )
+  );
+}
+
 const formFieldSx = {
   '& .MuiOutlinedInput-root': {
     borderRadius: '8px',
@@ -150,6 +163,11 @@ export function AfastamentosSection({
   const [trocaConflitoCiente, setTrocaConflitoCiente] = useState(false);
   // Para a confirmação final do cadastro após o usuário marcar o checkbox "Ciente".
   const [trocaConflitoDataFimParaValidacao, setTrocaConflitoDataFimParaValidacao] = useState<string | null>(null);
+  /** Mesmo policial com outro afastamento ativo no período (bloqueia cadastro/edição). */
+  const [periodoMismoPolicialModal, setPeriodoMismoPolicialModal] = useState<{
+    open: boolean;
+    message: string;
+  }>({ open: false, message: '' });
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
@@ -762,11 +780,12 @@ export function AfastamentosSection({
       await carregarDados();
       onChanged?.();
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Não foi possível criar o afastamento.',
-      );
+      const msg = err instanceof Error ? err.message : '';
+      if (isApiErroSobreposicaoPeriodoPolicial(msg)) {
+        setPeriodoMismoPolicialModal({ open: true, message: msg });
+      } else {
+        setError(msg || 'Não foi possível criar o afastamento.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -869,9 +888,7 @@ export function AfastamentosSection({
     }
     
     const afastamentosDoMesmoPolicial = afastamentos.filter(
-      (afastamento) =>
-        afastamento.policialId === policialId &&
-        afastamento.status === 'ATIVO',
+      (afastamento) => afastamento.policialId === policialId,
     );
 
     // Verificar se algum afastamento do mesmo policial se sobrepõe com o período informado
@@ -884,9 +901,17 @@ export function AfastamentosSection({
       );
 
       if (haSobreposicao) {
-        setError(
-          `Este policial já possui um afastamento ativo no período selecionado (${formatNome(afastamentoExistente.motivo.nome)} de ${formatDate(afastamentoExistente.dataInicio)} até ${formatDate(afastamentoExistente.dataFim)}). Por favor, altere as datas.`,
-        );
+        const statusLabel =
+          STATUS_LABEL[afastamentoExistente.status] ?? afastamentoExistente.status;
+        setPeriodoMismoPolicialModal({
+          open: true,
+          message:
+            'Não é possível cadastrar este afastamento: já existe registro para este policial que se sobrepõe ao período informado (inclui afastamentos encerrados), independentemente do motivo.\n\n' +
+            `Registro existente: ${formatNome(afastamentoExistente.motivo.nome)}\n` +
+            `Situação: ${statusLabel}\n` +
+            `Período: ${formatDate(afastamentoExistente.dataInicio)} até ${afastamentoExistente.dataFim ? formatDate(afastamentoExistente.dataFim) : 'em aberto'}\n` +
+            `SEI nº: ${afastamentoExistente.seiNumero}`,
+        });
         return;
       }
     }
@@ -1154,11 +1179,17 @@ export function AfastamentosSection({
       await carregarDados();
       onChanged?.();
     } catch (err) {
-      setEditAfastamentoModal((prev) => ({
-        ...prev,
-        loading: false,
-        error: err instanceof Error ? err.message : 'Não foi possível atualizar o afastamento.',
-      }));
+      const msg = err instanceof Error ? err.message : '';
+      if (isApiErroSobreposicaoPeriodoPolicial(msg)) {
+        setEditAfastamentoModal((prev) => ({ ...prev, loading: false, error: null }));
+        setPeriodoMismoPolicialModal({ open: true, message: msg });
+      } else {
+        setEditAfastamentoModal((prev) => ({
+          ...prev,
+          loading: false,
+          error: msg || 'Não foi possível atualizar o afastamento.',
+        }));
+      }
     }
   };
 
@@ -2807,6 +2838,28 @@ export function AfastamentosSection({
           </Button>
           <Button variant="contained" onClick={handleOkTrocaConflito} disabled={!trocaConflitoCiente || submitting}>
             OK
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={periodoMismoPolicialModal.open}
+        onClose={() => setPeriodoMismoPolicialModal({ open: false, message: '' })}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Conflito de período</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+            {periodoMismoPolicialModal.message}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+            Ajuste as datas, exclua o registro incorreto no sistema ou corrija o existente antes de tentar novamente.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="contained" onClick={() => setPeriodoMismoPolicialModal({ open: false, message: '' })}>
+            Entendi
           </Button>
         </DialogActions>
       </Dialog>
