@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Box, Tabs, Tab } from '@mui/material';
 import type { Usuario } from '../../types';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import type { AfastamentosSubTabKey } from '../../constants';
+import type { AfastamentosSubTabKey, PreencherCadastroAfastamentoInput } from '../../constants';
 import { AFastamentosSubTABS } from '../../constants';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { DashboardSection } from './DashboardSection';
@@ -15,7 +15,7 @@ interface AfastamentosGroupSectionProps {
   onChanged?: () => void;
   permissoes?: PermissoesPorTela | null;
   initialSubTab?: AfastamentosSubTabKey;
-  initialCadastro?: { policialId: number; motivoNome: string } | null;
+  initialCadastro?: PreencherCadastroAfastamentoInput | null;
   onPreencherCadastroConsumed?: () => void;
   /** Atualiza o título da aba do navegador (subárea de Afastamentos). */
   onPainelTituloChange?: (label: string | null) => void;

@@ -1,13 +1,28 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, getToken, removeToken } from './api.ts';
 import type { PermissaoAcao, Usuario, UsuarioNivelPermissao } from './types.ts';
-import { TABS, AFastamentosSubTABS, EfetivoSubTABS, SistemaSubTABS, type TabKey, type TabChangeOptions, type AfastamentosSubTabKey, type SistemaSubTabKey } from './constants';
+import {
+  TABS,
+  AFastamentosSubTABS,
+  EfetivoSubTABS,
+  SistemaSubTABS,
+  type TabKey,
+  type TabChangeOptions,
+  type AfastamentosSubTabKey,
+  type SistemaSubTabKey,
+  type PreencherCadastroAfastamentoInput,
+} from './constants';
 import { ORIAN_NAVIGATE_TAB, type NavigateTabEventDetail } from './constants/appNavigation';
 import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
 import { getUrlOrionJuridico } from './constants/orionJuridico';
 import { getUrlOrionQualidade } from './constants/orionQualidade';
+import { getUrlOrionPatrimonio } from './constants/orionPatrimonio';
 import { getUrlOrionSuporte } from './constants/orionSuporte';
-import { expandirPermissoesLegadoEscalas, temAcessoEscalas } from './utils/permissions';
+import {
+  expandirPermissoesLegadoEscalas,
+  propagarPermissoesEscalasSubtelasParaAbaPrincipal,
+  temAcessoEscalas,
+} from './utils/permissions';
 import { temAcessoOrionSuporteEfetivo } from './utils/orionSuporteEfetivo';
 import {
   BROWSER_TITLE_APP_SAD,
@@ -34,6 +49,7 @@ import {
   PhotoCamera,
   Lock,
   SupportAgent,
+  Inventory2,
   Visibility,
   VisibilityOff,
 } from '@mui/icons-material';
@@ -51,11 +67,13 @@ import {
   resolverFluxoSistemas,
   SISTEMA_ID_APP_ATUAL,
   SISTEMA_ID_ORION_JURIDICO,
+  SISTEMA_ID_ORION_PATRIMONIO,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
   writeSistemaSessao,
 } from './constants/sistemaDestinos';
 import { ConfirmDialog, type ConfirmConfig, type ConfirmDialogConfig } from './components/common';
+import { StartupFeriasAvisos } from './components/alerts/StartupFeriasAvisos';
 
 function navegarComHandoffJwt(urlBase: string) {
   const t = getToken();
@@ -106,7 +124,8 @@ export default function App() {
   const [permissoesPorTela, setPermissoesPorTela] = useState<Record<TabKey, Record<PermissaoAcao, boolean>> | null>(null);
   const [permissoesCarregando, setPermissoesCarregando] = useState(false);
   /** Preencher formulário de cadastro ao abrir "Gerenciar afastamentos" (ex.: policial + motivo Férias). Consumida ao montar AfastamentosSection. */
-  const [afastamentosPreencherCadastro, setAfastamentosPreencherCadastro] = useState<{ policialId: number; motivoNome: string } | null>(null);
+  const [afastamentosPreencherCadastro, setAfastamentosPreencherCadastro] =
+    useState<PreencherCadastroAfastamentoInput | null>(null);
   /** Sub-tab inicial ao navegar para aba Afastamentos (ex.: a partir do Dashboard). */
   const [afastamentosInitialSubTab, setAfastamentosInitialSubTab] = useState<AfastamentosSubTabKey>('afastamentos');
   /** Sub-tab inicial ao navegar para aba Sistema. */
@@ -169,32 +188,26 @@ export default function App() {
         // Verificar se há token armazenado
         const token = getToken();
         if (token) {
-          // Decodificar o JWT para obter o ID do usuário
           try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const userId = payload.sub;
-            if (userId) {
-              // Buscar dados do usuário do backend
-              // O token será enviado automaticamente pelo api.ts no header Authorization
-              const usuario = await api.getUsuario(userId);
-              setCurrentUser(usuario);
-              const fluxo = resolverFluxoSistemas(usuario);
-              if (fluxo.acao === 'escolher-sistema') {
-                setAguardandoEscolhaSistema(true);
-              } else {
-                setAguardandoEscolhaSistema(false);
-                if (fluxo.redirecionarOrionSuporteComHandoff) {
-                  navegarComHandoffJwt(getUrlOrionSuporte());
-                } else if (fluxo.redirecionarOrionHandoffUrl) {
-                  navegarComHandoffJwt(fluxo.redirecionarOrionHandoffUrl);
-                } else if (fluxo.redirecionarExterno) {
-                  window.location.assign(fluxo.redirecionarExterno);
-                }
+            const usuario = await api.getAuthMe();
+            setCurrentUser(usuario);
+            const fluxo = resolverFluxoSistemas(usuario);
+            if (fluxo.acao === 'escolher-sistema') {
+              setAguardandoEscolhaSistema(true);
+            } else {
+              setAguardandoEscolhaSistema(false);
+              if (fluxo.redirecionarOrionSuporteComHandoff) {
+                navegarComHandoffJwt(getUrlOrionSuporte());
+              } else if (fluxo.redirecionarOrionQualidadeComHandoff) {
+                navegarComHandoffJwt(getUrlOrionQualidade());
+              } else if (fluxo.redirecionarOrionHandoffUrl) {
+                navegarComHandoffJwt(fluxo.redirecionarOrionHandoffUrl);
+              } else if (fluxo.redirecionarExterno) {
+                window.location.assign(fluxo.redirecionarExterno);
               }
             }
-          } catch (decodeError) {
-            // Token inválido, remover
-            console.warn('Token inválido:', decodeError);
+          } catch (restoreErr) {
+            console.warn('Sessão inválida ou expirada:', restoreErr);
             removeToken();
           }
         }
@@ -271,6 +284,13 @@ export default function App() {
           EXCLUIR: false,
         };
       }
+      // Permissões antigas no banco (antes de retirar da UI de níveis); não definem mais o atalho no header.
+      base['orion-qualidade'] = {
+        VISUALIZAR: false,
+        EDITAR: false,
+        DESATIVAR: false,
+        EXCLUIR: false,
+      };
 
       data.forEach((item: UsuarioNivelPermissao) => {
         const key = item.telaKey as TabKey;
@@ -282,6 +302,7 @@ export default function App() {
       });
 
       expandirPermissoesLegadoEscalas(base);
+      propagarPermissoesEscalasSubtelasParaAbaPrincipal(base);
 
       const ehAdminSistema =
         currentUser?.isAdmin === true ||
@@ -357,6 +378,10 @@ export default function App() {
       navegarComHandoffJwt(getUrlOrionSuporte());
       return;
     }
+    if (fluxo.redirecionarOrionQualidadeComHandoff) {
+      navegarComHandoffJwt(getUrlOrionQualidade());
+      return;
+    }
     if (fluxo.redirecionarOrionHandoffUrl) {
       navegarComHandoffJwt(fluxo.redirecionarOrionHandoffUrl);
       return;
@@ -375,6 +400,14 @@ export default function App() {
     setActiveTab('dashboard');
     if (sistemaId === SISTEMA_ID_ORION_SUPORTE) {
       navegarComHandoffJwt(getUrlOrionSuporte());
+      return;
+    }
+    if (sistemaId === SISTEMA_ID_ORION_QUALIDADE) {
+      navegarComHandoffJwt(getUrlOrionQualidade());
+      return;
+    }
+    if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
+      navegarComHandoffJwt(getUrlOrionPatrimonio());
       return;
     }
     if (sistemaId !== SISTEMA_ID_APP_ATUAL) {
@@ -575,12 +608,30 @@ export default function App() {
     return nome === 'ADMINISTRADOR';
   }, [currentUser]);
 
+  /** Avisos de férias (programadas / atrasadas) ao abrir o app — mesmo escopo de quem vê dashboard ou afastamentos. */
+  const podeVerStartupFerias = useMemo(() => {
+    if (!permissoesPorTela) return false;
+    if (usuarioEhAdministrador) return true;
+    return Boolean(
+      permissoesPorTela.dashboard?.VISUALIZAR ||
+        permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
+        permissoesPorTela.afastamentos?.VISUALIZAR,
+    );
+  }, [permissoesPorTela, usuarioEhAdministrador]);
+
+  const usuarioPodeVerDashboard = useMemo(() => {
+    if (!permissoesPorTela) return false;
+    if (usuarioEhAdministrador) return true;
+    return Boolean(permissoesPorTela.dashboard?.VISUALIZAR);
+  }, [permissoesPorTela, usuarioEhAdministrador]);
+
   /** Alinhado à API: gestão de chamados no app Órion Suporte (respeita negação explícita no usuário). */
   const usuarioPodeAcessarOrionSuporte = useMemo(() => {
     if (!currentUser) return false;
     return temAcessoOrionSuporteEfetivo(currentUser);
   }, [currentUser]);
 
+  /** Órion Qualidade: só cadastro (`ORION_QUALIDADE` em sistemas permitidos), não permissão por nível. */
   const usuarioPodeOrionQualidade = useMemo(() => {
     if (!currentUser) return false;
     return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_QUALIDADE);
@@ -589,6 +640,11 @@ export default function App() {
   const usuarioPodeOrionJuridico = useMemo(() => {
     if (!currentUser) return false;
     return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_JURIDICO);
+  }, [currentUser]);
+
+  const usuarioPodeOrionPatrimonio = useMemo(() => {
+    if (!currentUser) return false;
+    return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_PATRIMONIO);
   }, [currentUser]);
 
   const [chamadosAbertosGestao, setChamadosAbertosGestao] = useState<number | null>(null);
@@ -640,7 +696,9 @@ export default function App() {
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
       permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
     const temAcessoEfetivo =
-      permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
+      permissoesPorTela['equipe']?.VISUALIZAR ||
+      permissoesPorTela['policiais']?.VISUALIZAR ||
+      permissoesPorTela['troca-servico']?.VISUALIZAR;
     const temAcessoSistema =
       permissoesPorTela['usuarios']?.VISUALIZAR ||
       permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
@@ -650,6 +708,7 @@ export default function App() {
       if (tab.key === 'afastamentos') return Boolean(temAcessoAfastamentos);
       if (tab.key === 'equipe') return Boolean(temAcessoEfetivo);
       if (tab.key === 'sistema') return Boolean(temAcessoSistema);
+      if (tab.key === 'escalas') return temAcessoEscalas(permissoesPorTela);
       return Boolean(permissoesPorTela[tab.key]?.VISUALIZAR);
     });
   }, [permissoesPorTela, usuarioEhAdministrador]);
@@ -704,7 +763,9 @@ export default function App() {
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
       permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
     const temAcessoEfetivo =
-      permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
+      permissoesPorTela['equipe']?.VISUALIZAR ||
+      permissoesPorTela['policiais']?.VISUALIZAR ||
+      permissoesPorTela['troca-servico']?.VISUALIZAR;
     const temAcessoSistema =
       permissoesPorTela['usuarios']?.VISUALIZAR ||
       permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
@@ -721,7 +782,43 @@ export default function App() {
               : activeTab === 'escalas'
                 ? temAcessoEscalas(permissoesPorTela)
                 : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
-    if (!podeAcessar) setActiveTab('dashboard');
+    if (!podeAcessar) {
+      const destino =
+        (() => {
+          const temAfast =
+            permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
+            permissoesPorTela['afastamentos']?.VISUALIZAR ||
+            permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
+          const temEfet =
+            permissoesPorTela['equipe']?.VISUALIZAR ||
+            permissoesPorTela['policiais']?.VISUALIZAR ||
+            permissoesPorTela['troca-servico']?.VISUALIZAR;
+          const temSis =
+            permissoesPorTela['usuarios']?.VISUALIZAR ||
+            permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
+            permissoesPorTela['relatorios']?.VISUALIZAR;
+          const ordem: TabKey[] = [
+            'dashboard',
+            'calendario',
+            'escalas',
+            'afastamentos',
+            'equipe',
+            'sistema',
+            'reportar-erro',
+          ];
+          for (const k of ordem) {
+            if (k === 'reportar-erro') continue;
+            if (k === 'dashboard' && permissoesPorTela['dashboard']?.VISUALIZAR) return k;
+            if (k === 'calendario' && permissoesPorTela['calendario']?.VISUALIZAR) return k;
+            if (k === 'escalas' && temAcessoEscalas(permissoesPorTela)) return k;
+            if (k === 'afastamentos' && temAfast) return k;
+            if (k === 'equipe' && temEfet) return k;
+            if (k === 'sistema' && temSis) return k;
+          }
+          return 'reportar-erro' as TabKey;
+        })();
+      setActiveTab(destino);
+    }
   }, [currentUser, activeTab, permissoesPorTela, usuarioEhAdministrador]);
 
   if (!currentUser) {
@@ -867,6 +964,18 @@ export default function App() {
               </IconButton>
             </Tooltip>
           ) : null}
+          {usuarioPodeOrionPatrimonio ? (
+            <Tooltip title="Órion Patrimônio — abrir em nova aba">
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionPatrimonio())}
+                aria-label="Abrir Órion Patrimônio"
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <Inventory2 sx={{ fontSize: 24 }} />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           {usuarioPodeOrionJuridico ? (
             <Tooltip title="Órion Jurídico — abrir em nova aba">
               <IconButton
@@ -879,26 +988,28 @@ export default function App() {
               </IconButton>
             </Tooltip>
           ) : null}
-          <IconButton
-            onClick={(e) => setAvatarMenuAnchor(e.currentTarget)}
-            aria-label="Menu do usuário"
-            aria-controls={avatarMenuAnchor ? 'user-menu' : undefined}
-            aria-haspopup="true"
-            aria-expanded={avatarMenuAnchor ? 'true' : undefined}
-            sx={{ p: 0 }}
-          >
-            <Avatar
-              src={currentUser.fotoUrl ?? undefined}
-              sx={{
-                width: 40,
-                height: 40,
-                bgcolor: 'var(--sentinela-blue)',
-                fontSize: '1rem',
-              }}
+          <Tooltip title="Menu do usuário">
+            <IconButton
+              onClick={(e) => setAvatarMenuAnchor(e.currentTarget)}
+              aria-label="Menu do usuário"
+              aria-controls={avatarMenuAnchor ? 'user-menu' : undefined}
+              aria-haspopup="true"
+              aria-expanded={avatarMenuAnchor ? 'true' : undefined}
+              sx={{ p: 0 }}
             >
-              {getIniciaisUsuario(currentUser.nome)}
-            </Avatar>
-          </IconButton>
+              <Avatar
+                src={currentUser.fotoUrl ?? undefined}
+                sx={{
+                  width: 40,
+                  height: 40,
+                  bgcolor: 'var(--sentinela-blue)',
+                  fontSize: '1rem',
+                }}
+              >
+                {getIniciaisUsuario(currentUser.nome)}
+              </Avatar>
+            </IconButton>
+          </Tooltip>
           <Menu
             id="user-menu"
             anchorEl={avatarMenuAnchor}
@@ -916,17 +1027,6 @@ export default function App() {
               <Lock sx={{ mr: 1.5, fontSize: 20 }} />
               Alterar senha
             </MenuItem>
-            {usuarioPodeAcessarOrionSuporte ? (
-              <MenuItem
-                onClick={() => {
-                  setAvatarMenuAnchor(null);
-                  abrirNovaAbaComHandoffJwt(getUrlOrionSuporte());
-                }}
-              >
-                <SupportAgent sx={{ mr: 1.5, fontSize: 20 }} />
-                Órion Suporte
-              </MenuItem>
-            ) : null}
             {usuarioPodeOrionQualidade ? (
               <MenuItem
                 onClick={() => {
@@ -938,6 +1038,17 @@ export default function App() {
                 Órion Qualidade
               </MenuItem>
             ) : null}
+            {usuarioPodeOrionPatrimonio ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionPatrimonio());
+                }}
+              >
+                <Inventory2 sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Patrimônio
+              </MenuItem>
+            ) : null}
             {usuarioPodeOrionJuridico ? (
               <MenuItem
                 onClick={() => {
@@ -947,6 +1058,17 @@ export default function App() {
               >
                 <Gavel sx={{ mr: 1.5, fontSize: 20 }} />
                 Órion Jurídico
+              </MenuItem>
+            ) : null}
+            {usuarioPodeAcessarOrionSuporte ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionSuporte());
+                }}
+              >
+                <SupportAgent sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Suporte
               </MenuItem>
             ) : null}
             <MenuItem onClick={handleLogout}>
@@ -1199,6 +1321,19 @@ export default function App() {
           ))}
         </ul>
       )}
+
+      <StartupFeriasAvisos
+        key={currentUser.id}
+        currentUser={currentUser}
+        enabled={!permissoesCarregando && Boolean(permissoesPorTela) && podeVerStartupFerias}
+        podeAbrirDashboard={usuarioPodeVerDashboard}
+        onIrPara={(tab) => {
+          setActiveTab(tab);
+          if (tab === 'afastamentos') setAfastamentosInitialSubTab('afastamentos');
+        }}
+        refreshKeyPoliciais={policiaisVersion}
+        refreshKeyAfastamentos={afastamentosVersion}
+      />
 
       <Suspense fallback={<p className="empty-state">Carregando...</p>}>
         {activeTab === 'dashboard' && (

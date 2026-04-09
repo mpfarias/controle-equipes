@@ -118,8 +118,11 @@ async function request<T>(
           // Extrair apenas a mensagem do erro, se disponível
           if (typeof errorData === 'object' && errorData !== null) {
             // Priorizar a propriedade 'message' do erro
-            const errorObj = errorData as { message?: string; error?: string };
-            detail = errorObj.message ?? errorObj.error ?? JSON.stringify(errorData);
+            const errorObj = errorData as { message?: string | string[]; error?: string };
+            const rawMsg = errorObj.message ?? errorObj.error;
+            detail = Array.isArray(rawMsg)
+              ? rawMsg.filter(Boolean).join(' ')
+              : (rawMsg ?? JSON.stringify(errorData));
           } else {
             detail = String(errorData ?? response.statusText);
           }
@@ -245,6 +248,11 @@ export const api = {
 
   async getUsuario(id: number): Promise<Usuario> {
     return request(`/usuarios/${id}`);
+  },
+
+  /** Perfil do usuário logado — qualquer nível autenticado (não exige papel ADMINISTRADOR/SAD no guard de /usuarios). */
+  async getAuthMe(): Promise<Usuario> {
+    return request<Usuario>('/auth/me');
   },
 
   async listUsuarioNiveis(): Promise<UsuarioNivelOption[]> {
@@ -606,11 +614,13 @@ export const api = {
     statuses?: string[];
     funcaoId?: number;
     funcaoIds?: number[];
-    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
+    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento';
     orderDir?: 'asc' | 'desc';
     /** Filtro previsão de férias: só retorna policiais com férias programadas neste mês/ano */
     mesPrevisaoFerias?: number;
     anoPrevisaoFerias?: number;
+    /** Ano do registro de férias retornado em cada policial (padrão na API: ano civil atual) */
+    feriasAno?: number;
     /** Exclui COMISSIONADO do efetivo e contagens (para limite 1/12 de férias) */
     excluirComissionadosParaLimiteFerias?: boolean;
   }): Promise<{
@@ -641,6 +651,7 @@ export const api = {
     if (params.orderDir) searchParams.append('orderDir', params.orderDir);
     if (params.mesPrevisaoFerias != null) searchParams.append('mesPrevisaoFerias', String(params.mesPrevisaoFerias));
     if (params.anoPrevisaoFerias != null) searchParams.append('anoPrevisaoFerias', String(params.anoPrevisaoFerias));
+    if (params.feriasAno != null) searchParams.append('feriasAno', String(params.feriasAno));
     if (params.excluirComissionadosParaLimiteFerias === true) {
       searchParams.append('excluirComissionadosParaLimiteFerias', 'true');
     }
@@ -668,6 +679,17 @@ export const api = {
     }>(path);
     setCached(cacheKey, data);
     return data;
+  },
+
+  /** Maior ano com `FeriasPolicial` cadastrado (sistema ou de um policial). */
+  async getUltimoAnoPrevisaoFerias(params?: {
+    policialId?: number;
+  }): Promise<{ ano: number | null; anoMinimo: number | null }> {
+    const q =
+      params?.policialId != null ? `?policialId=${encodeURIComponent(String(params.policialId))}` : '';
+    return request<{ ano: number | null; anoMinimo: number | null }>(
+      `/policiais/previsao-ferias/ultimo-ano${q}`,
+    );
   },
 
   async getPolicial(id: number): Promise<Policial> {
@@ -728,11 +750,26 @@ export const api = {
 
   async updatePolicial(
     id: number,
-    payload: Partial<CreatePolicialInput> & { mesPrevisaoFerias?: number | null; anoPrevisaoFerias?: number | null; feriasConfirmadas?: boolean; feriasReprogramadas?: boolean },
+    payload: Partial<CreatePolicialInput> & {
+      mesPrevisaoFerias?: number | null;
+      anoPrevisaoFerias?: number | null;
+      feriasConfirmadas?: boolean;
+      feriasReprogramadas?: boolean;
+      somenteAnoPrevisaoFerias?: boolean;
+    },
   ): Promise<Policial> {
     const data = await request<Policial>(`/policiais/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    });
+    clearCache();
+    return data;
+  },
+
+  /** Exclui previsão (`FeriasPolicial`) só para exercício anterior ao ano civil e sem afastamento de Férias ativo na cota. */
+  async deletePrevisaoFeriasExercicio(policialId: number, anoExercicio: number): Promise<Policial> {
+    const data = await request<Policial>(`/policiais/${policialId}/previsao-ferias/${anoExercicio}`, {
+      method: 'DELETE',
     });
     clearCache();
     return data;
@@ -1317,6 +1354,7 @@ export const api = {
     return data;
   },
 
+  /** Trocas ATIVA e CONCLUIDA (histórico recente, inclusive retroativas já processadas). */
   async listTrocasServicoAtivas(): Promise<TrocaServicoAtivaListaItem[]> {
     return request<TrocaServicoAtivaListaItem[]>('/troca-servico/ativas');
   },

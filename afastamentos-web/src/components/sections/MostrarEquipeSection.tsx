@@ -90,6 +90,35 @@ function matriculaExibicaoTroca(p: Policial): string {
   );
 }
 
+/** Data de desligamento: prioriza a data informada na desativação; se ausente, usa o instante em que foi desativado no sistema. */
+function timestampDataDesligamentoPolicial(p: Policial): number {
+  const a = p.dataDesativacaoAPartirDe;
+  const b = p.desativadoEm;
+  const raw =
+    (a != null && String(a).trim() !== '' ? String(a) : null) ??
+    (b != null && String(b).trim() !== '' ? String(b) : null);
+  if (!raw) return 0;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** Texto para coluna “Desligamento” na lista (data cadastrada ou instante da desativação). */
+function textoDataDesligamentoLista(p: Policial): string {
+  const a = p.dataDesativacaoAPartirDe;
+  const b = p.desativadoEm;
+  if (a != null && String(a).trim() !== '') {
+    const d = new Date(a);
+    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
+  }
+  if (b != null && String(b).trim() !== '') {
+    const d = new Date(b);
+    return Number.isNaN(d.getTime())
+      ? '—'
+      : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+  return '—';
+}
+
 export function MostrarEquipeSection({
   currentUser,
   openConfirm,
@@ -239,6 +268,8 @@ export function MostrarEquipeSection({
   const [trocaCandidatosLoading, setTrocaCandidatosLoading] = useState(false);
   const [trocaSubmitting, setTrocaSubmitting] = useState(false);
   const [trocaModalError, setTrocaModalError] = useState<string | null>(null);
+  const [trocaOrigensLista, setTrocaOrigensLista] = useState<Policial[]>([]);
+  const [trocaOrigensLoading, setTrocaOrigensLoading] = useState(false);
   const [dataSvg, setDataSvg] = useState<string>('');
   const [horarioSvg, setHorarioSvg] = useState<string>('');
   const [horariosSvg, setHorariosSvg] = useState<HorarioSvg[]>([]);
@@ -816,6 +847,9 @@ export function MostrarEquipeSection({
     campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
     direcao: 'asc' | 'desc';
   } | null>(null);
+  /** Só faz sentido com filtro exclusivo de desativados; ordena por data de desligamento (backend + cliente). */
+  const [organizarPorDataDesligamento, setOrganizarPorDataDesligamento] = useState(false);
+  const [mostrarDatasDesligamento, setMostrarDatasDesligamento] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(50);
   const [totalPoliciais, setTotalPoliciais] = useState(0);
@@ -917,7 +951,30 @@ export function MostrarEquipeSection({
     const timer = setTimeout(() => setDebouncedSearchTerm(searchTerm), 400);
     return () => clearTimeout(timer);
   }, [searchTerm]);
- 
+
+  /**
+   * Se o filtro de status inclui Desativado, “Excluir desativados” precisa ficar desligado;
+   * senão a lista no cliente remove todos os desativados mesmo com o filtro da API.
+   */
+  useEffect(() => {
+    if (statusSelecionados.includes('DESATIVADO') && excluirDesativados) {
+      setExcluirDesativados(false);
+    }
+  }, [statusSelecionados, excluirDesativados]);
+
+  /** Mostra o atalho quando o usuário incluiu “Desativado” no filtro avançado (caso de uso principal). */
+  const mostrarLinkOrdenacaoDesligamento = useMemo(
+    () => statusSelecionados.includes('DESATIVADO'),
+    [statusSelecionados],
+  );
+
+  useEffect(() => {
+    if (!mostrarLinkOrdenacaoDesligamento) {
+      setOrganizarPorDataDesligamento(false);
+      setMostrarDatasDesligamento(false);
+    }
+  }, [mostrarLinkOrdenacaoDesligamento]);
+
   const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
       setLoading(true);
@@ -989,7 +1046,10 @@ export function MostrarEquipeSection({
       if (funcoesSelecionadas.length > 0 && !buscarTodosParaFiltro) {
         params.funcaoIds = funcoesSelecionadas;
       }
-      if (ordenacao && !buscarTodos) {
+      if (organizarPorDataDesligamento && statusSelecionados.includes('DESATIVADO')) {
+        params.orderBy = 'dataDesligamento';
+        params.orderDir = 'desc';
+      } else if (ordenacao && !buscarTodos) {
         params.orderBy = ordenacao.campo;
         params.orderDir = ordenacao.direcao;
       }
@@ -1046,6 +1106,8 @@ export function MostrarEquipeSection({
     excluirDesativados,
     somenteComRestricaoMedica,
     tabAtiva,
+    organizarPorDataDesligamento,
+    statusSelecionados,
   ]);
 
   const carregarFuncoes = useCallback(async () => {
@@ -1104,7 +1166,31 @@ export function MostrarEquipeSection({
     // Filtrar SEM_EQUIPE se ainda existir no banco (para compatibilidade)
     return equipesAtivas.filter((e) => e.nome !== 'SEM_EQUIPE');
   }, [equipesAtivas]);
- 
+
+  /** Visão ampla para listar policiais em fluxos de troca (alinha à regra já usada na lista). */
+  const usuarioPodeVerTodosEscopoTroca = useMemo(() => {
+    const nivelNome = currentUser.nivel?.nome;
+    return (
+      nivelNome === 'ADMINISTRADOR' ||
+      nivelNome === 'SAD' ||
+      nivelNome === 'COMANDO' ||
+      currentUser.isAdmin === true
+    );
+  }, [currentUser]);
+
+  const podeGerenciarTrocaNaLista = useMemo(
+    () => podeGerenciarTrocaServicoElevado(permissoes, currentUser),
+    [permissoes, currentUser],
+  );
+
+  const podeExibirTrocaNaLinha = useCallback(
+    (p: Policial) =>
+      podeGerenciarTrocaNaLista &&
+      p.status !== 'DESATIVADO' &&
+      policialElegivelTrocaServico(p),
+    [podeGerenciarTrocaNaLista],
+  );
+
   useEffect(() => {
     void carregarTotalGeral();
   }, [carregarTotalGeral, refreshKey, funcoesCpmulherIds]);
@@ -1158,11 +1244,115 @@ export function MostrarEquipeSection({
     setTrocaPolicialOutroId('');
     setTrocaModalError(null);
     setTrocaCandidatos([]);
+    setTrocaOrigensLista([]);
+    setTrocaOrigensLoading(false);
   }, []);
+
+  const carregarCandidatosTroca = useCallback(
+    async (policial: Policial) => {
+      setTrocaCandidatosLoading(true);
+      setTrocaCandidatos([]);
+      setTrocaModalError(null);
+      try {
+        // Troca exige outra equipe: buscar em todas as equipes (não só na do usuário logado).
+        const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+          page: 1,
+          pageSize: 8000,
+          statuses: ['ATIVO', 'DESIGNADO', 'PTTC', 'COMISSIONADO'],
+          includeAfastamentos: false,
+          includeRestricoes: false,
+        };
+        const data = await api.listPoliciaisPaginated(params);
+        const eqOrigem = policial.equipe ?? null;
+        const lista = data.Policiales.filter(
+          (p) =>
+            policialElegivelTrocaServico(p) &&
+            p.id !== policial.id &&
+            (p.equipe ?? null) !== eqOrigem &&
+            (p.status === 'ATIVO' ||
+              p.status === 'DESIGNADO' ||
+              p.status === 'PTTC' ||
+              p.status === 'COMISSIONADO'),
+        );
+        lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+        setTrocaCandidatos(lista);
+        if (lista.length === 0) {
+          setTrocaModalError(
+            'Não há policiais elegíveis (ATIVO, DESIGNADO, PTTC ou COMISSIONADO) em equipe diferente da do policial de origem. A troca de serviço é somente com policial de outra equipe.',
+          );
+        }
+      } catch {
+        setTrocaModalError('Não foi possível carregar a lista de policiais.');
+        setTrocaCandidatos([]);
+      } finally {
+        setTrocaCandidatosLoading(false);
+      }
+    },
+    [],
+  );
+
+  const carregarListaOrigensTroca = useCallback(async () => {
+    setTrocaOrigensLoading(true);
+    setTrocaModalError(null);
+    try {
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page: 1,
+        pageSize: 8000,
+        statuses: ['ATIVO', 'DESIGNADO', 'PTTC', 'COMISSIONADO'],
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      };
+      if (!usuarioPodeVerTodosEscopoTroca && currentUser.equipe) {
+        params.equipe = currentUser.equipe;
+      }
+      const data = await api.listPoliciaisPaginated(params);
+      const origens = data.Policiales.filter(
+        (p) =>
+          policialElegivelTrocaServico(p) &&
+          (p.status === 'ATIVO' ||
+            p.status === 'DESIGNADO' ||
+            p.status === 'PTTC' ||
+            p.status === 'COMISSIONADO'),
+      );
+      origens.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      setTrocaOrigensLista(origens);
+      if (origens.length === 0) {
+        setTrocaModalError(
+          usuarioPodeVerTodosEscopoTroca
+            ? 'Não há policiais elegíveis para troca de serviço no escopo atual.'
+            : 'Não há policiais elegíveis na sua equipe. Use um perfil com visão mais ampla se necessário.',
+        );
+      }
+    } catch {
+      setTrocaModalError('Não foi possível carregar a lista de policiais.');
+      setTrocaOrigensLista([]);
+    } finally {
+      setTrocaOrigensLoading(false);
+    }
+  }, [currentUser.equipe, usuarioPodeVerTodosEscopoTroca]);
 
   useEffect(() => {
     if (tabAtiva !== 0 && trocaModalOpen) fecharModalTroca();
   }, [tabAtiva, trocaModalOpen, fecharModalTroca]);
+
+  const handleAbrirTrocaPelaBarra = useCallback(async () => {
+    setTrocaPolicialOrigem(null);
+    setTrocaPolicialOutroId('');
+    const hoje = hojeIsoLocal();
+    setTrocaDataPolicialOrigem(hoje);
+    setTrocaDataPolicialOutro(hoje);
+    setTrocaModalError(null);
+    setTrocaCandidatos([]);
+    setTrocaModalOpen(true);
+    await carregarListaOrigensTroca();
+  }, [carregarListaOrigensTroca]);
+
+  const handleIniciarAlteracaoOrigemTroca = useCallback(async () => {
+    setTrocaPolicialOrigem(null);
+    setTrocaPolicialOutroId('');
+    setTrocaCandidatos([]);
+    await carregarListaOrigensTroca();
+  }, [carregarListaOrigensTroca]);
 
   const handleFazerTroca = useCallback(
     async (policial: Policial) => {
@@ -1178,57 +1368,16 @@ export function MostrarEquipeSection({
       setTrocaDataPolicialOrigem(hoje);
       setTrocaDataPolicialOutro(hoje);
       setTrocaModalError(null);
+      setTrocaOrigensLista([]);
       setTrocaModalOpen(true);
-      setTrocaCandidatosLoading(true);
-      setTrocaCandidatos([]);
-      try {
-        const nivelNome = currentUser.nivel?.nome;
-        const usuarioPodeVerTodos =
-          nivelNome === 'ADMINISTRADOR' ||
-          nivelNome === 'SAD' ||
-          nivelNome === 'COMANDO' ||
-          currentUser.isAdmin === true;
-        const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
-          page: 1,
-          pageSize: 8000,
-          statuses: ['ATIVO', 'DESIGNADO', 'PTTC', 'COMISSIONADO'],
-          includeAfastamentos: false,
-          includeRestricoes: false,
-        };
-        if (!usuarioPodeVerTodos && currentUser.equipe) {
-          params.equipe = currentUser.equipe;
-        }
-        const data = await api.listPoliciaisPaginated(params);
-        const eqOrigem = policial.equipe ?? null;
-        const lista = data.Policiales.filter(
-          (p) =>
-            policialElegivelTrocaServico(p) &&
-            p.id !== policial.id &&
-            (p.equipe ?? null) !== eqOrigem &&
-            (p.status === 'ATIVO' || p.status === 'DESIGNADO' || p.status === 'PTTC' || p.status === 'COMISSIONADO'),
-        );
-        lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-        setTrocaCandidatos(lista);
-        if (lista.length === 0) {
-          setTrocaModalError(
-            usuarioPodeVerTodos
-              ? 'Não há outros policiais elegíveis (ATIVO, DESIGNADO, PTTC ou COMISSIONADO) com equipe diferente da sua para trocar.'
-              : 'Não há policiais elegíveis (equipe operacional/motorista ou status DESIGNADO, PTTC, COMISSIONADO, com equipe diferente da sua). Amplie o filtro ou use um perfil com visão de todas as equipes.',
-          );
-        }
-      } catch {
-        setTrocaModalError('Não foi possível carregar a lista de policiais.');
-        setTrocaCandidatos([]);
-      } finally {
-        setTrocaCandidatosLoading(false);
-      }
+      await carregarCandidatosTroca(policial);
     },
-    [currentUser],
+    [carregarCandidatosTroca],
   );
 
   const handleConfirmarTrocaServico = async () => {
     if (!trocaPolicialOrigem || trocaPolicialOutroId === '') {
-      setTrocaModalError('Selecione o outro policial.');
+      setTrocaModalError('Selecione o policial da outra equipe.');
       return;
     }
     if (!trocaDataPolicialOrigem?.trim() || !trocaDataPolicialOutro?.trim()) {
@@ -1610,6 +1759,9 @@ export function MostrarEquipeSection({
       if (excluirDesativados) {
         base = base.filter((p) => p.status !== 'DESATIVADO');
       }
+      if (organizarPorDataDesligamento) {
+        return [...base];
+      }
       return [...base].sort((a, b) => {
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
@@ -1702,17 +1854,19 @@ export function MostrarEquipeSection({
       resultado = resultado.filter((policial) => policial.restricaoMedicaId != null);
     }
 
-    // Aplicar ordenação (desativados sempre por último)
-    if (ordenacao) {
+    if (organizarPorDataDesligamento) {
       resultado = [...resultado].sort((a, b) => {
-        // Desativados sempre no final da lista
+        const ta = timestampDataDesligamentoPolicial(a);
+        const tb = timestampDataDesligamentoPolicial(b);
+        if (tb !== ta) return tb - ta;
+        return comparePorPatenteENome(a, b);
+      });
+    } else if (ordenacao) {
+      resultado = [...resultado].sort((a, b) => {
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
         if (aDesativado && !bDesativado) return 1;
         if (!aDesativado && bDesativado) return -1;
-        if (aDesativado && bDesativado) {
-          // Entre dois desativados, ordenar pelo campo selecionado
-        }
 
         let valorA: string | number;
         let valorB: string | number;
@@ -1738,7 +1892,6 @@ export function MostrarEquipeSection({
         return ordenacao.direcao === 'asc' ? comparacao : -comparacao;
       });
     } else {
-      // Sem ordenação por coluna: ativos primeiro, desativados por último (por patente e nome)
       resultado = [...resultado].sort((a, b) => {
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
@@ -1760,6 +1913,7 @@ export function MostrarEquipeSection({
     somenteComRestricaoMedica,
     ordenacao,
     paginacaoNoServidor,
+    organizarPorDataDesligamento,
   ]);
 
   // Recalcular total e paginação baseado nos dados filtrados
@@ -1820,6 +1974,7 @@ export function MostrarEquipeSection({
   }, [normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, somenteComRestricaoMedica]);
 
   const handleOrdenacao = (campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') => {
+    setOrganizarPorDataDesligamento(false);
     setOrdenacao((prev) => {
       if (prev?.campo === campo) {
         // Mesmo campo: 1º clique = asc, 2º = desc, 3º = remove ordenação (volta ao padrão)
@@ -1860,7 +2015,10 @@ export function MostrarEquipeSection({
     }
     if (statusSelecionados.length > 0) params.statuses = statusSelecionados;
     if (funcoesSelecionadas.length > 0 && !buscarTodosParaFiltro) params.funcaoIds = funcoesSelecionadas;
-    if (ordenacao && !buscarTodosParaFiltro) {
+    if (organizarPorDataDesligamento && statusSelecionados.includes('DESATIVADO')) {
+      params.orderBy = 'dataDesligamento';
+      params.orderDir = 'desc';
+    } else if (ordenacao && !buscarTodosParaFiltro) {
       params.orderBy = ordenacao.campo;
       params.orderDir = ordenacao.direcao;
     }
@@ -1976,6 +2134,7 @@ export function MostrarEquipeSection({
     excluirDesativados,
     somenteComRestricaoMedica,
     ordenacao,
+    organizarPorDataDesligamento,
   ]);
 
   return (
@@ -2044,6 +2203,18 @@ export function MostrarEquipeSection({
         >
           Filtros Avançados
         </Button>
+        {podeGerenciarTrocaNaLista && (
+          <Button
+            variant="contained"
+            color="primary"
+            size="small"
+            startIcon={<SwapHoriz />}
+            onClick={() => void handleAbrirTrocaPelaBarra()}
+            sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+          >
+            Troca de serviço
+          </Button>
+        )}
         <button
           className="ghost"
           type="button"
@@ -2371,10 +2542,113 @@ export function MostrarEquipeSection({
 
       {loading ? (
         <p className="empty-state">Carregando policiais...</p>
-      ) : totalPoliciais === 0 ? (
-        <p className="empty-state">Nenhum policial cadastrado.</p>
       ) : (
         <>
+          {mostrarLinkOrdenacaoDesligamento && (
+            <Box
+              sx={{
+                mb: 2,
+                p: 1.5,
+                borderRadius: '8px',
+                border: `1px solid ${theme.borderSoft}`,
+                bgcolor: theme.alertInfoBg,
+                boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+              }}
+            >
+              <Typography
+                variant="caption"
+                display="block"
+                sx={{ mb: 1.25, color: theme.textSecondary, lineHeight: 1.45 }}
+              >
+                Filtro com status Desativado: ordene por data de desligamento ou exiba a coluna na tabela.
+              </Typography>
+              <Stack direction="row" flexWrap="wrap" gap={1} alignItems="center">
+                <Button
+                  type="button"
+                  variant={organizarPorDataDesligamento ? 'contained' : 'outlined'}
+                  size="small"
+                  title="Ordena pela data informada na desativação (mais recente primeiro); sem essa data, usa o registro de desativação no sistema."
+                  onClick={() => {
+                    setOrganizarPorDataDesligamento((v) => !v);
+                    setPaginaAtual(1);
+                  }}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                    py: 0.35,
+                    px: 1,
+                    minHeight: 28,
+                    lineHeight: 1.2,
+                    ...(organizarPorDataDesligamento
+                      ? {
+                          bgcolor: theme.sentinelaBlue,
+                          color: theme.textPrimary,
+                          boxShadow: 'none',
+                          '&:hover': { bgcolor: '#0d2438', boxShadow: 'none' },
+                        }
+                      : {
+                          borderColor: theme.borderSoft,
+                          color: theme.textPrimary,
+                          '&:hover': { borderColor: theme.accentMuted, bgcolor: 'rgba(107, 155, 196, 0.08)' },
+                        }),
+                  }}
+                >
+                  {organizarPorDataDesligamento ? 'Ordem padrão' : 'Organizar por data'}
+                </Button>
+                <Button
+                  type="button"
+                  variant={mostrarDatasDesligamento ? 'contained' : 'outlined'}
+                  size="small"
+                  title="Exibe ou oculta a coluna com a data de desligamento de cada policial."
+                  onClick={() => setMostrarDatasDesligamento((v) => !v)}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                    py: 0.35,
+                    px: 1,
+                    minHeight: 28,
+                    lineHeight: 1.2,
+                    ...(mostrarDatasDesligamento
+                      ? {
+                          bgcolor: theme.sentinelaBlue,
+                          color: theme.textPrimary,
+                          boxShadow: 'none',
+                          '&:hover': { bgcolor: '#0d2438', boxShadow: 'none' },
+                        }
+                      : {
+                          borderColor: theme.borderSoft,
+                          color: theme.textPrimary,
+                          '&:hover': { borderColor: theme.accentMuted, bgcolor: 'rgba(107, 155, 196, 0.08)' },
+                        }),
+                  }}
+                >
+                  {mostrarDatasDesligamento ? 'Ocultar datas' : 'Mostrar datas de desligamento'}
+                </Button>
+              </Stack>
+              {(organizarPorDataDesligamento || mostrarDatasDesligamento) && (
+                <Typography variant="caption" display="block" sx={{ mt: 1, color: theme.statusPttcText, lineHeight: 1.45 }}>
+                  {organizarPorDataDesligamento &&
+                    'Ordenação: data da desativação (mais recente primeiro); na falta dela, data/hora do registro. '}
+                  {mostrarDatasDesligamento &&
+                    'A coluna Telefone é trocada por Desligamento (data do cadastro da desativação ou do registro).'}
+                </Typography>
+              )}
+            </Box>
+          )}
+          {totalPoliciais === 0 ? (
+            <p className="empty-state">
+              {searchTerm.trim() ||
+              equipesSelecionadas.length > 0 ||
+              statusSelecionados.length > 0 ||
+              funcoesSelecionadas.length > 0 ||
+              somenteComRestricaoMedica ||
+              !excluirMotoristas ||
+              !excluirDesativados
+                ? 'Nenhum policial encontrado com os filtros atuais.'
+                : 'Nenhum policial cadastrado.'}
+            </p>
+          ) : (
+            <>
           <table className="table">
             <thead>
               <tr>
@@ -2538,7 +2812,15 @@ export function MostrarEquipeSection({
                     )}
                   </button>
                 </th>
-                <th style={{ color: 'var(--text-primary)' }}>Telefone</th>
+                <th
+                  style={{
+                    color: 'var(--text-primary)',
+                    whiteSpace: 'nowrap',
+                    fontSize: mostrarDatasDesligamento ? '0.85rem' : undefined,
+                  }}
+                >
+                  {mostrarDatasDesligamento ? 'Desligamento' : 'Telefone'}
+                </th>
                 <th style={{ color: 'var(--text-primary)' }}>Ações</th>
               </tr>
             </thead>
@@ -2643,17 +2925,29 @@ export function MostrarEquipeSection({
                     policial.equipe
                   )}
                 </td>
-                <td>
-                  {policial.telefone ? (
+                <td
+                  style={
+                    mostrarDatasDesligamento
+                      ? { fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }
+                      : undefined
+                  }
+                >
+                  {mostrarDatasDesligamento ? (
+                    policial.status === 'DESATIVADO' ? (
+                      textoDataDesligamentoLista(policial)
+                    ) : (
+                      <span style={{ fontStyle: 'italic' }}>—</span>
+                    )
+                  ) : policial.telefone ? (
                     maskTelefone(policial.telefone)
                   ) : (
                     <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
                   )}
                 </td>
                 <td className="actions">
-                  {usuarioPodeVerTodosEAcoes ? (
+                  {usuarioPodeVerTodosEAcoes || podeExibirTrocaNaLinha(policial) ? (
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {canEdit(permissoes, 'equipe') && (
+                      {usuarioPodeVerTodosEAcoes && canEdit(permissoes, 'equipe') && (
                         <IconButton
                           onClick={() => openEditModal(policial)}
                           title="Editar"
@@ -2668,11 +2962,9 @@ export function MostrarEquipeSection({
                           <Edit fontSize="small" />
                         </IconButton>
                       )}
-                      {podeGerenciarTrocaServicoElevado(permissoes, currentUser) &&
-                        policial.status !== 'DESATIVADO' &&
-                        policialElegivelTrocaServico(policial) && (
+                      {podeExibirTrocaNaLinha(policial) && (
                         <IconButton
-                          onClick={() => handleFazerTroca(policial)}
+                          onClick={() => void handleFazerTroca(policial)}
                           title="Trocar serviço"
                           aria-label="Trocar serviço"
                           size="small"
@@ -2686,50 +2978,51 @@ export function MostrarEquipeSection({
                           <SwapHoriz fontSize="small" />
                         </IconButton>
                       )}
-                      {policial.status === 'DESATIVADO' ? (
-                        canDesativar(permissoes, 'equipe') && (
-                          <IconButton
-                            onClick={() => handleActivate(policial)}
-                            title="Reativar"
-                            size="small"
-                            sx={{
-                              color: theme.statusAtivoText,
-                              '&:hover': {
-                                backgroundColor: theme.alertSuccessBg,
-                              },
-                            }}
-                          >
-                            <CheckCircle fontSize="small" />
-                          </IconButton>
-                        )
-                      ) : (
-                        canDesativar(permissoes, 'equipe') && (
-                          <IconButton
-                            onClick={() => handleDelete(policial)}
-                            title="Desativar"
-                            size="small"
-                            sx={{
-                              color: theme.statusComissionadoText,
-                              '&:hover': {
-                                backgroundColor: theme.alertErrorBg,
-                              },
-                            }}
-                          >
-                            <Block fontSize="small" />
-                          </IconButton>
-                        )
-                      )}
-                      {usuarioPodeExcluirPermanentemente && canExcluir(permissoes, 'equipe') && (
+                      {usuarioPodeVerTodosEAcoes &&
+                        (policial.status === 'DESATIVADO' ? (
+                          canDesativar(permissoes, 'equipe') && (
+                            <IconButton
+                              onClick={() => handleActivate(policial)}
+                              title="Reativar"
+                              size="small"
+                              sx={{
+                                color: theme.statusAtivoText,
+                                '&:hover': {
+                                  backgroundColor: theme.alertSuccessBg,
+                                },
+                              }}
+                            >
+                              <CheckCircle fontSize="small" />
+                            </IconButton>
+                          )
+                        ) : (
+                          canDesativar(permissoes, 'equipe') && (
+                            <IconButton
+                              onClick={() => handleDelete(policial)}
+                              title="Desativar"
+                              size="small"
+                              sx={{
+                                color: theme.statusComissionadoText,
+                                '&:hover': {
+                                  backgroundColor: theme.alertErrorBg,
+                                },
+                              }}
+                            >
+                              <Block fontSize="small" />
+                            </IconButton>
+                          )
+                        ))}
+                      {usuarioPodeVerTodosEAcoes && usuarioPodeExcluirPermanentemente && canExcluir(permissoes, 'equipe') && (
                         <IconButton
                           onClick={() => handleOpenDeleteModal(policial)}
                           title="Excluir permanentemente"
                           size="small"
-                            sx={{
-                              color: theme.statusComissionadoText,
-                              '&:hover': {
-                                backgroundColor: theme.alertErrorBg,
-                              },
-                            }}
+                          sx={{
+                            color: theme.statusComissionadoText,
+                            '&:hover': {
+                              backgroundColor: theme.alertErrorBg,
+                            },
+                          }}
                         >
                           <Delete fontSize="small" />
                         </IconButton>
@@ -2805,43 +3098,43 @@ export function MostrarEquipeSection({
             </div>
           </div>
         )}
+            </>
+          )}
         </>
       )}
 
       <Dialog open={trocaModalOpen} onClose={fecharModalTroca} maxWidth="sm" fullWidth>
         <DialogTitle>Troca de serviço</DialogTitle>
         <DialogContent>
-          {trocaPolicialOrigem && (
-            <Stack spacing={2} sx={{ pt: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                Policial de origem (apenas equipes operacionais ou motoristas). A equipe é trocada na hora até as
-                datas abaixo; depois cada um retorna à equipe original.
-              </Typography>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                {trocaPolicialOrigem.nome}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Equipe atual: {formatEquipeLabel(trocaPolicialOrigem.equipe)}
-              </Typography>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Troca de serviço é sempre entre dois policiais de equipes diferentes</strong> — não há troca com quem
+              é da mesma equipe. Policiais elegíveis: escala 12×24 (cinco equipes), motorista de dia (24×72), ou Designado
+              / PTTC / Comissionado. As equipes são invertidas na hora até as datas abaixo; depois cada um retorna à equipe
+              original. Cada data deve ser um dia em que, na escala 12×24, **a equipe do próprio policial ou a do parceiro**
+              esteja de serviço (dia ou noite) — assim vale tanto o turno “normal” do cadastro quanto o dia em que um
+              substitui o outro. Motoristas seguem a escala 24×72. Parâmetros em Gestão de escalas e Calendário.
+            </Typography>
 
-              {trocaModalError && (
-                <Alert severity="error" onClose={() => setTrocaModalError(null)}>
-                  {trocaModalError}
-                </Alert>
-              )}
+            {trocaModalError && (
+              <Alert severity="error" onClose={() => setTrocaModalError(null)}>
+                {trocaModalError}
+              </Alert>
+            )}
 
+            {trocaPolicialOrigem == null ? (
               <Autocomplete<Policial, false, false, false>
                 size="small"
                 fullWidth
-                loading={trocaCandidatosLoading}
-                options={trocaCandidatos}
-                value={
-                  trocaPolicialOutroId === ''
-                    ? null
-                    : trocaCandidatos.find((p) => p.id === trocaPolicialOutroId) ?? null
-                }
+                loading={trocaOrigensLoading}
+                options={trocaOrigensLista}
+                value={null}
                 onChange={(_, novo) => {
-                  setTrocaPolicialOutroId(novo?.id ?? '');
+                  if (novo) {
+                    setTrocaPolicialOrigem(novo);
+                    setTrocaPolicialOutroId('');
+                    void carregarCandidatosTroca(novo);
+                  }
                 }}
                 getOptionLabel={(p) =>
                   `${p.nome} — ${formatEquipeLabel(p.equipe)} · ${matriculaExibicaoTroca(p)}`
@@ -2859,18 +3152,18 @@ export function MostrarEquipeSection({
                   });
                 }}
                 noOptionsText={
-                  trocaCandidatosLoading ? 'Carregando…' : 'Nenhum policial encontrado para esta busca'
+                  trocaOrigensLoading ? 'Carregando…' : 'Nenhum policial encontrado para esta busca'
                 }
                 renderInput={(params) => (
                   <TextField
                     {...params}
-                    label="Trocar com"
+                    label="Policial de origem"
                     placeholder="Digite nome, matrícula ou equipe…"
                     InputProps={{
                       ...params.InputProps,
                       endAdornment: (
                         <>
-                          {trocaCandidatosLoading ? (
+                          {trocaOrigensLoading ? (
                             <CircularProgress color="inherit" size={18} sx={{ mr: 1 }} />
                           ) : null}
                           {params.InputProps.endAdornment}
@@ -2880,29 +3173,99 @@ export function MostrarEquipeSection({
                   />
                 )}
               />
+            ) : (
+              <>
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                    {trocaPolicialOrigem.nome}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Equipe atual: {formatEquipeLabel(trocaPolicialOrigem.equipe)}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="text"
+                    sx={{ mt: 0.5, textTransform: 'none', p: 0, minWidth: 0 }}
+                    onClick={() => void handleIniciarAlteracaoOrigemTroca()}
+                  >
+                    Alterar policial de origem
+                  </Button>
+                </Box>
 
-              <TextField
-                label="Data em que o policial de origem cumpre serviço na equipe do outro"
-                type="date"
-                size="small"
-                fullWidth
-                value={trocaDataPolicialOrigem}
-                onChange={(e) => setTrocaDataPolicialOrigem(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                inputProps={{ min: hojeIsoLocal() }}
-              />
-              <TextField
-                label="Dia em que o outro policial cumpre na equipe de origem"
-                type="date"
-                size="small"
-                fullWidth
-                value={trocaDataPolicialOutro}
-                onChange={(e) => setTrocaDataPolicialOutro(e.target.value)}
-                InputLabelProps={{ shrink: true }}
-                inputProps={{ min: hojeIsoLocal() }}
-              />
-            </Stack>
-          )}
+                <Autocomplete<Policial, false, false, false>
+                  size="small"
+                  fullWidth
+                  loading={trocaCandidatosLoading}
+                  options={trocaCandidatos}
+                  value={
+                    trocaPolicialOutroId === ''
+                      ? null
+                      : trocaCandidatos.find((p) => p.id === trocaPolicialOutroId) ?? null
+                  }
+                  onChange={(_, novo) => {
+                    setTrocaPolicialOutroId(novo?.id ?? '');
+                  }}
+                  getOptionLabel={(p) =>
+                    `${p.nome} — ${formatEquipeLabel(p.equipe)} · ${matriculaExibicaoTroca(p)}`
+                  }
+                  isOptionEqualToValue={(a, b) => a.id === b.id}
+                  filterOptions={(options, { inputValue }) => {
+                    const t = normalizarTextoBusca(inputValue.trim());
+                    if (!t) return options;
+                    return options.filter((p) => {
+                      const mat = matriculaExibicaoTroca(p);
+                      const haystack = normalizarTextoBusca(
+                        `${p.nome} ${mat} ${p.matricula ?? ''} ${p.matriculaComissionadoGdf ?? ''} ${p.equipe ?? ''}`,
+                      );
+                      return haystack.includes(t);
+                    });
+                  }}
+                  noOptionsText={
+                    trocaCandidatosLoading
+                      ? 'Carregando…'
+                      : 'Nenhum policial de outra equipe encontrado para esta busca'
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Policial da outra equipe"
+                      placeholder="Digite nome, matrícula ou equipe…"
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {trocaCandidatosLoading ? (
+                              <CircularProgress color="inherit" size={18} sx={{ mr: 1 }} />
+                            ) : null}
+                            {params.InputProps.endAdornment}
+                          </>
+                        ),
+                      }}
+                    />
+                  )}
+                />
+
+                <TextField
+                  label="Data de serviço do policial de origem (própria equipe ou substituindo o parceiro na escala)"
+                  type="date"
+                  size="small"
+                  fullWidth
+                  value={trocaDataPolicialOrigem}
+                  onChange={(e) => setTrocaDataPolicialOrigem(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+                <TextField
+                  label="Data de serviço do outro policial (própria equipe ou substituindo o parceiro na escala)"
+                  type="date"
+                  size="small"
+                  fullWidth
+                  value={trocaDataPolicialOutro}
+                  onChange={(e) => setTrocaDataPolicialOutro(e.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                />
+              </>
+            )}
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button variant="outlined" onClick={fecharModalTroca} disabled={trocaSubmitting}>
@@ -2914,6 +3277,7 @@ export function MostrarEquipeSection({
             disabled={
               trocaSubmitting ||
               trocaCandidatosLoading ||
+              trocaPolicialOrigem == null ||
               trocaPolicialOutroId === '' ||
               !trocaDataPolicialOrigem ||
               !trocaDataPolicialOutro
@@ -3432,20 +3796,47 @@ export function MostrarEquipeSection({
 
                       <Box>
                         <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                          Mês de previsão das férias
+                          Previsão de férias (por exercício)
                         </Typography>
-                        <Typography
-                          variant="body1"
-                          sx={{
-                            mt: 0.5,
-                            color: !viewingPolicial.mesPrevisaoFerias ? 'text.secondary' : 'inherit',
-                            fontStyle: !viewingPolicial.mesPrevisaoFerias ? 'italic' : 'inherit',
-                          }}
-                        >
-                          {viewingPolicial.mesPrevisaoFerias
-                            ? `${MESES_PT_BR[Math.max(0, Math.min(11, viewingPolicial.mesPrevisaoFerias - 1))]}${viewingPolicial.anoPrevisaoFerias ? `/${viewingPolicial.anoPrevisaoFerias}` : ''}`
-                            : 'Campo não preenchido'}
-                        </Typography>
+                        {viewingPolicial.previsoesFeriasPorExercicio &&
+                        viewingPolicial.previsoesFeriasPorExercicio.length > 0 ? (
+                          <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                            {viewingPolicial.previsoesFeriasPorExercicio.map((prev) => (
+                              <Box
+                                key={prev.ano}
+                                sx={{ pl: 1.25, borderLeft: '3px solid', borderColor: 'primary.main' }}
+                              >
+                                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                                  Exercício {prev.ano}
+                                </Typography>
+                                <Typography variant="body2" sx={{ mt: 0.25 }}>
+                                  {prev.semMesDefinido
+                                    ? 'Só ano (sem mês de previsão)'
+                                    : prev.mes != null
+                                      ? `${MESES_PT_BR[Math.max(0, Math.min(11, prev.mes - 1))]}${prev.ano ? `/${prev.ano}` : ''}`
+                                      : 'Campo não preenchido'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                                  {prev.confirmada ? 'Confirmadas' : 'Não confirmadas'}
+                                  {prev.reprogramada ? ' · Reprogramadas' : ''}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        ) : (
+                          <Typography
+                            variant="body1"
+                            sx={{
+                              mt: 0.5,
+                              color: !viewingPolicial.mesPrevisaoFerias ? 'text.secondary' : 'inherit',
+                              fontStyle: !viewingPolicial.mesPrevisaoFerias ? 'italic' : 'inherit',
+                            }}
+                          >
+                            {viewingPolicial.mesPrevisaoFerias
+                              ? `${MESES_PT_BR[Math.max(0, Math.min(11, viewingPolicial.mesPrevisaoFerias - 1))]}${viewingPolicial.anoPrevisaoFerias ? `/${viewingPolicial.anoPrevisaoFerias}` : ''}`
+                              : 'Campo não preenchido'}
+                          </Typography>
+                        )}
                       </Box>
 
                       <Divider />
@@ -3702,7 +4093,13 @@ export function MostrarEquipeSection({
                                 <Chip
                                   label={STATUS_LABEL[afastamento.status]}
                                   size="small"
-                                  color={afastamento.status === 'ATIVO' ? 'success' : 'default'}
+                                  color={
+                                    afastamento.status === 'ATIVO'
+                                      ? 'success'
+                                      : afastamento.status === 'DESATIVADO'
+                                        ? 'warning'
+                                        : 'default'
+                                  }
                                   sx={{ ml: 1, fontSize: '0.7rem', height: '24px' }}
                                 />
                               </Box>
@@ -3766,7 +4163,7 @@ export function MostrarEquipeSection({
 
               {/* Footer - Botões */}
             <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
-              <Box sx={{ display: 'flex', gap: 2 }}>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className="secondary"
@@ -3790,6 +4187,25 @@ export function MostrarEquipeSection({
                 >
                   Inserir restrição
                 </button>
+                {viewingPolicial && podeExibirTrocaNaLinha(viewingPolicial) && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '0.9rem',
+                      fontWeight: 500,
+                    }}
+                    onClick={() => {
+                      const p = viewingPolicial;
+                      setViewingPolicial(null);
+                      setViewingAfastamentos([]);
+                      void handleFazerTroca(p);
+                    }}
+                  >
+                    Troca de serviço
+                  </button>
+                )}
               </Box>
               <Box sx={{ display: 'flex', gap: 2 }}>
                 <button

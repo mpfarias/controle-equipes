@@ -6,11 +6,10 @@ export type TemAcessoOrionSuporteInput = {
 };
 
 /**
- * Efetivo: admin sempre; `false` no usuário bloqueia o nível; `true` garante;
+ * Efetivo: `false` no usuário bloqueia o nível; `true` garante;
  * `null`/omitido herda `nivel.acessoOrionSuporte`.
  */
 export function temAcessoOrionSuporteEfetivo(u: TemAcessoOrionSuporteInput): boolean {
-  if (u.isAdmin === true) return true;
   if (u.acessoOrionSuporte === false) return false;
   if (u.acessoOrionSuporte === true) return true;
   return u.nivel?.acessoOrionSuporte === true;

@@ -11,6 +11,7 @@ import {
   IconButton,
   Tab,
   Tabs,
+  Chip,
   Stack,
   Table,
   TableBody,
@@ -35,20 +36,6 @@ import {
   writeEscalaGeradaLoadingWindow,
   writeEscalaGeradaPrintWindow,
 } from '../../utils/escalaGeradaPrint';
-
-function hojeYmdBrasil(): string {
-  const f = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-  const parts = f.formatToParts(new Date());
-  const y = parts.find((p) => p.type === 'year')?.value;
-  const m = parts.find((p) => p.type === 'month')?.value;
-  const d = parts.find((p) => p.type === 'day')?.value;
-  return `${y}-${m}-${d}`;
-}
 
 function ymdFromApi(value: string): string {
   const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
@@ -107,8 +94,6 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
   const [excluirEscala, setExcluirEscala] = useState<EscalaGeradaResumo | null>(null);
   const [excluirSaving, setExcluirSaving] = useState(false);
   const [excluirError, setExcluirError] = useState<string | null>(null);
-
-  const hojeMin = hojeYmdBrasil();
 
   const podeVerTrocas = canView(permissoes, 'troca-servico');
   const podeGerenciarTrocas = podeGerenciarTrocaServicoElevado(permissoes, currentUser);
@@ -204,7 +189,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
   };
 
   const podeAlterarDatas = (row: TrocaServicoAtivaListaItem) =>
-    !row.restauradoA && !row.restauradoB;
+    row.status !== 'CONCLUIDA' && !row.restauradoA && !row.restauradoB;
 
   const confirmarDesativarEscala = async () => {
     if (!desativarEscala) return;
@@ -295,7 +280,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
 
                 {!loadingTrocas && itensTrocas.length === 0 && !errorTrocas && (
                   <Typography variant="body2" color="text.secondary">
-                    Nenhuma troca ativa no momento.
+                    Nenhuma troca registrada (em andamento ou concluída).
                   </Typography>
                 )}
 
@@ -385,15 +370,24 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                               {formatDate(row.dataServicoB)}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>
+                              {row.status === 'CONCLUIDA' && (
+                                <Chip
+                                  label="Concluída"
+                                  size="small"
+                                  color="success"
+                                  variant="outlined"
+                                  sx={{ mb: 0.5 }}
+                                />
+                              )}
                               <Typography variant="caption" component="span" display="block" sx={{ whiteSpace: 'nowrap' }}>
-                                {row.restauradoA ? 'A: retornou à origem' : 'A: em troca'}
+                                {row.restauradoA ? 'A: finalizado' : 'A: em troca'}
                               </Typography>
                               <Typography variant="caption" component="span" display="block" sx={{ whiteSpace: 'nowrap' }}>
-                                {row.restauradoB ? 'B: retornou à origem' : 'B: em troca'}
+                                {row.restauradoB ? 'B: finalizado' : 'B: em troca'}
                               </Typography>
                             </TableCell>
                             <TableCell align="right" sx={{ minWidth: 96, whiteSpace: 'nowrap' }}>
-                              {podeGerenciarTrocas && trocasTab === 'andamento' ? (
+                              {podeGerenciarTrocas && trocasTab === 'andamento' && row.status !== 'CONCLUIDA' ? (
                                 <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap">
                                   <Tooltip
                                     title={
@@ -565,7 +559,6 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
               onChange={(e) => setEditDataA(e.target.value)}
               InputLabelProps={{ shrink: true }}
               fullWidth
-              inputProps={{ min: hojeMin }}
             />
             <TextField
               label="Data do serviço"
@@ -574,7 +567,6 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
               onChange={(e) => setEditDataB(e.target.value)}
               InputLabelProps={{ shrink: true }}
               fullWidth
-              inputProps={{ min: hojeMin }}
             />
           </Stack>
         </DialogContent>

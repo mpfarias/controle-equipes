@@ -971,7 +971,7 @@ button:disabled {
   margin-top: 8px;
 }
 
-/* Card "Abrir chamado" (padrão Gestão do Sistema: borda, fundo, destaque laranja) */
+/* Card "Abrir chamado" (borda, fundo, destaque laranja) */
 .abrir-chamado-wrap {
   display: flex;
   flex-direction: column;

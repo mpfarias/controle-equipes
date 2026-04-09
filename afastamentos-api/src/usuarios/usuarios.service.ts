@@ -91,8 +91,12 @@ export class UsuariosService {
       const id = String(raw).trim().toUpperCase();
       // Legado: um único código antigo vira Patrimônio + Operações
       if (id === 'PATRIMONIO_OPERACOES') {
-        seen.add('PATRIMONIO');
+        seen.add('ORION_PATRIMONIO');
         seen.add('OPERACOES');
+        continue;
+      }
+      if (id === 'PATRIMONIO') {
+        seen.add('ORION_PATRIMONIO');
         continue;
       }
       if (isSistemaExternoId(id)) {
@@ -140,7 +144,6 @@ export class UsuariosService {
   /** Permite `sistemasPermitidos` vazio quando houver acesso efetivo ao Órion Suporte. */
   private async assertSistemasIntegradosOuSuporte(
     nivelId: number,
-    isAdmin: boolean,
     sistemasNorm: string[],
     acessoOrionSuporteUsuario: boolean | null,
     nivelCached?: { acessoOrionSuporte?: boolean | null } | null,
@@ -156,13 +159,13 @@ export class UsuariosService {
             select: { acessoOrionSuporte: true },
           });
     const ok = usuarioTemAcessoOrionSuporteEfetivo({
-      isAdmin,
+      isAdmin: false,
       acessoOrionSuporte: acessoOrionSuporteUsuario,
       nivel: nivelRow ?? null,
     });
     if (!ok) {
       throw new BadRequestException(
-        'Selecione ao menos um sistema integrado (SAD, Patrimônio, Operações, Órion Qualidade, Órion Jurídico) ou habilite o Órion Suporte para este perfil.',
+        'Selecione ao menos um sistema integrado (SAD, Patrimônio, Operações, Órion Qualidade, Órion Jurídico, Órion Patrimônio) ou habilite o Órion Suporte para este perfil.',
       );
     }
   }
@@ -208,11 +211,9 @@ export class UsuariosService {
       where: { id: data.nivelId },
       select: { nome: true, acessoOrionSuporte: true },
     });
-    const isAdminNivel = nivelJoin?.nome === 'ADMINISTRADOR';
     const sistemasNorm = this.normalizeSistemasPermitidos(data.sistemasPermitidos);
     await this.assertSistemasIntegradosOuSuporte(
       data.nivelId,
-      isAdminNivel,
       sistemasNorm,
       acessoOrionSuporteGravar,
       nivelJoin,
@@ -1039,7 +1040,6 @@ export class UsuariosService {
       });
       await this.assertSistemasIntegradosOuSuporte(
         nivelIdFinal,
-        nivelRow?.nome === 'ADMINISTRADOR',
         sistemasFinais,
         acessoFinal ?? null,
         nivelRow,

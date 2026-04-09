@@ -7,7 +7,12 @@ import type {
   Usuario,
   TrocaServicoAtivaListaItem,
 } from '../../types';
-import { STATUS_LABEL, POLICIAL_STATUS_OPTIONS, formatEquipeLabel } from '../../constants';
+import {
+  STATUS_LABEL,
+  POLICIAL_STATUS_OPTIONS,
+  formatEquipeLabel,
+  type PreencherCadastroAfastamentoInput,
+} from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
@@ -58,9 +63,11 @@ import WorkIcon from '@mui/icons-material/Work';
 import EditIcon from '@mui/icons-material/Edit';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import AddIcon from '@mui/icons-material/Add';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import BlockIcon from '@mui/icons-material/Block';
 import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import {
   extrairTextoPdf,
   montarPreviewImportacaoPdf,
@@ -71,6 +78,21 @@ import {
 
 /** `true` para voltar a exibir o botão &quot;Testar leitura do PDF&quot; na aba Cadastrar. */
 const EXIBIR_BOTAO_TESTE_PDF = false;
+
+/** Lista `anos` em ordem decrescente (ex.: 2026, 2025, …) — retorna o próximo mais antigo ou o próprio `referencia`. */
+function exercicioAnteriorNaLista(anos: number[], referencia: number): number {
+  const i = anos.indexOf(referencia);
+  if (i === -1) return anos[0] ?? referencia;
+  return i < anos.length - 1 ? anos[i + 1]! : referencia;
+}
+
+/** Se o exercício não estiver na lista (ex.: dado legado), usa `fallback` ou o mais recente da lista. */
+function clampAnoListaPrevisao(ano: number, lista: number[], fallback: number): number {
+  if (lista.length === 0) return ano;
+  if (lista.includes(ano)) return ano;
+  if (lista.includes(fallback)) return fallback;
+  return lista[0]!;
+}
 
 /** Mensagens da API em `assertPolicialSemAfastamentoSobreposto` (afastamentos.service.ts). */
 function isApiErroSobreposicaoPeriodoPolicial(message: string): boolean {
@@ -83,6 +105,41 @@ function isApiErroSobreposicaoPeriodoPolicial(message: string): boolean {
       'Já existe um afastamento ativo para este policial que cobre parte ou a totalidade deste período',
     )
   );
+}
+
+/** Previsão suficiente para lançar gozo: mês definido, ou exercício anterior cadastrado só com ano (sem mês na previsão). O afastamento continua exigindo data início e fim. */
+function policialTemPrevisaoFeriasParaGozo(p: Policial): boolean {
+  if (p.mesPrevisaoFerias != null && !p.previsaoFeriasSomenteAno) return true;
+  return Boolean(p.previsaoFeriasSomenteAno && p.anoPrevisaoFerias != null);
+}
+
+/** Quem e quando o afastamento foi desativado (campos novos ou fallback legado). */
+function dadosDesativacaoAfastamento(af: Afastamento): { por: string | null; em: string | null } {
+  const por = af.desativadoPorNome?.trim() || af.updatedByName?.trim() || null;
+  const emRaw = af.desativadoEm || af.updatedAt;
+  const em = emRaw ? new Date(emRaw).toLocaleString('pt-BR') : null;
+  return { por, em };
+}
+
+/** Tooltip do ícone de desativar quando o registro já está desativado (inclui auditoria). */
+function tituloTooltipAfastamentoDesativado(af: Afastamento): string {
+  const { por, em } = dadosDesativacaoAfastamento(af);
+  if (por && em) return `Afastamento desativado por ${por} em ${em}.`;
+  if (por) return `Afastamento desativado por ${por}.`;
+  if (em) return `Afastamento desativado em ${em}.`;
+  return 'Afastamento desativado.';
+}
+
+/** Texto do tooltip do ícone de desativar conforme a situação do registro. */
+function tituloIconeDesativarAfastamento(af: Afastamento): string {
+  if (af.status === 'ATIVO') return 'Desativar afastamento';
+  if (af.status === 'ENCERRADO') {
+    return 'Afastamento encerrado automaticamente ao fim do período cadastrado.';
+  }
+  if (af.status === 'DESATIVADO') {
+    return tituloTooltipAfastamentoDesativado(af);
+  }
+  return 'Desativar afastamento';
 }
 
 const formFieldSx = {
@@ -105,7 +162,7 @@ interface AfastamentosSectionProps {
   onChanged?: () => void;
   permissoes?: PermissoesPorTela | null;
   /** Preencher formulário ao montar (ex.: policial + motivo Férias vindo do alerta do dashboard). Consumida ao ser aplicada. */
-  initialCadastro?: { policialId: number; motivoNome: string } | null;
+  initialCadastro?: PreencherCadastroAfastamentoInput | null;
   onPreencherCadastroConsumed?: () => void;
 }
 
@@ -124,6 +181,8 @@ export function AfastamentosSection({
     descricao: '',
     dataInicio: '',
     dataFim: '',
+    /** Vazio = mesmo ano da data de início (gozo). Valor numérico como string = exercício da cota. */
+    anoExercicioFerias: '' as string,
   };
 
   const [afastamentos, setAfastamentos] = useState<Afastamento[]>([]);
@@ -171,6 +230,8 @@ export function AfastamentosSection({
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
+  /** Sub-abas da lista na tela "Cadastrar afastamento". */
+  const [abaListaAfastamentos, setAbaListaAfastamentos] = useState<'ativos' | 'encerrados'>('ativos');
   const [dataFimFocada, setDataFimFocada] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
@@ -186,19 +247,56 @@ export function AfastamentosSection({
   const [pdfNomeArquivo, setPdfNomeArquivo] = useState<string | null>(null);
   const [pdfLeituraFiltro, setPdfLeituraFiltro] = useState<'atestado' | 'todas'>('atestado');
 
+  /** Cadastro de gozo (afastamento “Férias”): até 6 anos, nunca antes de 2021. */
+  const ANO_EXERCICIO_FERIAS_MINIMO = 2021;
+  /**
+   * Previsão de férias: inclui exercícios antigos para quem ainda tem direito vencido e não usufruído.
+   * (O cadastro de gozo acima mantém a janela curta; aqui a lista é só para planejamento/registro de previsão.)
+   */
+  const ANO_PREVISAO_FERIAS_MINIMO = 1985;
+  /** Quantos anos para trás a partir do ano civil atual entram na lista (além do piso). */
+  const ANOS_RETROATIVOS_PREVISAO_FERIAS = 50;
+  const anoCivilAtual = new Date().getFullYear();
+  const anosExercicioFeriasOpcoes = useMemo(() => {
+    const fim = anoCivilAtual;
+    const inicio = Math.max(ANO_EXERCICIO_FERIAS_MINIMO, fim - 5);
+    const anos: number[] = [];
+    for (let y = fim; y >= inicio; y -= 1) {
+      anos.push(y);
+    }
+    return anos;
+  }, [anoCivilAtual]);
+
+  const anosPrevisaoFeriasOpcoes = useMemo(() => {
+    const fim = anoCivilAtual;
+    const inicio = Math.max(ANO_PREVISAO_FERIAS_MINIMO, fim - ANOS_RETROATIVOS_PREVISAO_FERIAS);
+    const anos: number[] = [];
+    for (let y = fim; y >= inicio; y -= 1) {
+      anos.push(y);
+    }
+    return anos;
+  }, [anoCivilAtual]);
+
   // Preencher formulário de cadastro quando vier initialCadastro (ex.: "Marcar férias agora" no modal do dashboard)
   useEffect(() => {
     if (!initialCadastro || motivos.length === 0) return;
     const motivoFerias = motivos.find((m) => m.nome?.toLowerCase() === 'férias');
     if (!motivoFerias) return;
     setTabAtiva(0);
+    const inicioLista = Math.max(ANO_EXERCICIO_FERIAS_MINIMO, anoCivilAtual - 5);
+    const anoExInformado = initialCadastro.anoExercicioFerias;
+    const anoExValidoNaLista =
+      anoExInformado != null &&
+      anoExInformado >= inicioLista &&
+      anoExInformado <= anoCivilAtual;
     setForm((prev) => ({
       ...prev,
       policialId: String(initialCadastro.policialId),
       motivoId: motivoFerias.id,
+      anoExercicioFerias: anoExValidoNaLista ? String(anoExInformado) : '',
     }));
     onPreencherCadastroConsumed?.();
-  }, [initialCadastro, motivos, onPreencherCadastroConsumed]);
+  }, [initialCadastro, motivos, onPreencherCadastroConsumed, anoCivilAtual]);
 
   // Estados para paginação na aba "Previsão de férias"
   const [paginaAtualPrevisao, setPaginaAtualPrevisao] = useState(1);
@@ -209,13 +307,42 @@ export function AfastamentosSection({
   const [loadingPrevisao, setLoadingPrevisao] = useState(false);
   const [searchTermPrevisao, setSearchTermPrevisao] = useState('');
   const [mesFiltroPrevisao, setMesFiltroPrevisao] = useState<number | ''>('');
+  /** Exercício da previsão na aba (lista, filtro por mês, 1/12 e gravação quando ainda não há registro). */
+  const [anoFiltroPrevisao, setAnoFiltroPrevisao] = useState<number>(() => new Date().getFullYear());
   const [modalPolicialOpen, setModalPolicialOpen] = useState(false);
   const [policialSelecionado, setPolicialSelecionado] = useState<Policial | null>(null);
+  const policialInfoModalIdRef = useRef<number | null>(null);
+  const [policialModalDetalheLoading, setPolicialModalDetalheLoading] = useState(false);
   const [modalMesPrevisaoOpen, setModalMesPrevisaoOpen] = useState(false);
   const [policialParaMesPrevisao, setPolicialParaMesPrevisao] = useState<Policial | null>(null);
   const [mesSelecionado, setMesSelecionado] = useState<string>('');
+  /** Exercício editado no modal de previsão (independe do filtro da aba quando o usuário escolhe outro ano). */
+  const [anoModalPrevisao, setAnoModalPrevisao] = useState<number>(() => new Date().getFullYear());
   const [salvandoMesPrevisao, setSalvandoMesPrevisao] = useState(false);
   const [documentoSei, setDocumentoSei] = useState<string>('');
+
+  /** Exercício do registro de férias refletido na linha (feriasAno / filtro da aba). */
+  const exercicioListaNaPrevisaoModal = useMemo(() => {
+    if (!policialParaMesPrevisao) return anoFiltroPrevisao;
+    return policialParaMesPrevisao.anoPrevisaoFerias ?? anoFiltroPrevisao;
+  }, [policialParaMesPrevisao, anoFiltroPrevisao]);
+
+  /**
+   * Reprogramar só se estiver editando o mesmo exercício que já está confirmado na lista.
+   * Abrir “outro período” (outro ano) não pode cair em tela de reprogramação só porque o ano atual está confirmado.
+   */
+  const emModoReprogramacaoPrevisaoModal = useMemo(
+    () =>
+      !!policialParaMesPrevisao?.feriasConfirmadas &&
+      anoModalPrevisao === exercicioListaNaPrevisaoModal,
+    [
+      policialParaMesPrevisao?.feriasConfirmadas,
+      policialParaMesPrevisao,
+      anoModalPrevisao,
+      exercicioListaNaPrevisaoModal,
+    ],
+  );
+
   // Excesso 1/12: efetivo total, limite por mês, totais por mês e meses em excesso
   const [excessoDados, setExcessoDados] = useState<{
     efetivoTotal: number;
@@ -228,6 +355,31 @@ export function AfastamentosSection({
   const [excessoMesSelecionado, setExcessoMesSelecionado] = useState<{ mes: number; nome: string } | null>(null);
   const [policiaisExcessoMes, setPoliciaisExcessoMes] = useState<Policial[]>([]);
   const [loadingPoliciaisExcesso, setLoadingPoliciaisExcesso] = useState(false);
+  /**
+   * Menor e maior `ano` em FeriasPolicial (global). Só o máximo como piso do select impedia escolher
+   * exercícios antigos e o clamp jogava o filtro de volta ao ano mais alto após salvar (ex.: 2024 → 2027).
+   */
+  const [extremosAnosPrevisaoFerias, setExtremosAnosPrevisaoFerias] = useState<{
+    min: number | null;
+    max: number | null;
+  }>({ min: null, max: null });
+  /** Uma vez: ao abrir a aba pela primeira vez, sugere o exercício mais recente com previsão. */
+  const previsaoAnoInicialJaSugeridoRef = useRef(false);
+
+  const anosSelectFiltroPrevisao = useMemo(() => {
+    const civil = anoCivilAtual;
+    const minDb = extremosAnosPrevisaoFerias.min;
+    const maxDb = extremosAnosPrevisaoFerias.max;
+    const minY = minDb != null ? Math.min(minDb, civil) : civil;
+    const maxY = Math.max(civil + 1, maxDb ?? civil);
+    const lo = Math.min(minY, maxY);
+    const hi = Math.max(minY, maxY);
+    const anos: number[] = [];
+    for (let y = hi; y >= lo; y -= 1) {
+      anos.push(y);
+    }
+    return anos;
+  }, [anoCivilAtual, extremosAnosPrevisaoFerias.min, extremosAnosPrevisaoFerias.max]);
 
   const [editAfastamentoModal, setEditAfastamentoModal] = useState<{
     open: boolean;
@@ -237,6 +389,7 @@ export function AfastamentosSection({
     descricao: string;
     dataInicio: string;
     dataFim: string;
+    anoExercicioFerias: string;
     calcularPeriodo: boolean;
     quantidadeDias: string;
     error: string | null;
@@ -249,6 +402,7 @@ export function AfastamentosSection({
     descricao: '',
     dataInicio: '',
     dataFim: '',
+    anoExercicioFerias: '',
     calcularPeriodo: false,
     quantidadeDias: '',
     error: null,
@@ -262,6 +416,13 @@ export function AfastamentosSection({
     open: false,
     afastamento: null,
   });
+
+  useEffect(() => {
+    if (!anosSelectFiltroPrevisao.length) return;
+    if (!anosSelectFiltroPrevisao.includes(anoFiltroPrevisao)) {
+      setAnoFiltroPrevisao(anosSelectFiltroPrevisao[0] ?? anoCivilAtual);
+    }
+  }, [anosSelectFiltroPrevisao, anoFiltroPrevisao, anoCivilAtual]);
 
   const handleOpenDetalhesAfastamento = (afastamento: Afastamento) => {
     setDetalhesAfastamentoModal({ open: true, afastamento });
@@ -390,11 +551,46 @@ export function AfastamentosSection({
   );
 
   useEffect(() => {
+    if (!modalPolicialOpen) {
+      policialInfoModalIdRef.current = null;
+      setPolicialModalDetalheLoading(false);
+      return;
+    }
+    const id = policialInfoModalIdRef.current;
+    if (id == null) return;
+    let cancelled = false;
+    setPolicialModalDetalheLoading(true);
+    void (async () => {
+      try {
+        const full = await api.getPolicial(id);
+        if (!cancelled) {
+          setPolicialSelecionado(full);
+          aplicarPolicialAtualizadoNoEstadoCadastro(full);
+        }
+      } catch {
+        if (!cancelled) {
+          setError('Não foi possível carregar os dados completos do policial.');
+        }
+      } finally {
+        if (!cancelled) setPolicialModalDetalheLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [modalPolicialOpen, aplicarPolicialAtualizadoNoEstadoCadastro]);
+
+  useEffect(() => {
     void carregarDados();
   }, [carregarDados]);
 
   // Carregar policiais para a aba "Previsão de férias"
-  const carregarPoliciaisPrevisao = useCallback(async (page: number, pageSize: number) => {
+  const carregarPoliciaisPrevisao = useCallback(
+    async (
+      page: number,
+      pageSize: number,
+      opts?: { feriasAnoOverride?: number },
+    ) => {
     try {
       setLoadingPrevisao(true);
       const nivelNome = currentUser.nivel?.nome;
@@ -403,12 +599,15 @@ export function AfastamentosSection({
         nivelNome === 'SAD' ||
         nivelNome === 'COMANDO' ||
         currentUser.isAdmin === true;
+
+      const anoListagem = opts?.feriasAnoOverride ?? anoFiltroPrevisao;
       
       const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
         page,
         pageSize,
         includeAfastamentos: false,
         includeRestricoes: false,
+        feriasAno: anoListagem,
       };
       const busca = searchTermPrevisao.trim();
       if (busca) {
@@ -416,7 +615,7 @@ export function AfastamentosSection({
       }
       if (mesFiltroPrevisao !== '' && mesFiltroPrevisao >= 1 && mesFiltroPrevisao <= 12) {
         params.mesPrevisaoFerias = mesFiltroPrevisao;
-        params.anoPrevisaoFerias = new Date().getFullYear();
+        params.anoPrevisaoFerias = anoListagem;
       }
       if (!usuarioPodeVerTodos && currentUser.equipe) {
         params.equipe = currentUser.equipe;
@@ -435,7 +634,9 @@ export function AfastamentosSection({
     } finally {
       setLoadingPrevisao(false);
     }
-  }, [currentUser, searchTermPrevisao, mesFiltroPrevisao]);
+  },
+  [currentUser, searchTermPrevisao, mesFiltroPrevisao, anoFiltroPrevisao],
+  );
 
   useEffect(() => {
     if (tabAtiva === 1) {
@@ -453,21 +654,22 @@ export function AfastamentosSection({
       nivelNome === 'COMANDO' ||
       currentUser.isAdmin === true;
     const equipeParam = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
-    const anoAtual = new Date().getFullYear();
+    const anoRef = anoFiltroPrevisao;
     const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
     const carregarExcesso = async () => {
       setLoadingExcesso(true);
       try {
         /** Efetivo para 1/12: exclui DESATIVADO e COMISSIONADO (comissionados não entram no limite). */
-        const baseParams = {
+        const baseParams: Parameters<typeof api.listPoliciaisPaginated>[0] = {
           page: 1,
           pageSize: 1,
           includeAfastamentos: false,
           includeRestricoes: false,
+          feriasAno: anoRef,
           excluirComissionadosParaLimiteFerias: true,
         };
-        if (equipeParam) (baseParams as { equipe?: string }).equipe = equipeParam;
+        if (equipeParam) baseParams.equipe = equipeParam;
         const resEfetivo = await api.listPoliciaisPaginated(baseParams);
         const efetivoTotal = resEfetivo.totalDisponiveis ?? resEfetivo.total ?? 0;
         const limitePorMes = Math.floor(efetivoTotal / 12);
@@ -480,8 +682,9 @@ export function AfastamentosSection({
               pageSize: 1,
               includeAfastamentos: false,
               includeRestricoes: false,
+              feriasAno: anoRef,
               mesPrevisaoFerias: mes,
-              anoPrevisaoFerias: anoAtual,
+              anoPrevisaoFerias: anoRef,
               excluirComissionadosParaLimiteFerias: true,
             };
             if (equipeParam) params.equipe = equipeParam;
@@ -500,7 +703,7 @@ export function AfastamentosSection({
       }
     };
     void carregarExcesso();
-  }, [tabAtiva, currentUser]);
+  }, [tabAtiva, currentUser, anoFiltroPrevisao]);
 
   const abrirModalExcessoMes = useCallback(
     async (mes: number, nome: string) => {
@@ -516,14 +719,14 @@ export function AfastamentosSection({
           nivelNome === 'COMANDO' ||
           currentUser.isAdmin === true;
         const equipeParam = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
-        const anoAtual = new Date().getFullYear();
         const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
           page: 1,
           pageSize: 500,
           includeAfastamentos: false,
           includeRestricoes: false,
+          feriasAno: anoFiltroPrevisao,
           mesPrevisaoFerias: mes,
-          anoPrevisaoFerias: anoAtual,
+          anoPrevisaoFerias: anoFiltroPrevisao,
           excluirComissionadosParaLimiteFerias: true,
         };
         if (equipeParam) params.equipe = equipeParam;
@@ -535,7 +738,7 @@ export function AfastamentosSection({
         setLoadingPoliciaisExcesso(false);
       }
     },
-    [currentUser]
+    [currentUser, anoFiltroPrevisao]
   );
 
   const mesesPrevisao = [
@@ -555,6 +758,45 @@ export function AfastamentosSection({
   ];
 
   useEffect(() => {
+    if (tabAtiva !== 1) return;
+    void (async () => {
+      try {
+        const { ano, anoMinimo } = await api.getUltimoAnoPrevisaoFerias();
+        setExtremosAnosPrevisaoFerias({ min: anoMinimo, max: ano });
+        if (!previsaoAnoInicialJaSugeridoRef.current && ano != null) {
+          previsaoAnoInicialJaSugeridoRef.current = true;
+          setAnoFiltroPrevisao(ano);
+        }
+      } catch {
+        /* mantém extremos anteriores / ano já escolhido */
+      }
+    })();
+  }, [tabAtiva]);
+
+  const abrirModalPrevisaoOutroPeriodo = useCallback(
+    async (policial: Policial) => {
+      setPolicialParaMesPrevisao(policial);
+      setMesSelecionado('');
+      setDocumentoSei('');
+      let refAno = anoFiltroPrevisao;
+      try {
+        const { ano } = await api.getUltimoAnoPrevisaoFerias({ policialId: policial.id });
+        if (ano != null) refAno = ano;
+      } catch {
+        /* usa filtro da aba */
+      }
+      setAnoModalPrevisao(
+        exercicioAnteriorNaLista(
+          anosPrevisaoFeriasOpcoes,
+          clampAnoListaPrevisao(refAno, anosPrevisaoFeriasOpcoes, anoFiltroPrevisao),
+        ),
+      );
+      setModalMesPrevisaoOpen(true);
+    },
+    [anoFiltroPrevisao, anosPrevisaoFeriasOpcoes],
+  );
+
+  useEffect(() => {
     if (tabAtiva === 1) {
       setPaginaAtualPrevisao(1);
     } else {
@@ -568,14 +810,24 @@ export function AfastamentosSection({
   const calcularDiasUsadosNoAno = useCallback((
     policialId: number,
     motivoId: number,
-    ano: number,
+    anoReferencia: number,
+    opts?: { porExercicioFerias?: boolean },
   ): number => {
+    const porExercicio = opts?.porExercicioFerias ?? false;
     const afastamentosDoAno = afastamentos.filter((afastamento) => {
+      if (afastamento.status === 'DESATIVADO') {
+        return false;
+      }
       if (afastamento.policialId !== policialId || afastamento.motivoId !== motivoId) {
         return false;
       }
+      if (porExercicio) {
+        const y =
+          afastamento.anoExercicioFerias ?? new Date(afastamento.dataInicio).getFullYear();
+        return y === anoReferencia;
+      }
       const dataInicio = new Date(afastamento.dataInicio);
-      return dataInicio.getFullYear() === ano;
+      return dataInicio.getFullYear() === anoReferencia;
     });
 
     let totalDias = 0;
@@ -684,6 +936,9 @@ export function AfastamentosSection({
     // Verificar todos os afastamentos ativos que se sobrepõem com o período informado
     // Excluindo o próprio policial que está sendo cadastrado
     const conflitos = afastamentos.filter((afastamento) => {
+      if (afastamento.status !== 'ATIVO') {
+        return false;
+      }
       // Excluir o próprio policial
       if (policialIdExcluir && afastamento.policialId === policialIdExcluir) {
         return false;
@@ -714,10 +969,21 @@ export function AfastamentosSection({
 
       const matches: { policialNome: string; dataServico: string }[] = [];
       for (const t of trocas) {
-        if (t.policialA.id === policialId && t.dataServicoA >= dataInicio && t.dataServicoA <= fim) {
+        if (t.status === 'CONCLUIDA') continue;
+        if (
+          t.policialA.id === policialId &&
+          !t.restauradoA &&
+          t.dataServicoA >= dataInicio &&
+          t.dataServicoA <= fim
+        ) {
           matches.push({ policialNome: t.policialA.nome, dataServico: t.dataServicoA });
         }
-        if (t.policialB.id === policialId && t.dataServicoB >= dataInicio && t.dataServicoB <= fim) {
+        if (
+          t.policialB.id === policialId &&
+          !t.restauradoB &&
+          t.dataServicoB >= dataInicio &&
+          t.dataServicoB <= fim
+        ) {
           matches.push({ policialNome: t.policialB.nome, dataServico: t.dataServicoB });
         }
       }
@@ -763,6 +1029,14 @@ export function AfastamentosSection({
           : outroTexto
         : descricaoBase;
 
+      const motivoRow = motivos.find((m) => m.id === form.motivoId);
+      const cadastroEhFerias = motivoRow?.nome === 'Férias';
+      const anoExNum =
+        cadastroEhFerias && form.anoExercicioFerias !== ''
+          ? parseInt(form.anoExercicioFerias, 10)
+          : undefined;
+      const anoExValido = anoExNum !== undefined && !Number.isNaN(anoExNum);
+
       await api.createAfastamento({
         policialId: Number(form.policialId),
         motivoId: form.motivoId,
@@ -770,6 +1044,7 @@ export function AfastamentosSection({
         descricao: descricaoFinal || undefined,
         dataInicio: form.dataInicio,
         dataFim: dataFimFinal || undefined,
+        ...(cadastroEhFerias && anoExValido ? { anoExercicioFerias: anoExNum } : {}),
       });
       setSuccess('Afastamento cadastrado com sucesso.');
       setForm(initialForm);
@@ -808,12 +1083,19 @@ export function AfastamentosSection({
         : formatDate(form.dataInicio);
 
       const seiNumero = form.seiNumero.trim();
+      const exercicioLinha =
+        motivoNomeLower === 'férias' && form.anoExercicioFerias !== ''
+          ? `Exercício (cota): ${form.anoExercicioFerias}\n`
+          : motivoNomeLower === 'férias'
+            ? `Exercício (cota): mesmo ano do início do gozo\n`
+            : '';
 
       const message =
         `Confirme os dados do afastamento:\n\n` +
         `Policial: ${policial?.nome ?? '—'}${policial?.matricula ? ` (${policial.matricula})` : ''}\n` +
         `Motivo: ${motivoNome}\n` +
         `Período: ${periodoDescricao}\n` +
+        exercicioLinha +
         `SEI nº: ${seiNumero}`;
 
       openConfirm({
@@ -888,7 +1170,8 @@ export function AfastamentosSection({
     }
     
     const afastamentosDoMesmoPolicial = afastamentos.filter(
-      (afastamento) => afastamento.policialId === policialId,
+      (afastamento) =>
+        afastamento.policialId === policialId && afastamento.status !== 'DESATIVADO',
     );
 
     // Verificar se algum afastamento do mesmo policial se sobrepõe com o período informado
@@ -906,7 +1189,7 @@ export function AfastamentosSection({
         setPeriodoMismoPolicialModal({
           open: true,
           message:
-            'Não é possível cadastrar este afastamento: já existe registro para este policial que se sobrepõe ao período informado (inclui afastamentos encerrados), independentemente do motivo.\n\n' +
+            'Não é possível cadastrar este afastamento: já existe registro para este policial que se sobrepõe ao período informado (inclui ativos e encerrados pelo fim do período; desativações manuais não bloqueiam).\n\n' +
             `Registro existente: ${formatNome(afastamentoExistente.motivo.nome)}\n` +
             `Situação: ${statusLabel}\n` +
             `Período: ${formatDate(afastamentoExistente.dataInicio)} até ${afastamentoExistente.dataFim ? formatDate(afastamentoExistente.dataFim) : 'em aberto'}\n` +
@@ -937,8 +1220,10 @@ export function AfastamentosSection({
         setError('Selecione um policial.');
         return;
       }
-      if (policialSelecionado.mesPrevisaoFerias == null) {
-        setError('Não é possível cadastrar férias para um policial que não possui mês de previsão de férias definido. É necessário cadastrar o mês de previsão de férias antes de registrar o afastamento.');
+      if (!policialTemPrevisaoFeriasParaGozo(policialSelecionado)) {
+        setError(
+          'Não é possível cadastrar férias sem previsão de férias para o exercício. Cadastre a previsão na aba Previsão de férias (para exercícios anteriores basta informar o ano; no gozo informe data de início e data de término).',
+        );
         return;
       }
     }
@@ -975,7 +1260,7 @@ export function AfastamentosSection({
           // Usar a mesma função periodosSobrepostos que já está validada e funcionando
           const haSobreposicao = periodosSobrepostos(
             form.dataInicio,
-            form.dataFim || null,
+            dataFimParaValidacao || null,
             feriasExistente.dataInicio,
             feriasExistente.dataFim || null,
           );
@@ -990,9 +1275,23 @@ export function AfastamentosSection({
         }
       }
 
-      const dataInicio = new Date(form.dataInicio);
-      const ano = dataInicio.getFullYear();
-      
+      const anoGozo = new Date(form.dataInicio).getFullYear();
+      const anoRef =
+        motivoNome === 'Férias'
+          ? form.anoExercicioFerias !== ''
+            ? parseInt(form.anoExercicioFerias, 10)
+            : anoGozo
+          : anoGozo;
+
+      if (motivoNome === 'Férias' && form.anoExercicioFerias !== '' && Number.isNaN(anoRef)) {
+        setError('Selecione um ano de exercício válido ou deixe o padrão (mesmo ano do gozo).');
+        return;
+      }
+      if (motivoNome === 'Férias' && form.anoExercicioFerias !== '' && anoRef > anoGozo) {
+        setError('O ano de exercício não pode ser posterior ao ano da data de início do gozo.');
+        return;
+      }
+
       // Calcular dias solicitados
       let diasSolicitados = 0;
       if (calcularPeriodo && quantidadeDias) {
@@ -1000,7 +1299,9 @@ export function AfastamentosSection({
       } else {
         diasSolicitados = calcularDiasEntreDatas(form.dataInicio, form.dataFim || undefined);
       }
-      const diasUsados = calcularDiasUsadosNoAno(policialId, form.motivoId, ano);
+      const diasUsados = calcularDiasUsadosNoAno(policialId, form.motivoId, anoRef, {
+        porExercicioFerias: motivoNome === 'Férias',
+      });
       const limiteDias = motivoNome === 'Férias' ? 30 : 5;
       const totalAposCadastro = diasUsados + diasSolicitados;
 
@@ -1012,11 +1313,12 @@ export function AfastamentosSection({
         return;
       }
 
-      // Validar se a soma ultrapassa o limite anual
+      // Validar se a soma ultrapassa o limite por exercício (férias) ou ano civil (abono)
       if (totalAposCadastro > limiteDias) {
         const diasRestantes = limiteDias - diasUsados;
+        const rotuloPrazo = motivoNome === 'Férias' ? `no exercício de ${anoRef}` : 'no ano';
         setError(
-          `O policial já usufruiu ${diasUsados} dias de ${motivoNome} no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de ${limiteDias} dias.`,
+          `O policial já usufruiu ${diasUsados} dias de ${motivoNome} ${rotuloPrazo}, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite de ${limiteDias} dias.`,
         );
         return;
       }
@@ -1116,6 +1418,10 @@ export function AfastamentosSection({
       descricao: afastamento.descricao ?? '',
       dataInicio: dataInicioStr,
       dataFim: dataFimStr,
+      anoExercicioFerias:
+        afastamento.motivo?.nome === 'Férias' && afastamento.anoExercicioFerias != null
+          ? String(afastamento.anoExercicioFerias)
+          : '',
       calcularPeriodo: false,
       quantidadeDias: '',
       error: null,
@@ -1132,6 +1438,7 @@ export function AfastamentosSection({
       descricao: '',
       dataInicio: '',
       dataFim: '',
+      anoExercicioFerias: '',
       calcularPeriodo: false,
       quantidadeDias: '',
       error: null,
@@ -1153,7 +1460,16 @@ export function AfastamentosSection({
 
   const handleSubmitEditAfastamento = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { afastamento, motivoId, seiNumero, descricao, dataInicio, dataFim, calcularPeriodo } = editAfastamentoModal;
+    const {
+      afastamento,
+      motivoId,
+      seiNumero,
+      descricao,
+      dataInicio,
+      dataFim,
+      calcularPeriodo,
+      anoExercicioFerias,
+    } = editAfastamentoModal;
     if (!afastamento) return;
     if (!motivoId || !seiNumero.trim()) {
       setEditAfastamentoModal((prev) => ({
@@ -1165,6 +1481,9 @@ export function AfastamentosSection({
     const dataFimToSend = calcularPeriodo && dataTerminoCalculadaEdit
       ? dataTerminoCalculadaEdit
       : (dataFim.trim() || undefined);
+    const motivoEdicao = motivos.find((m) => m.id === motivoId);
+    const editEhFerias = motivoEdicao?.nome === 'Férias';
+
     try {
       setEditAfastamentoModal((prev) => ({ ...prev, loading: true, error: null }));
       await api.updateAfastamento(afastamento.id, {
@@ -1173,6 +1492,12 @@ export function AfastamentosSection({
         descricao: descricao.trim() || undefined,
         dataInicio,
         dataFim: dataFimToSend,
+        ...(editEhFerias
+          ? {
+              anoExercicioFerias:
+                anoExercicioFerias !== '' ? parseInt(anoExercicioFerias, 10) : null,
+            }
+          : {}),
       });
       setSuccess('Afastamento atualizado com sucesso.');
       handleCloseEditAfastamentoModal();
@@ -1226,8 +1551,8 @@ export function AfastamentosSection({
   // ordenação por patente e nome
   const policiaisOrdenados = useMemo(() => {
     if (motivoEhFerias) {
-      const comPrevisao = policiais.filter((p) => p.mesPrevisaoFerias != null);
-      const semPrevisao = policiais.filter((p) => p.mesPrevisaoFerias == null);
+      const comPrevisao = policiais.filter(policialTemPrevisaoFeriasParaGozo);
+      const semPrevisao = policiais.filter((p) => !policialTemPrevisaoFeriasParaGozo(p));
       return [
         ...sortPorPatenteENome(comPrevisao),
         ...sortPorPatenteENome(semPrevisao),
@@ -1426,8 +1751,22 @@ export function AfastamentosSection({
       : filtradoPorMotivoOutro;
 
     // Ordenar por patente e nome do policial
-    return sortAfastamentosPorPatenteENome(filtradoFinal);
-  }, [afastamentos, motivoFiltro, motivoFiltroOutro, normalizedSearch, selectedMonth, dataInicioFiltro, dataFimFiltro, periodoSobrepoeMes]);
+    const ordenado = sortAfastamentosPorPatenteENome(filtradoFinal);
+    if (abaListaAfastamentos === 'ativos') {
+      return ordenado.filter((a) => a.status === 'ATIVO');
+    }
+    return ordenado.filter((a) => a.status === 'ENCERRADO' || a.status === 'DESATIVADO');
+  }, [
+    afastamentos,
+    abaListaAfastamentos,
+    motivoFiltro,
+    motivoFiltroOutro,
+    normalizedSearch,
+    selectedMonth,
+    dataInicioFiltro,
+    dataFimFiltro,
+    periodoSobrepoeMes,
+  ]);
 
   const totalPaginas = useMemo(
     () => Math.max(1, Math.ceil(afastamentosFiltrados.length / itensPorPagina)),
@@ -1450,7 +1789,7 @@ export function AfastamentosSection({
 
   useEffect(() => {
     setPaginaAtual(1);
-  }, [motivoFiltro, motivoFiltroOutro, searchTerm, selectedMonth, dataInicioFiltro, dataFimFiltro]);
+  }, [motivoFiltro, motivoFiltroOutro, searchTerm, selectedMonth, dataInicioFiltro, dataFimFiltro, abaListaAfastamentos]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -1574,13 +1913,18 @@ export function AfastamentosSection({
             </Typography>
             <Autocomplete
               options={policiaisOrdenados}
-              getOptionLabel={(option) =>
-                motivoEhFerias && option.mesPrevisaoFerias == null
-                  ? `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`
-                  : `${option.nome} - ${formatMatricula(option.matricula)}`
-              }
+              getOptionLabel={(option) => {
+                if (!motivoEhFerias) return `${option.nome} - ${formatMatricula(option.matricula)}`;
+                if (option.previsaoFeriasSomenteAno && option.anoPrevisaoFerias != null) {
+                  return `${option.nome} - ${formatMatricula(option.matricula)} (previsão: exercício ${option.anoPrevisaoFerias} — mês opcional)`;
+                }
+                if (!policialTemPrevisaoFeriasParaGozo(option)) {
+                  return `${option.nome} - ${formatMatricula(option.matricula)} (sem previsão de férias)`;
+                }
+                return `${option.nome} - ${formatMatricula(option.matricula)}`;
+              }}
               getOptionDisabled={(option) =>
-                motivoEhFerias ? option.mesPrevisaoFerias == null : false
+                motivoEhFerias ? !policialTemPrevisaoFeriasParaGozo(option) : false
               }
               value={policiaisOrdenados.find((c) => c.id.toString() === form.policialId) || null}
               onChange={(_event, newValue) => {
@@ -1638,13 +1982,16 @@ export function AfastamentosSection({
                 
                 if (motivoEhFerias && form.policialId) {
                   const policialSelecionado = policiais.find((p) => p.id.toString() === form.policialId);
-                  if (policialSelecionado && policialSelecionado.mesPrevisaoFerias == null) {
+                  if (policialSelecionado && !policialTemPrevisaoFeriasParaGozo(policialSelecionado)) {
                     setForm((prev) => ({
                       ...prev,
                       motivoId,
                       policialId: '',
+                      anoExercicioFerias: '',
                     }));
-                    setError('Para cadastrar férias, o policial deve ter mês de previsão de férias definido. Selecione um policial com previsão de férias cadastrada.');
+                    setError(
+                      'Para cadastrar férias, o policial precisa ter previsão de férias cadastrada para o exercício (na aba Previsão de férias).',
+                    );
                     return;
                   }
                 }
@@ -1652,6 +1999,7 @@ export function AfastamentosSection({
                 setForm((prev) => ({
                   ...prev,
                   motivoId,
+                  anoExercicioFerias: motivoEhFerias ? prev.anoExercicioFerias : '',
                 }));
               }}
               MenuProps={{ sx: { zIndex: 1500 } }}
@@ -1792,7 +2140,7 @@ export function AfastamentosSection({
             variant="outlined"
             size="small"
             onClick={() => {
-              setForm((prev) => ({ ...prev, dataInicio: '', dataFim: '' }));
+              setForm((prev) => ({ ...prev, dataInicio: '', dataFim: '', anoExercicioFerias: '' }));
               setQuantidadeDias('');
               setCalcularPeriodo(false);
               setDataFimFocada(false);
@@ -1806,6 +2154,43 @@ export function AfastamentosSection({
             Limpar
           </Button>
         </Box>
+        {motivoEhFerias && (
+          <FormControl fullWidth size="small" variant="outlined" sx={formFieldSx}>
+            <InputLabel id="ano-exercicio-ferias-label" shrink>
+              Exercício
+            </InputLabel>
+            <Select
+              labelId="ano-exercicio-ferias-label"
+              label="Exercício"
+              displayEmpty
+              value={form.anoExercicioFerias}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  anoExercicioFerias: e.target.value as string,
+                }))
+              }
+              notched
+              renderValue={(v) =>
+                v === '' ? 'Mesmo ano do início do gozo (padrão)' : String(v)
+              }
+            >
+              <MenuItem value="">
+                <em>Mesmo ano do início do gozo (padrão)</em>
+              </MenuItem>
+              {anosExercicioFeriasOpcoes.map((y) => (
+                <MenuItem key={y} value={String(y)}>
+                  {y}
+                </MenuItem>
+              ))}
+            </Select>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+              Opções: ano atual e os cinco anteriores (até 6 anos), nunca antes de 2021 — ao virar o ano, o mais
+              antigo some da lista. Para acúmulo, escolha o exercício com previsão cadastrada. Padrão: mesmo ano do
+              início do gozo.
+            </Typography>
+          </FormControl>
+        )}
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Checkbox
@@ -1864,6 +2249,19 @@ export function AfastamentosSection({
         <div className="section-header">
           <h3>Lista de afastamentos</h3>
         </div>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+          <Tabs
+            value={abaListaAfastamentos}
+            onChange={(_, v) => {
+              setAbaListaAfastamentos(v);
+              setPaginaAtual(1);
+            }}
+            sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 600 } }}
+          >
+            <Tab label="Ativos" value="ativos" />
+            <Tab label="Encerrados/desativados" value="encerrados" />
+          </Tabs>
+        </Box>
         <div className="list-controls">
           <input
             className="search-input"
@@ -1999,9 +2397,13 @@ export function AfastamentosSection({
           <p className="empty-state">Carregando afastamentos...</p>
         ) : afastamentosFiltrados.length === 0 ? (
           <p className="empty-state">
-            {dataInicioFiltro || dataFimFiltro || selectedMonth
-              ? 'Nenhum afastamento encontrado no período selecionado.'
-              : 'Nenhum afastamento cadastrado.'}
+            {abaListaAfastamentos === 'ativos'
+              ? dataInicioFiltro || dataFimFiltro || selectedMonth
+                ? 'Nenhum afastamento ativo encontrado no período selecionado.'
+                : 'Nenhum afastamento ativo.'
+              : dataInicioFiltro || dataFimFiltro || selectedMonth
+                ? 'Nenhum afastamento encerrado ou desativado encontrado no período selecionado.'
+                : 'Nenhum afastamento encerrado ou desativado.'}
           </p>
         ) : (
           <>
@@ -2042,15 +2444,21 @@ export function AfastamentosSection({
                   <td>{formatMatricula(afastamento.policial.matricula)}</td>
                   <td>
                     <div>{formatNome(afastamento.motivo.nome)}</div>
+                    {afastamento.motivo.nome === 'Férias' &&
+                      afastamento.anoExercicioFerias != null && (
+                        <Chip
+                          size="small"
+                          label={`Exercício ${afastamento.anoExercicioFerias}`}
+                          sx={{ mt: 0.5, height: 22, fontSize: '0.7rem' }}
+                        />
+                      )}
                   </td>
                   <td>{afastamento.seiNumero}</td>
                   <td>
                     {formatPeriodo(afastamento.dataInicio, afastamento.dataFim)}
                   </td>
                   <td style={{ verticalAlign: 'middle' }}>
-                    <span className="badge">
-                      {STATUS_LABEL[afastamento.status]}
-                    </span>
+                    <span className="badge">{STATUS_LABEL[afastamento.status]}</span>
                   </td>
                   <td className="actions" style={{ verticalAlign: 'middle' }}>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-start' }}>
@@ -2074,7 +2482,7 @@ export function AfastamentosSection({
                         </Tooltip>
                       )}
                       {canDesativar(permissoes, 'afastamentos') && (
-                        <Tooltip title={afastamento.status === 'ENCERRADO' ? 'Afastamento já está desativado' : 'Desativar afastamento'}>
+                        <Tooltip title={tituloIconeDesativarAfastamento(afastamento)}>
                           <span>
                             <IconButton
                               size="small"
@@ -2082,7 +2490,7 @@ export function AfastamentosSection({
                               onClick={() => {
                                 openConfirm({
                                   title: 'Desativar afastamento',
-                                  message: `Deseja desativar o afastamento "${formatNome(afastamento.motivo.nome)}" do policial ${afastamento.policial.nome}? O afastamento será marcado como encerrado.`,
+                                  message: `Deseja desativar o afastamento "${formatNome(afastamento.motivo.nome)}" do policial ${afastamento.policial.nome}? O afastamento será marcado como desativado.`,
                                   confirmLabel: 'Desativar',
                                   onConfirm: async () => {
                                     try {
@@ -2101,7 +2509,7 @@ export function AfastamentosSection({
                                   },
                                 });
                               }}
-                              disabled={afastamento.status === 'ENCERRADO'}
+                              disabled={afastamento.status !== 'ATIVO'}
                               sx={{
                                 border: '1px solid',
                                 borderColor: 'warning.main',
@@ -2109,7 +2517,7 @@ export function AfastamentosSection({
                                   backgroundColor: 'warning.light',
                                   color: 'white',
                                 },
-                                opacity: afastamento.status === 'ENCERRADO' ? 0.5 : 1,
+                                opacity: afastamento.status !== 'ATIVO' ? 0.5 : 1,
                               }}
                             >
                               <BlockIcon fontSize="small" />
@@ -2274,6 +2682,23 @@ export function AfastamentosSection({
                 </Typography>
               </Box>
 
+              {detalhesAfastamentoModal.afastamento.motivo.nome === 'Férias' && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    Exercício (cota)
+                  </Typography>
+                  <Typography variant="body1">
+                    {detalhesAfastamentoModal.afastamento.anoExercicioFerias != null
+                      ? detalhesAfastamentoModal.afastamento.anoExercicioFerias
+                      : `Mesmo ano do gozo (${new Date(
+                          detalhesAfastamentoModal.afastamento.dataInicio.includes('T')
+                            ? detalhesAfastamentoModal.afastamento.dataInicio.slice(0, 10)
+                            : detalhesAfastamentoModal.afastamento.dataInicio,
+                        ).getFullYear()})`}
+                  </Typography>
+                </Box>
+              )}
+
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 0.5, color: 'var(--text-secondary)', fontWeight: 600 }}>
@@ -2330,8 +2755,11 @@ export function AfastamentosSection({
       {tabAtiva === 1 && (
         <Box sx={{ p: 3 }}>
           {/* Excesso de policiais (1/12 do efetivo) */}
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
             Excesso de policiais
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Distribuição por mês e limite 1/12 do efetivo referentes ao ano {anoFiltroPrevisao}.
           </Typography>
           {loadingExcesso ? (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -2361,8 +2789,14 @@ export function AfastamentosSection({
             </Typography>
           ) : null}
 
-          <Typography variant="h6" sx={{ mb: 3 }}>
-            Previsão de férias {new Date().getFullYear()}
+          <Typography variant="h6" sx={{ mb: 0.5 }}>
+            Previsão de férias — exercício {anoFiltroPrevisao}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            O seletor de ano cobre do menor ao maior exercício com previsão cadastrada, mais o próximo ano civil para
+            planejamento. Na primeira visita, o filtro sugere o exercício mais recente; ao voltar à aba, seu ano
+            escolhido é mantido e a lista de anos é atualizada.
+            (se houver). O botão + usa o último ano cadastrado para aquele policial para sugerir o exercício anterior.
           </Typography>
 
           {/* Controles de lista */}
@@ -2382,6 +2816,25 @@ export function AfastamentosSection({
               onChange={(e) => setSearchTermPrevisao(e.target.value.toUpperCase())}
               sx={{ minWidth: 220 }}
             />
+            <TextField
+              select
+              size="small"
+              label="Ano da previsão"
+              value={String(anoFiltroPrevisao)}
+              onChange={(e) => {
+                setAnoFiltroPrevisao(Number(e.target.value));
+                setPaginaAtualPrevisao(1);
+              }}
+              SelectProps={{ native: true }}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 130 }}
+            >
+              {anosSelectFiltroPrevisao.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </TextField>
             <FormControl size="small" sx={{ minWidth: 140 }}>
               <InputLabel id="previsao-mes-label">Mês</InputLabel>
               <Select
@@ -2476,6 +2929,7 @@ export function AfastamentosSection({
                           <button
                             type="button"
                             onClick={() => {
+                              policialInfoModalIdRef.current = policial.id;
                               setPolicialSelecionado(policial);
                               setModalPolicialOpen(true);
                             }}
@@ -2495,10 +2949,63 @@ export function AfastamentosSection({
                         </div>
                       </td>
                       <td>
-                        {policial.mesPrevisaoFerias ? (
-                          <span>
-                            {new Date(2000, policial.mesPrevisaoFerias - 1).toLocaleDateString('pt-BR', { month: 'long' })}
-                          </span>
+                        {policial.previsaoFeriasSomenteAno && policial.anoPrevisaoFerias != null ? (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.5 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                              Exercício {policial.anoPrevisaoFerias}
+                            </Typography>
+                            <Chip
+                              label="Só exercício (mês opcional)"
+                              size="small"
+                              sx={{
+                                height: 22,
+                                fontSize: '0.7rem',
+                                backgroundColor: 'rgba(107, 155, 196, 0.2)',
+                                color: 'var(--text-primary)',
+                              }}
+                            />
+                          </Box>
+                        ) : policial.mesPrevisaoFerias ? (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.5 }}>
+                            <span>
+                              {new Date(2000, policial.mesPrevisaoFerias - 1).toLocaleDateString('pt-BR', {
+                                month: 'long',
+                              })}
+                              {policial.anoPrevisaoFerias != null && ` de ${policial.anoPrevisaoFerias}`}
+                            </span>
+                            {policial.feriasReprogramadas && (
+                              <>
+                                <Chip
+                                  label="Reprogramado"
+                                  size="small"
+                                  sx={{
+                                    height: 22,
+                                    fontSize: '0.7rem',
+                                    fontWeight: 600,
+                                    backgroundColor: 'var(--alert-warning-bg)',
+                                    color: 'var(--alert-warning-text)',
+                                  }}
+                                />
+                                {policial.mesPrevisaoFeriasOriginal != null && (
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    sx={{ display: 'block', lineHeight: 1.35, maxWidth: 220 }}
+                                  >
+                                    Mês original:{' '}
+                                    {new Date(2000, policial.mesPrevisaoFeriasOriginal - 1).toLocaleDateString('pt-BR', {
+                                      month: 'long',
+                                    })}
+                                    {(() => {
+                                      const a =
+                                        policial.anoPrevisaoFeriasOriginal ?? policial.anoPrevisaoFerias;
+                                      return a != null ? ` de ${a}` : '';
+                                    })()}
+                                  </Typography>
+                                )}
+                              </>
+                            )}
+                          </Box>
                         ) : (
                           <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>Não definido</span>
                         )}
@@ -2510,6 +3017,8 @@ export function AfastamentosSection({
                               ? 'Policiais desativados não podem ter previsão de férias alterada.'
                               : policial.feriasReprogramadas
                               ? 'Férias já foram reprogramadas'
+                              : policial.previsaoFeriasSomenteAno
+                                ? 'Ajustar previsão do exercício'
                               : policial.mesPrevisaoFerias
                                 ? (policial.feriasConfirmadas ? 'Reprogramar férias' : 'Alterar mês')
                                 : 'Inserir mês'
@@ -2520,6 +3029,13 @@ export function AfastamentosSection({
                                 color={policial.feriasConfirmadas ? 'warning' : 'primary'}
                                 onClick={() => {
                                   setPolicialParaMesPrevisao(policial);
+                                  setAnoModalPrevisao(
+                                    clampAnoListaPrevisao(
+                                      policial.anoPrevisaoFerias ?? anoFiltroPrevisao,
+                                      anosPrevisaoFeriasOpcoes,
+                                      anoFiltroPrevisao,
+                                    ),
+                                  );
                                   setMesSelecionado(policial.mesPrevisaoFerias ? String(policial.mesPrevisaoFerias) : '');
                                   if (policial.feriasConfirmadas) {
                                     // Se for reprogramação, limpar o campo SEI e abrir a modal
@@ -2548,7 +3064,7 @@ export function AfastamentosSection({
                               >
                                 {policial.feriasConfirmadas ? (
                                   <CalendarTodayIcon fontSize="small" />
-                                ) : policial.mesPrevisaoFerias ? (
+                                ) : policial.mesPrevisaoFerias || policial.previsaoFeriasSomenteAno ? (
                                   <EditIcon fontSize="small" />
                                 ) : (
                                   <AddCircleOutlineIcon fontSize="small" />
@@ -2556,7 +3072,27 @@ export function AfastamentosSection({
                               </IconButton>
                             </span>
                           </Tooltip>
-                          {policial.mesPrevisaoFerias && !policial.feriasConfirmadas && !desativado && (
+                          {!desativado && (
+                            <Tooltip title="Previsão em outro exercício (anos anteriores, ex.: férias vencidas não usufruídas). Não altera a previsão já confirmada deste ano.">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  color="secondary"
+                                  onClick={() => void abrirModalPrevisaoOutroPeriodo(policial)}
+                                  sx={{
+                                    border: '1px solid',
+                                    borderColor: 'secondary.main',
+                                  }}
+                                >
+                                  <AddIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          )}
+                          {policial.mesPrevisaoFerias &&
+                            !policial.previsaoFeriasSomenteAno &&
+                            !policial.feriasConfirmadas &&
+                            !desativado && (
                             <Tooltip title="Confirmar férias">
                               <IconButton
                                 size="small"
@@ -2577,6 +3113,8 @@ export function AfastamentosSection({
                                         setError(null);
                                         const atualizado = await api.updatePolicial(policial.id, {
                                           feriasConfirmadas: true,
+                                          anoPrevisaoFerias:
+                                            policial.anoPrevisaoFerias ?? anoFiltroPrevisao,
                                         });
                                         aplicarPolicialAtualizadoNoEstadoCadastro(atualizado);
                                         setSuccess('Férias confirmadas com sucesso.');
@@ -3058,7 +3596,10 @@ export function AfastamentosSection({
       {/* Modal com informações do policial */}
       <Dialog
         open={modalPolicialOpen}
-        onClose={() => setModalPolicialOpen(false)}
+        onClose={() => {
+          policialInfoModalIdRef.current = null;
+          setModalPolicialOpen(false);
+        }}
         maxWidth="sm"
         fullWidth
         PaperProps={{
@@ -3084,7 +3625,10 @@ export function AfastamentosSection({
               </Typography>
             </Box>
             <IconButton
-              onClick={() => setModalPolicialOpen(false)}
+              onClick={() => {
+                policialInfoModalIdRef.current = null;
+                setModalPolicialOpen(false);
+              }}
               size="small"
               sx={{
                 color: 'white',
@@ -3226,9 +3770,174 @@ export function AfastamentosSection({
                   </Typography>
                 </Box>
                 <Box sx={{ ml: 4.5 }}>
-                  {policialSelecionado.mesPrevisaoFerias ? (
+                  {policialModalDetalheLoading ? (
+                    <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                      Carregando previsões…
+                    </Typography>
+                  ) : policialSelecionado.previsoesFeriasPorExercicio &&
+                    policialSelecionado.previsoesFeriasPorExercicio.length > 0 ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {policialSelecionado.previsoesFeriasPorExercicio.map((prev) => (
+                        <Box
+                          key={prev.ano}
+                          sx={{
+                            pl: 1.5,
+                            borderLeft: '3px solid var(--accent-muted)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 1,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              justifyContent: 'space-between',
+                              gap: 1,
+                              flexWrap: 'wrap',
+                            }}
+                          >
+                            <Typography variant="caption" sx={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
+                              Exercício {prev.ano}
+                            </Typography>
+                            {canEdit(permissoes, 'afastamentos') && prev.ano < anoCivilAtual ? (
+                              prev.podeExcluirPrevisaoAnterior === false ? (
+                                <Tooltip title="Não é possível excluir: já existe afastamento de férias ativo para este exercício.">
+                                  <span>
+                                    <IconButton size="small" disabled aria-label="Excluir previsão indisponível">
+                                      <DeleteOutlineIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              ) : (
+                                <Tooltip title="Excluir previsão deste exercício (só períodos anteriores ao ano civil, sem gozo cadastrado)">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    aria-label={`Excluir previsão do exercício ${prev.ano}`}
+                                    onClick={() => {
+                                      const pid = policialSelecionado.id;
+                                      openConfirm({
+                                        title: 'Excluir previsão de férias',
+                                        message: `Remover a previsão do exercício de ${prev.ano}?\n\nSó é permitido para exercícios anteriores ao ano civil e quando não houver afastamento de férias ativo vinculado a essa cota.`,
+                                        confirmLabel: 'Excluir',
+                                        onConfirm: async () => {
+                                          try {
+                                            setError(null);
+                                            const atualizado = await api.deletePrevisaoFeriasExercicio(pid, prev.ano);
+                                            setPolicialSelecionado(atualizado);
+                                            aplicarPolicialAtualizadoNoEstadoCadastro(atualizado);
+                                            await carregarPoliciaisPrevisao(
+                                              paginaAtualPrevisao,
+                                              itensPorPaginaPrevisao,
+                                            );
+                                            setSuccess(`Previsão do exercício ${prev.ano} removida.`);
+                                            onChanged?.();
+                                          } catch (err) {
+                                            setError(
+                                              err instanceof Error
+                                                ? err.message
+                                                : 'Não foi possível excluir a previsão.',
+                                            );
+                                          }
+                                        },
+                                      });
+                                    }}
+                                  >
+                                    <DeleteOutlineIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )
+                            ) : null}
+                          </Box>
+                          {prev.semMesDefinido ? (
+                            <>
+                              <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.05rem' }}>
+                                Previsão só com o ano (sem mês)
+                              </Typography>
+                              <Chip
+                                label="Período de gozo no cadastro de férias"
+                                size="small"
+                                sx={{ width: 'fit-content', backgroundColor: 'rgba(107, 155, 196, 0.2)' }}
+                              />
+                            </>
+                          ) : (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                              <Box>
+                                <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.25, fontSize: '0.75rem', fontWeight: 600 }}>
+                                  {prev.reprogramada ? 'Mês atual (reprogramado)' : 'Mês previsto'}
+                                </Typography>
+                                <Typography variant="body1" sx={{ fontWeight: 500, fontSize: '1.05rem' }}>
+                                  {prev.mes != null
+                                    ? `${new Date(2000, prev.mes - 1).toLocaleDateString('pt-BR', { month: 'long' })} de ${prev.ano}`
+                                    : '—'}
+                                </Typography>
+                              </Box>
+                              {prev.reprogramada && prev.mesOriginal != null && (
+                                <Box>
+                                  <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.25, fontSize: '0.75rem', fontWeight: 600 }}>
+                                    Mês original
+                                  </Typography>
+                                  <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--alert-warning-text)', fontSize: '1.05rem' }}>
+                                    {new Date(2000, prev.mesOriginal - 1).toLocaleDateString('pt-BR', { month: 'long' })}
+                                    {prev.anoOriginal != null ? ` de ${prev.anoOriginal}` : ''}
+                                  </Typography>
+                                </Box>
+                              )}
+                            </Box>
+                          )}
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            {prev.confirmada && (
+                              <Chip
+                                label="Férias confirmadas"
+                                size="small"
+                                sx={{
+                                  fontWeight: 500,
+                                  backgroundColor: 'var(--alert-success-bg)',
+                                  color: 'var(--alert-success-text)',
+                                  width: 'fit-content',
+                                }}
+                                icon={<CheckCircleIcon sx={{ fontSize: 16, color: 'var(--alert-success-text)' }} />}
+                              />
+                            )}
+                            {prev.reprogramada && (
+                              <Chip
+                                label="Férias reprogramadas"
+                                size="small"
+                                sx={{
+                                  fontWeight: 500,
+                                  backgroundColor: 'var(--alert-warning-bg)',
+                                  color: 'var(--alert-warning-text)',
+                                  width: 'fit-content',
+                                }}
+                                icon={<CalendarTodayIcon sx={{ fontSize: 16, color: 'var(--alert-warning-text)' }} />}
+                              />
+                            )}
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : policialSelecionado.previsoesFeriasPorExercicio &&
+                    policialSelecionado.previsoesFeriasPorExercicio.length === 0 ? (
+                    <Typography variant="body1" sx={{ fontWeight: 500, color: 'var(--text-secondary)', fontStyle: 'italic', fontSize: '1.1rem' }}>
+                      Não definido
+                    </Typography>
+                  ) : policialSelecionado.previsaoFeriasSomenteAno && policialSelecionado.anoPrevisaoFerias != null ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
+                        Exercício (mês a definir)
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600, fontSize: '1.1rem' }}>
+                        {policialSelecionado.anoPrevisaoFerias}
+                      </Typography>
+                      <Chip
+                        label="Só exercício na previsão — no gozo informe início e fim"
+                        size="small"
+                        sx={{ width: 'fit-content', backgroundColor: 'rgba(107, 155, 196, 0.2)' }}
+                      />
+                    </Box>
+                  ) : policialSelecionado.mesPrevisaoFerias ? (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                      {/* Mês atual (ou original se não foi reprogramado) */}
                       <Box>
                         <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
                           {policialSelecionado.feriasReprogramadas ? 'Mês Atual (Reprogramado)' : 'Mês Previsto'}
@@ -3238,8 +3947,6 @@ export function AfastamentosSection({
                           {policialSelecionado.anoPrevisaoFerias && ` de ${policialSelecionado.anoPrevisaoFerias}`}
                         </Typography>
                       </Box>
-                      
-                      {/* Mês original (se foi reprogramado) */}
                       {policialSelecionado.feriasReprogramadas && policialSelecionado.mesPrevisaoFeriasOriginal && (
                         <Box>
                           <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 0.5, fontSize: '0.75rem', fontWeight: 600 }}>
@@ -3251,8 +3958,6 @@ export function AfastamentosSection({
                           </Typography>
                         </Box>
                       )}
-                      
-                      {/* Chips de status */}
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mt: 0.5 }}>
                         {policialSelecionado.feriasConfirmadas && (
                           <Chip
@@ -3287,6 +3992,23 @@ export function AfastamentosSection({
                       Não definido
                     </Typography>
                   )}
+                  {policialSelecionado.status !== 'DESATIVADO' && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddIcon />}
+                      onClick={() => {
+                        const p = policialSelecionado;
+                        setModalPolicialOpen(false);
+                        void abrirModalPrevisaoOutroPeriodo(p);
+                      }}
+                      sx={{ mt: 2, textTransform: 'none', alignSelf: 'flex-start' }}
+                    >
+                      {policialSelecionado.feriasConfirmadas
+                        ? 'Previsão em outro exercício (ex.: férias vencidas)'
+                        : 'Adicionar outro período (outro ano)'}
+                    </Button>
+                  )}
                 </Box>
               </Paper>
             </Box>
@@ -3294,7 +4016,10 @@ export function AfastamentosSection({
         </DialogContent>
         <DialogActions sx={{ px: 3, py: 2, borderTop: '1px solid var(--border-soft)' }}>
           <Button
-            onClick={() => setModalPolicialOpen(false)}
+            onClick={() => {
+              policialInfoModalIdRef.current = null;
+              setModalPolicialOpen(false);
+            }}
             variant="contained"
             sx={{
               textTransform: 'none',
@@ -3383,13 +4108,16 @@ export function AfastamentosSection({
                   select
                   label="Motivo *"
                   value={editAfastamentoModal.motivoId || ''}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const newId = Number(e.target.value);
+                    const nomeMot = motivos.find((m) => m.id === newId)?.nome;
                     setEditAfastamentoModal((prev) => ({
                       ...prev,
-                      motivoId: Number(e.target.value),
+                      motivoId: newId,
+                      anoExercicioFerias: nomeMot === 'Férias' ? prev.anoExercicioFerias : '',
                       error: null,
-                    }))
-                  }
+                    }));
+                  }}
                   fullWidth
                   required
                   SelectProps={{ native: true }}
@@ -3404,6 +4132,34 @@ export function AfastamentosSection({
                     </option>
                   ))}
                 </TextField>
+
+                {motivos.find((m) => m.id === editAfastamentoModal.motivoId)?.nome === 'Férias' && (
+                  <TextField
+                    select
+                    label="Exercício"
+                    value={editAfastamentoModal.anoExercicioFerias}
+                    onChange={(e) =>
+                      setEditAfastamentoModal((prev) => ({
+                        ...prev,
+                        anoExercicioFerias: e.target.value,
+                        error: null,
+                      }))
+                    }
+                    fullWidth
+                    helperText="Até 6 anos (atual até atual−5), mín. 2021. Padrão: mesmo ano do gozo. Acúmulo: previsão naquele exercício."
+                    SelectProps={{ native: true }}
+                    InputLabelProps={{ shrink: true }}
+                    disabled={editAfastamentoModal.loading}
+                    sx={{ '& .MuiSelect-select': { padding: '14px 14px' } }}
+                  >
+                    <option value="">Mesmo ano do gozo (padrão)</option>
+                    {anosExercicioFeriasOpcoes.map((y) => (
+                      <option key={y} value={String(y)}>
+                        {y}
+                      </option>
+                    ))}
+                  </TextField>
+                )}
 
                 <TextField
                   label="SEI nº *"
@@ -3561,11 +4317,16 @@ export function AfastamentosSection({
         >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6" sx={{ fontWeight: 600 }}>
-              {policialParaMesPrevisao?.feriasConfirmadas 
-                ? 'Reprogramar Férias' 
-                : policialParaMesPrevisao?.mesPrevisaoFerias 
-                  ? 'Alterar Mês Previsto de Férias' 
-                  : 'Inserir Mês Previsto de Férias'}
+              {policialParaMesPrevisao
+                ? emModoReprogramacaoPrevisaoModal
+                  ? 'Reprogramar Férias'
+                  : anoModalPrevisao < anoCivilAtual
+                    ? 'Previsão de férias (exercício anterior)'
+                    : policialParaMesPrevisao.mesPrevisaoFerias != null &&
+                        anoModalPrevisao === exercicioListaNaPrevisaoModal
+                      ? 'Alterar Mês Previsto de Férias'
+                      : 'Inserir Mês Previsto de Férias'
+                : ''}
             </Typography>
             <IconButton
               onClick={() => {
@@ -3597,59 +4358,154 @@ export function AfastamentosSection({
               </Box>
               
               <Box>
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 1 }}>
-                    Ano:{' '}
-                    <strong>
-                      {policialParaMesPrevisao?.anoPrevisaoFerias ?? new Date().getFullYear()}
-                    </strong>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)', mb: 1 }}>
+                  Exercício da previsão
+                </Typography>
+                {emModoReprogramacaoPrevisaoModal ? (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                      {policialParaMesPrevisao.anoPrevisaoFerias ?? anoFiltroPrevisao}
+                      <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1, fontWeight: 400 }}>
+                        (reprogramação só neste exercício)
+                      </Typography>
+                    </Typography>
+                    {(() => {
+                      const anos = anosPrevisaoFeriasOpcoes;
+                      const ex = policialParaMesPrevisao.anoPrevisaoFerias ?? anoFiltroPrevisao;
+                      const clamped = clampAnoListaPrevisao(ex, anos, anoFiltroPrevisao);
+                      const temExercicioAnterior = anos.some((y) => y < clamped);
+                      if (!temExercicioAnterior) return null;
+                      return (
+                        <>
+                          <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<AddIcon />}
+                            onClick={() => {
+                              const idx = anos.indexOf(clamped);
+                              const porLista =
+                                idx >= 0 && idx < anos.length - 1 ? anos[idx + 1]! : anos.find((y) => y < clamped);
+                              const novoAno = porLista ?? clamped;
+                              setAnoModalPrevisao(novoAno);
+                              setMesSelecionado('');
+                              setDocumentoSei('');
+                            }}
+                            sx={{ mt: 1.5, textTransform: 'none', alignSelf: 'flex-start' }}
+                          >
+                            Cadastrar previsão em outro exercício (férias vencidas)
+                          </Button>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, maxWidth: 420 }}>
+                            Para direitos de exercícios anteriores ainda não usufruídos, registre a previsão nesse ano antes de
+                            marcar o gozo em férias. Esta ação não substitui a reprogramação acima.
+                          </Typography>
+                        </>
+                      );
+                    })()}
+                  </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 1, mb: 2 }}>
+                    <TextField
+                      select
+                      fullWidth
+                      size="small"
+                      label="Ano do exercício *"
+                      value={String(anoModalPrevisao)}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setAnoModalPrevisao(v);
+                        if (!emModoReprogramacaoPrevisaoModal && v < anoCivilAtual) {
+                          setMesSelecionado('');
+                        }
+                      }}
+                      SelectProps={{ native: true }}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{ flex: '1 1 200px', minWidth: 160, maxWidth: 280 }}
+                    >
+                      {anosPrevisaoFeriasOpcoes.map((y) => (
+                        <option key={y} value={y}>
+                          {y}
+                        </option>
+                      ))}
+                    </TextField>
+                    <Tooltip title="Adicionar outro período: pula para o exercício anterior (mais antigo) e limpa o mês para você escolher">
+                      <span>
+                        <IconButton
+                          color="primary"
+                          onClick={() => {
+                            const anos = anosPrevisaoFeriasOpcoes;
+                            const anterior = exercicioAnteriorNaLista(anos, anoModalPrevisao);
+                            if (anterior !== anoModalPrevisao) {
+                              setAnoModalPrevisao(anterior);
+                              setMesSelecionado('');
+                            }
+                          }}
+                          disabled={(() => {
+                            const i = anosPrevisaoFeriasOpcoes.indexOf(anoModalPrevisao);
+                            return i < 0 || i >= anosPrevisaoFeriasOpcoes.length - 1;
+                          })()}
+                          sx={{ border: '1px solid', borderColor: 'primary.main', mt: 0.25 }}
+                          aria-label="Adicionar previsão em outro exercício"
+                        >
+                          <AddIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Typography variant="caption" color="text.secondary" sx={{ width: '100%', mt: -0.5 }}>
+                      Escolha o ano ou use + para o exercício imediatamente anterior (útil para férias vencidas). O filtro da aba
+                      não muda até você salvar com outro ano.
+                    </Typography>
+                  </Box>
+                )}
+                {emModoReprogramacaoPrevisaoModal || anoModalPrevisao >= anoCivilAtual ? (
+                  <Box>
+                    <TextField
+                      select
+                      label="Mês *"
+                      value={mesSelecionado || ''}
+                      onChange={(e) => setMesSelecionado(e.target.value)}
+                      fullWidth
+                      required
+                      SelectProps={{
+                        native: true,
+                      }}
+                      InputLabelProps={{
+                        shrink: true,
+                      }}
+                      sx={{
+                        '& .MuiSelect-select': {
+                          padding: '14px 14px',
+                        },
+                      }}
+                    >
+                      <option value="">Selecione o mês</option>
+                      {[
+                        { value: '1', label: 'Janeiro' },
+                        { value: '2', label: 'Fevereiro' },
+                        { value: '3', label: 'Março' },
+                        { value: '4', label: 'Abril' },
+                        { value: '5', label: 'Maio' },
+                        { value: '6', label: 'Junho' },
+                        { value: '7', label: 'Julho' },
+                        { value: '8', label: 'Agosto' },
+                        { value: '9', label: 'Setembro' },
+                        { value: '10', label: 'Outubro' },
+                        { value: '11', label: 'Novembro' },
+                        { value: '12', label: 'Dezembro' },
+                      ].map((mes) => (
+                        <option key={mes.value} value={mes.value}>
+                          {mes.label}
+                        </option>
+                      ))}
+                    </TextField>
+                  </Box>
+                ) : (
+                  <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.5 }}>
+                    Para exercícios anteriores ao ano civil não há mês de previsão: registre apenas o ano do exercício.
+                    As datas de início e fim do gozo são informadas no cadastro de afastamento (Férias).
                   </Typography>
-                </Box>
-                <Box>
-                  <TextField
-                    select
-                    label="Mês *"
-                    value={mesSelecionado || ''}
-                    onChange={(e) => setMesSelecionado(e.target.value)}
-                    fullWidth
-                    required
-                    SelectProps={{
-                      native: true,
-                    }}
-                    InputLabelProps={{
-                      shrink: true,
-                    }}
-                    sx={{
-                      '& .MuiSelect-select': {
-                        padding: '14px 14px',
-                      },
-                    }}
-                  >
-                    <option value="" disabled>
-                      Selecione o mês
-                    </option>
-                    {[
-                      { value: '1', label: 'Janeiro' },
-                      { value: '2', label: 'Fevereiro' },
-                      { value: '3', label: 'Março' },
-                      { value: '4', label: 'Abril' },
-                      { value: '5', label: 'Maio' },
-                      { value: '6', label: 'Junho' },
-                      { value: '7', label: 'Julho' },
-                      { value: '8', label: 'Agosto' },
-                      { value: '9', label: 'Setembro' },
-                      { value: '10', label: 'Outubro' },
-                      { value: '11', label: 'Novembro' },
-                      { value: '12', label: 'Dezembro' },
-                    ].map((mes) => (
-                      <option key={mes.value} value={mes.value}>
-                        {mes.label}
-                      </option>
-                    ))}
-                  </TextField>
-                </Box>
-                {/* Campo Documento SEI obrigatório apenas para reprogramação */}
-                {policialParaMesPrevisao.feriasConfirmadas && (
+                )}
+                {/* Campo Documento SEI obrigatório apenas para reprogramação do mesmo exercício confirmado */}
+                {emModoReprogramacaoPrevisaoModal && (
                   <Box sx={{ mt: 2 }}>
                     <TextField
                       label="Documento SEI *"
@@ -3688,8 +4544,7 @@ export function AfastamentosSection({
           </Button>
           <Button
             onClick={() => {
-              if (!policialParaMesPrevisao || !mesSelecionado) {
-                setError('Por favor, selecione o mês.');
+              if (!policialParaMesPrevisao) {
                 return;
               }
 
@@ -3698,26 +4553,43 @@ export function AfastamentosSection({
                 return;
               }
 
-              // Validação do campo SEI para reprogramação
-              if (policialParaMesPrevisao.feriasConfirmadas && !documentoSei.trim()) {
+              // Validação do campo SEI para reprogramação (mesmo exercício já confirmado)
+              if (emModoReprogramacaoPrevisaoModal && !documentoSei.trim()) {
                 setError('Por favor, informe o Documento SEI.');
                 return;
               }
 
-              const anoAtual = policialParaMesPrevisao.anoPrevisaoFerias ?? new Date().getFullYear();
+              const anoExercicioPrevisao = emModoReprogramacaoPrevisaoModal
+                ? (policialParaMesPrevisao.anoPrevisaoFerias ?? anoFiltroPrevisao)
+                : anoModalPrevisao;
+
+              const gravaSomenteAnoExercicioAnterior =
+                !emModoReprogramacaoPrevisaoModal && anoExercicioPrevisao < anoCivilAtual;
+
+              if (!mesSelecionado && !gravaSomenteAnoExercicioAnterior) {
+                setError('Por favor, selecione o mês.');
+                return;
+              }
+
               const meses = [
                 'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
                 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
               ];
-              const mesNome = meses[parseInt(mesSelecionado, 10) - 1];
+              const mesNome = mesSelecionado ? meses[parseInt(mesSelecionado, 10) - 1] : null;
 
-              const isReprogramacao = policialParaMesPrevisao.feriasConfirmadas;
+              const isReprogramacao = emModoReprogramacaoPrevisaoModal;
               const mensagemConfirmacao = isReprogramacao
-                ? `Deseja reprogramar as férias de ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nMês: ${mesNome} de ${anoAtual}\nDocumento SEI: ${documentoSei}`
-                : `Deseja definir o mês previsto de férias para ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nMês: ${mesNome} de ${anoAtual}`;
+                ? `Deseja reprogramar as férias de ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nMês: ${mesNome} de ${anoExercicioPrevisao}\nDocumento SEI: ${documentoSei}`
+                : gravaSomenteAnoExercicioAnterior
+                  ? `Registrar previsão do exercício ${anoExercicioPrevisao} (sem mês de previsão) para ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nO período de gozo será informado com data de início e fim no cadastro de férias.`
+                  : `Deseja definir o mês previsto de férias para ${policialParaMesPrevisao.nome} (${policialParaMesPrevisao.matricula})?\n\nMês: ${mesNome} de ${anoExercicioPrevisao}`;
 
               openConfirm({
-                title: isReprogramacao ? 'Confirmar reprogramação de férias' : 'Confirmar mês previsto de férias',
+                title: isReprogramacao
+                  ? 'Confirmar reprogramação de férias'
+                  : gravaSomenteAnoExercicioAnterior
+                    ? 'Confirmar previsão do exercício'
+                    : 'Confirmar mês previsto de férias',
                 message: mensagemConfirmacao,
                 confirmLabel: 'Confirmar',
                 onConfirm: async () => {
@@ -3725,16 +4597,48 @@ export function AfastamentosSection({
                     setSalvandoMesPrevisao(true);
                     setError(null);
 
-                    const atualizado = await api.updatePolicial(policialParaMesPrevisao.id, {
-                      mesPrevisaoFerias: parseInt(mesSelecionado, 10),
-                      anoPrevisaoFerias: anoAtual,
-                    });
+                    const atualizado = await api.updatePolicial(
+                      policialParaMesPrevisao.id,
+                      gravaSomenteAnoExercicioAnterior
+                        ? {
+                            anoPrevisaoFerias: anoExercicioPrevisao,
+                            somenteAnoPrevisaoFerias: true,
+                          }
+                        : {
+                            mesPrevisaoFerias: parseInt(mesSelecionado, 10),
+                            anoPrevisaoFerias: anoExercicioPrevisao,
+                          },
+                    );
                     aplicarPolicialAtualizadoNoEstadoCadastro(atualizado);
 
-                    setSuccess(isReprogramacao ? 'Férias reprogramadas com sucesso.' : 'Mês previsto de férias salvo com sucesso.');
+                    try {
+                      const ext = await api.getUltimoAnoPrevisaoFerias();
+                      setExtremosAnosPrevisaoFerias({ min: ext.anoMinimo, max: ext.ano });
+                    } catch {
+                      /* mantém extremos; clamp pode corrigir na próxima abertura */
+                    }
+
+                    setSuccess(
+                      isReprogramacao
+                        ? 'Férias reprogramadas com sucesso.'
+                        : gravaSomenteAnoExercicioAnterior
+                          ? 'Previsão do exercício salva. No cadastro de férias informe data de início e data de término.'
+                          : 'Mês previsto de férias salvo com sucesso.',
+                    );
                     setModalMesPrevisaoOpen(false);
                     setDocumentoSei('');
-                    await carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
+                    /** Filtro mês + API filtram a lista; sem limpar, o policial pode sumir da grade após mudar o mês. */
+                    setMesFiltroPrevisao('');
+                    const mudouAnoNaLista = anoExercicioPrevisao !== anoFiltroPrevisao;
+                    setAnoFiltroPrevisao(anoExercicioPrevisao);
+                    if (mudouAnoNaLista) {
+                      setPaginaAtualPrevisao(1);
+                    }
+                    await carregarPoliciaisPrevisao(
+                      mudouAnoNaLista ? 1 : paginaAtualPrevisao,
+                      itensPorPaginaPrevisao,
+                      mudouAnoNaLista ? { feriasAnoOverride: anoExercicioPrevisao } : undefined,
+                    );
                     onChanged?.();
                   } catch (err) {
                     setError(
@@ -3761,9 +4665,11 @@ export function AfastamentosSection({
             }}
             disabled={
               salvandoMesPrevisao ||
-              !mesSelecionado ||
               policialParaMesPrevisao?.status === 'DESATIVADO' ||
-              (policialParaMesPrevisao?.feriasConfirmadas && !documentoSei.trim())
+              (emModoReprogramacaoPrevisaoModal && !documentoSei.trim()) ||
+              (!mesSelecionado &&
+                (emModoReprogramacaoPrevisaoModal ||
+                  anoModalPrevisao >= anoCivilAtual))
             }
           >
             {salvandoMesPrevisao ? 'Salvando...' : 'Salvar'}

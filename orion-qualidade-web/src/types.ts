@@ -5,8 +5,17 @@ export interface Usuario {
   equipe?: string;
   isAdmin?: boolean;
   nivelId?: number | null;
-  nivel?: { id: number; nome: string; descricao?: string | null; ativo?: boolean };
+  nivel?: {
+    id: number;
+    nome: string;
+    descricao?: string | null;
+    ativo?: boolean;
+    acessoOrionSuporte?: boolean | null;
+  };
+  /** Override do acesso ao Órion Suporte (null = herda do nível). */
+  acessoOrionSuporte?: boolean | null;
   fotoUrl?: string | null;
+  sistemasPermitidos?: string[];
 }
 
 export interface LoginInput {
@@ -14,16 +23,25 @@ export interface LoginInput {
   senha: string;
 }
 
-export type OrionQualidadePublicInfo = {
-  sistema: string;
+/** Resposta de POST /orion-qualidade/v1/policiais/equipes-por-nome */
+export type EquipeAtendenteSadItem = {
   nome: string;
-  versao: string;
-  fase: string;
+  equipe: string | null;
+  encontrado: boolean;
+  nomeCadastro: string | null;
 };
 
-export type OrionQualidadeSessao = {
-  ok: boolean;
-  sistema: string;
-  usuario: { id: number; nome: string; matricula: string };
-  mensagem: string;
+export type QualidadeRegistroStatus = 'ABERTO' | 'EM_TRATAMENTO' | 'ENCERRADO';
+
+export type QualidadeRegistro = {
+  id: number;
+  titulo: string;
+  descricao: string | null;
+  status: QualidadeRegistroStatus;
+  criadoPorId: number;
+  criadoPorNome: string;
+  atualizadoPorId: number | null;
+  atualizadoPorNome: string | null;
+  createdAt: string;
+  updatedAt: string;
 };

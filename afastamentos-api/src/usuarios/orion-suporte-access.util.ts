@@ -6,11 +6,10 @@ export type OrionSuporteUserSlice = {
 };
 
 /**
- * Efetivo: admin sempre; `false` no usuário bloqueia o nível; `true` garante;
- * `null`/omitido herda `nivel.acessoOrionSuporte`.
+ * Efetivo: somente cadastro — `false` no usuário bloqueia o nível; `true` garante;
+ * `null`/omitido herda `nivel.acessoOrionSuporte`. Não libera por perfil administrador nem por `isAdmin`.
  */
 export function usuarioTemAcessoOrionSuporteEfetivo(u: OrionSuporteUserSlice): boolean {
-  if (u.isAdmin) return true;
   if (u.acessoOrionSuporte === false) return false;
   if (u.acessoOrionSuporte === true) return true;
   return u.nivel?.acessoOrionSuporte === true;

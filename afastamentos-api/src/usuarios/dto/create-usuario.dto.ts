@@ -75,8 +75,8 @@ export class CreateUsuarioDto {
   @ArrayMinSize(0)
   @ArrayMaxSize(32)
   @IsString({ each: true })
-  /** Aceita PATRIMONIO_OPERACOES por compatibilidade; normalizado para PATRIMONIO + OPERACOES no serviço. */
-  @IsIn([...SISTEMAS_EXTERNOS_IDS, 'PATRIMONIO_OPERACOES'], { each: true })
+  /** Aceita PATRIMONIO / PATRIMONIO_OPERACOES legados; normalizados para ORION_PATRIMONIO (+ OPERACOES) no serviço. */
+  @IsIn([...SISTEMAS_EXTERNOS_IDS, 'PATRIMONIO', 'PATRIMONIO_OPERACOES'], { each: true })
   sistemasPermitidos: string[];
 
   @IsOptional()

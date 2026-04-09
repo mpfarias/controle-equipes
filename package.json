@@ -1,7 +1,7 @@
 {
   "name": "controle-equipes",
   "version": "1.0.0",
-  "description": "Órion SAD + Órion Suporte. Dev: API :3002, SAD Vite :5173 (strict), Suporte Vite :5180 (strict). npm run start:full sobe os três.",
+  "description": "Órion SAD + Suporte + Qualidade + Patrimônio. Dev: API :3002, SAD :5173, Suporte :5180, Qualidade :5182, Patrimônio :5184. start:full já inclui a API — não rode start:api ao mesmo tempo. Se a API já estiver rodando, use start:full:without-api.",
   "private": true,
   "scripts": {
     "setup": "node setup.js",
@@ -11,8 +11,11 @@
     "start:api": "cd afastamentos-api && npm run start:dev",
     "start:web": "cd afastamentos-web && npm run dev",
     "start:orion-suporte": "cd orion-suporte-web && npm run dev",
-    "start:full": "concurrently -n api,sad,suporte -c cyan,green,magenta \"npm run start:api\" \"npm run start:web\" \"npm run start:orion-suporte\"",
-    "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install && cd ../orion-suporte-web && npm install",
+    "start:orion-qualidade": "cd orion-qualidade-web && npm run dev",
+    "start:orion-patrimonio": "cd orion-patrimonio-web && npm run dev",
+    "start:full": "concurrently -n api,sad,suporte,qualidade,patrimonio -c cyan,green,magenta,blue,yellow \"npm run start:api\" \"npm run start:web\" \"npm run start:orion-suporte\" \"npm run start:orion-qualidade\" \"npm run start:orion-patrimonio\"",
+    "start:full:without-api": "concurrently -n sad,suporte,qualidade,patrimonio -c green,magenta,blue,yellow \"npm run start:web\" \"npm run start:orion-suporte\" \"npm run start:orion-qualidade\" \"npm run start:orion-patrimonio\"",
+    "install:all": "cd afastamentos-api && npm install && cd ../afastamentos-web && npm install && cd ../orion-suporte-web && npm install && cd ../orion-qualidade-web && npm install && cd ../orion-patrimonio-web && npm install",
     "setup:db": "cd afastamentos-api && npm run db:setup"
   },
   "devDependencies": {

@@ -6,7 +6,9 @@ import { CreateEscalaInformacaoDto } from './dto/create-escala-informacao.dto';
 import { UpdateEscalaInformacaoDto } from './dto/update-escala-informacao.dto';
 import { CreateEscalaGeradaDto } from './dto/create-escala-gerada.dto';
 
-const EQUIPES_24_72 = new Set(['D', 'E', 'B', 'A', 'C']);
+/** Letras das cinco equipes no calendário 12×24 (aba Equipes — turnos dia/noite; alinhado ao `CalendarioSection`). */
+const EQUIPES_ESCALA_12X24 = new Set(['D', 'E', 'B', 'A', 'C']);
+/** Rodízio 24×72 dos motoristas (aba Motoristas do calendário). */
 const EQUIPES_MOTORISTAS = new Set(['A', 'B', 'C', 'D']);
 
 function parseSequencia(raw: string, permitido: Set<string>, label: string): string {
@@ -68,7 +70,7 @@ export class EscalasService {
     if (dto.sequenciaEquipes !== undefined) {
       upserts.push({
         chave: ESCALA_CHAVE.SEQUENCIA_EQUIPES,
-        valor: parseSequencia(dto.sequenciaEquipes, EQUIPES_24_72, 'Sequência equipes 24×72'),
+        valor: parseSequencia(dto.sequenciaEquipes, EQUIPES_ESCALA_12X24, 'Sequência das equipes (12×24)'),
       });
     }
     if (dto.sequenciaMotoristas !== undefined) {

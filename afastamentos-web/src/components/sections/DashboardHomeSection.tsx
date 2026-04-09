@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import type { Usuario, Policial, Afastamento, Equipe } from '../../types';
 import type { TabChangeOptions, TabKey } from '../../constants';
 import { 
@@ -11,10 +11,12 @@ import {
   Typography, 
   Grid, 
   CircularProgress, 
-  Dialog, 
-  DialogTitle, 
-  DialogContent, 
-  IconButton, 
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  IconButton,
   Link,
   List, 
   ListItem, 
@@ -284,6 +286,8 @@ export function DashboardHomeSection({
   
   const [anoSelecionado, setAnoSelecionado] = useState<number>(anoAtual);
   const [mesSelecionado, setMesSelecionado] = useState<number>(mesAtual);
+  /** `null` = todo o mês; 1–31 = apenas aquele dia (no mês/ano selecionados). Padrão: dia de hoje. */
+  const [diaSelecionado, setDiaSelecionado] = useState<number | null>(() => new Date().getDate());
 
   /** Sub-aba do Dashboard: 0 = Cards (padrão), 1 = Gráficos */
   const [dashboardPainelTab, setDashboardPainelTab] = useState(0);
@@ -310,9 +314,36 @@ export function DashboardHomeSection({
     return { primeiroDia, ultimoDiaStr, year: ano, month: mes - 1 }; // month - 1 porque Date usa 0-11
   };
 
-  // Função helper para obter o range de datas do mês selecionado
+  const diasNoMesSelecionado = useMemo(
+    () => new Date(anoSelecionado, mesSelecionado, 0).getDate(),
+    [anoSelecionado, mesSelecionado],
+  );
+
+  useEffect(() => {
+    setDiaSelecionado((prev) => {
+      if (prev == null) return null;
+      const max = new Date(anoSelecionado, mesSelecionado, 0).getDate();
+      if (prev > max) return max;
+      if (prev < 1) return 1;
+      return prev;
+    });
+  }, [anoSelecionado, mesSelecionado]);
+
+  // Range do período: mês inteiro ou um único dia
   const getDataRange = () => {
-    return getMesRange(anoSelecionado, mesSelecionado);
+    if (diaSelecionado == null) {
+      return getMesRange(anoSelecionado, mesSelecionado);
+    }
+    const y = anoSelecionado;
+    const m = String(mesSelecionado).padStart(2, '0');
+    const d = String(diaSelecionado).padStart(2, '0');
+    const s = `${y}-${m}-${d}`;
+    return {
+      primeiroDia: s,
+      ultimoDiaStr: s,
+      year: y,
+      month: mesSelecionado - 1,
+    };
   };
 
   // Função helper para filtrar afastamentos que estão ativos durante o período selecionado (mês ou ano)
@@ -381,10 +412,28 @@ export function DashboardHomeSection({
     ];
   }, []);
 
+  /** Texto da previsão nos alertas de férias (inclui “só exercício” quando aplicável). */
+  const textoPrevisaoFeriasParaLista = useCallback(
+    (p: Policial): string | null => {
+      if (p.previsaoFeriasSomenteAno && p.anoPrevisaoFerias != null) {
+        return `exercício ${p.anoPrevisaoFerias} (só ano na previsão)`;
+      }
+      if (p.mesPrevisaoFerias == null) return null;
+      const nomeMes =
+        mesesDisponiveis.find((m) => m.valor === p.mesPrevisaoFerias)?.nome ??
+        String(p.mesPrevisaoFerias);
+      return p.anoPrevisaoFerias != null ? `${nomeMes}/${p.anoPrevisaoFerias}` : nomeMes;
+    },
+    [mesesDisponiveis],
+  );
+
   const periodoDashboardLabel = useMemo(() => {
     const m = mesesDisponiveis.find((x) => x.valor === mesSelecionado);
-    return `${m?.nome ?? '—'} / ${anoSelecionado}`;
-  }, [mesesDisponiveis, mesSelecionado, anoSelecionado]);
+    if (diaSelecionado == null) {
+      return `${m?.nome ?? '—'} / ${anoSelecionado}`;
+    }
+    return `${String(diaSelecionado).padStart(2, '0')}/${String(mesSelecionado).padStart(2, '0')}/${anoSelecionado}`;
+  }, [mesesDisponiveis, mesSelecionado, anoSelecionado, diaSelecionado]);
 
   useEffect(() => {
     const carregarAfastamentosMes = async () => {
@@ -437,18 +486,22 @@ export function DashboardHomeSection({
         // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
         const afastamentosNoMes = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
         
-        // Debug: verificar se há afastamentos sendo filtrados incorretamente
-        const afastamentosForaDoMes = afastamentos.filter((af) => {
-          const afInicioStr = typeof af.dataInicio === 'string' ? af.dataInicio.split('T')[0] : new Date(af.dataInicio).toISOString().split('T')[0];
-          const [anoAfInicio, mesAfInicio] = afInicioStr.split('-').map(Number);
-          const mesSelecionadoNum = mesSelecionado;
-          const anoSelecionadoNum = anoSelecionado;
-          
-          // Se o afastamento começa em um mês diferente do selecionado, verificar se está sendo incluído incorretamente
-          return (mesAfInicio !== mesSelecionadoNum || anoAfInicio !== anoSelecionadoNum) && 
-                 afastamentosNoMes.some(af2 => af2.id === af.id);
-        });
-        
+        // Debug: heurística só para visão “mês inteiro” (evita ruído com filtro por dia)
+        const afastamentosForaDoMes =
+          diaSelecionado == null
+            ? afastamentos.filter((af) => {
+                const afInicioStr =
+                  typeof af.dataInicio === 'string'
+                    ? af.dataInicio.split('T')[0]
+                    : new Date(af.dataInicio).toISOString().split('T')[0];
+                const [anoAfInicio, mesAfInicio] = afInicioStr.split('-').map(Number);
+                return (
+                  (mesAfInicio !== mesSelecionado || anoAfInicio !== anoSelecionado) &&
+                  afastamentosNoMes.some((af2) => af2.id === af.id)
+                );
+              })
+            : [];
+
         if (afastamentosForaDoMes.length > 0) {
           console.warn('Afastamentos de outros meses sendo incluídos:', {
             mesSelecionado: `${mesSelecionado}/${anoSelecionado}`,
@@ -583,7 +636,16 @@ export function DashboardHomeSection({
     };
 
     void carregarAfastamentosMes();
-  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+  }, [
+    currentUser.equipe,
+    usuarioPodeVerTodos,
+    usuarioEhCpmulher,
+    funcoesCopomMulherIds,
+    refreshKeyAfastamentos,
+    anoSelecionado,
+    mesSelecionado,
+    diaSelecionado,
+  ]);
 
   // Carregar total de policiais cadastrados
   useEffect(() => {
@@ -763,7 +825,17 @@ export function DashboardHomeSection({
     };
 
     void carregarExpediente();
-  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+  }, [
+    currentUser.equipe,
+    usuarioPodeVerTodos,
+    usuarioEhCpmulher,
+    funcoesCopomMulherIds,
+    refreshKeyPoliciais,
+    refreshKeyAfastamentos,
+    anoSelecionado,
+    mesSelecionado,
+    diaSelecionado,
+  ]);
 
   // Carregar policiais Motoristas de Dia
   useEffect(() => {
@@ -851,7 +923,17 @@ export function DashboardHomeSection({
     };
 
     void carregarMotoristas();
-  }, [currentUser.equipe, usuarioPodeVerTodos, usuarioEhCpmulher, funcoesCopomMulherIds, refreshKeyPoliciais, refreshKeyAfastamentos, anoSelecionado, mesSelecionado]);
+  }, [
+    currentUser.equipe,
+    usuarioPodeVerTodos,
+    usuarioEhCpmulher,
+    funcoesCopomMulherIds,
+    refreshKeyPoliciais,
+    refreshKeyAfastamentos,
+    anoSelecionado,
+    mesSelecionado,
+    diaSelecionado,
+  ]);
 
   // Carregar policiais COPOM Mulher (ANALISTA e TELEFONISTA 190 - AUXILIAR)
   useEffect(() => {
@@ -926,7 +1008,16 @@ export function DashboardHomeSection({
     };
 
     void carregarCopomMulher();
-  }, [currentUser.equipe, usuarioPodeVerTodos, refreshKeyPoliciais, refreshKeyAfastamentos, funcoesCopomMulherIds, anoSelecionado, mesSelecionado]);
+  }, [
+    currentUser.equipe,
+    usuarioPodeVerTodos,
+    refreshKeyPoliciais,
+    refreshKeyAfastamentos,
+    funcoesCopomMulherIds,
+    anoSelecionado,
+    mesSelecionado,
+    diaSelecionado,
+  ]);
 
   // Calcular policiais disponíveis
   const totalPoliciaisDisponiveis = useMemo(() => {
@@ -1071,9 +1162,9 @@ export function DashboardHomeSection({
       },
       {
         title: 'Afastamentos do Mês',
-        description: loadingAfastamentos 
-          ? 'Carregando...' 
-          : 'Visualize e gerencie os afastamentos do mês atual',
+        description: loadingAfastamentos
+          ? 'Carregando...'
+          : `Período: ${periodoDashboardLabel}`,
         tab: 'afastamentos-mes' as TabKey,
         color: '#3b82f6',
         showCount: true,
@@ -1086,7 +1177,7 @@ export function DashboardHomeSection({
       },
       {
         title: 'Policiais Disponíveis',
-        description: 'Policiais disponíveis para trabalho no mês atual',
+        description: `Disponíveis no período: ${periodoDashboardLabel}`,
         tab: 'equipe' as TabKey,
         color: '#86C99E',
         showCount: true,
@@ -1096,7 +1187,7 @@ export function DashboardHomeSection({
       },
       {
         title: 'Férias',
-        description: 'Férias cadastradas no mês atual',
+        description: `Férias no período: ${periodoDashboardLabel}`,
         tab: 'afastamentos-mes' as TabKey,
         color: '#f59e0b',
         showCount: true,
@@ -1107,7 +1198,7 @@ export function DashboardHomeSection({
       },
       {
         title: 'Abono',
-        description: 'Abonos cadastrados no mês atual',
+        description: `Abonos no período: ${periodoDashboardLabel}`,
         tab: 'afastamentos-mes' as TabKey,
         color: '#ec4899',
         showCount: true,
@@ -1214,7 +1305,29 @@ export function DashboardHomeSection({
     }
     
     return todosCards;
-  }, [loadingAfastamentos, totalPoliciaisAfastados, totalPoliciaisCadastrados, totalPoliciaisDisponiveis, loadingPoliciais, totalFerias, totalAbono, policiaisPorEquipe, expedienteData, loadingExpediente, funcaoExpedienteId, motoristasData, loadingMotoristas, funcaoMotoristaId, copomMulherData, loadingCopomMulher, funcoesCopomMulherIds, usuarioEhCpmulher, efetivoPorStatus, efetivoPorPosto]);
+  }, [
+    loadingAfastamentos,
+    totalPoliciaisAfastados,
+    totalPoliciaisCadastrados,
+    totalPoliciaisDisponiveis,
+    loadingPoliciais,
+    totalFerias,
+    totalAbono,
+    policiaisPorEquipe,
+    expedienteData,
+    loadingExpediente,
+    funcaoExpedienteId,
+    motoristasData,
+    loadingMotoristas,
+    funcaoMotoristaId,
+    copomMulherData,
+    loadingCopomMulher,
+    funcoesCopomMulherIds,
+    usuarioEhCpmulher,
+    efetivoPorStatus,
+    efetivoPorPosto,
+    periodoDashboardLabel,
+  ]);
 
   const cardsDestaque = useMemo(() =>
     cards.filter((c) => (c as { isEfetivo?: boolean; isEfetivoPosto?: boolean }).isEfetivo || (c as { isEfetivo?: boolean; isEfetivoPosto?: boolean }).isEfetivoPosto),
@@ -1729,24 +1842,49 @@ export function DashboardHomeSection({
             </Alert>
             <Dialog open={modalVerPoliciaisOpen} onClose={() => setModalVerPoliciaisOpen(false)} maxWidth="sm" fullWidth>
               <DialogTitle>Policiais com férias programadas sem afastamento</DialogTitle>
-              <DialogContent>
-                <List dense>
+              <DialogContent dividers>
+                <DialogContentText component="div" sx={{ mb: 2 }}>
+                  Previsão no mês atual ou no próximo, sem registro de afastamento de <strong>Férias</strong> que cubra
+                  esse período. Em <strong>Marcar férias agora</strong>, o formulário abre com policial, motivo e o{' '}
+                  <strong>exercício</strong> da previsão já selecionados quando aplicável.
+                </DialogContentText>
+                <List dense disablePadding>
                   {ordenados.map((p) => {
-                    const nomeMesFerias = p.mesPrevisaoFerias != null
-                      ? (mesesDisponiveis.find((m) => m.valor === p.mesPrevisaoFerias)?.nome ?? String(p.mesPrevisaoFerias))
-                      : '—';
-                    const textoFerias = p.anoPrevisaoFerias != null
-                      ? `${nomeMesFerias}/${p.anoPrevisaoFerias}`
-                      : nomeMesFerias;
+                    const textoPrevisao = textoPrevisaoFeriasParaLista(p);
+                    const noMesAtualLista =
+                      p.anoPrevisaoFerias === anoAtual && p.mesPrevisaoFerias === mesAtualNum;
+                    const noProximoMesLista =
+                      p.anoPrevisaoFerias === anoProximo && p.mesPrevisaoFerias === proximoMesNum;
                     return (
-                    <ListItem key={p.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <ListItem
+                      key={p.id}
+                      alignItems="flex-start"
+                      sx={{
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        gap: 1,
+                        py: 1.5,
+                        borderBottom: '1px solid',
+                        borderColor: 'divider',
+                        '&:last-child': { borderBottom: 'none' },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1 }}>
+                        {noMesAtualLista && (
+                          <Chip size="small" color="warning" label={`${nomeMesAtual} (atual)`} sx={{ fontWeight: 600 }} />
+                        )}
+                        {noProximoMesLista && (
+                          <Chip size="small" variant="outlined" label={`${nomeProximoMes} (próximo)`} sx={{ fontWeight: 600 }} />
+                        )}
+                      </Box>
                       <ListItemText
                         primary={(p.nome ?? '').toUpperCase()}
+                        primaryTypographyProps={{ fontWeight: 700 }}
                         secondary={
                           <>
                             {formatMatricula(p.matricula)}
-                            {p.mesPrevisaoFerias != null && (
-                              <> — Férias programadas: {textoFerias}</>
+                            {textoPrevisao != null && (
+                              <> — Previsão: {textoPrevisao}</>
                             )}
                           </>
                         }
@@ -1756,10 +1894,27 @@ export function DashboardHomeSection({
                           component="button"
                           variant="body2"
                           onClick={() => {
-                            onTabChange('afastamentos', { subTab: 'afastamentos', preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
+                            onTabChange('afastamentos', {
+                              subTab: 'afastamentos',
+                              preencherCadastro: {
+                                policialId: p.id,
+                                motivoNome: 'Férias',
+                                ...(p.anoPrevisaoFerias != null ? { anoExercicioFerias: p.anoPrevisaoFerias } : {}),
+                              },
+                            });
                             setModalVerPoliciaisOpen(false);
                           }}
-                          sx={{ fontWeight: 600, flexShrink: 0 }}
+                          sx={{
+                            fontWeight: 600,
+                            alignSelf: 'flex-start',
+                            color: 'var(--text-primary)',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '3px',
+                            '&:hover': {
+                              color: 'var(--accent-muted)',
+                              textDecoration: 'underline',
+                            },
+                          }}
                         >
                           Marcar férias agora
                         </Link>
@@ -1769,7 +1924,16 @@ export function DashboardHomeSection({
                   })}
                 </List>
               </DialogContent>
-              <Box sx={{ px: 3, pb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+              <DialogActions
+                sx={{
+                  px: 3,
+                  py: 2,
+                  flexWrap: 'wrap',
+                  gap: 2,
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                }}
+              >
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                   <Typography variant="body2" color="text.secondary">
                     {nomeMesAtual}: {qtdMesAtual} policiais
@@ -1781,7 +1945,7 @@ export function DashboardHomeSection({
                 <Button onClick={() => setModalVerPoliciaisOpen(false)} variant="outlined">
                   Fechar
                 </Button>
-              </Box>
+              </DialogActions>
             </Dialog>
             </>
           );
@@ -1801,9 +1965,8 @@ export function DashboardHomeSection({
               const [ano, mes] = key.split('-').map(Number);
               return { ano, mes, nome: nomesMeses[mes - 1] };
             });
-          const textoMeses = mesesUnicos.length === 0
-            ? ''
-            : mesesUnicos.map((m) => m.nome).join(' e ');
+          const textoMeses =
+            mesesUnicos.length === 0 ? '' : mesesUnicos.map((m) => `${m.nome}/${m.ano}`).join(', ');
           const ordenados = [...feriasAtrasadasSemAfastamento].sort((a, b) => {
             const aVal = (a.anoPrevisaoFerias ?? 0) * 100 + (a.mesPrevisaoFerias ?? 0);
             const bVal = (b.anoPrevisaoFerias ?? 0) * 100 + (b.mesPrevisaoFerias ?? 0);
@@ -1831,26 +1994,46 @@ export function DashboardHomeSection({
                 </Link>
               )}
             </Alert>
-            <Dialog open={modalVerPoliciaisAtrasadosOpen} onClose={() => setModalVerPoliciaisAtrasadosOpen(false)} maxWidth="sm" fullWidth>
-              <DialogTitle>Policiais com férias atrasadas sem afastamento</DialogTitle>
-              <DialogContent>
-                <List dense>
+            <Dialog
+              open={modalVerPoliciaisAtrasadosOpen}
+              onClose={() => setModalVerPoliciaisAtrasadosOpen(false)}
+              maxWidth="sm"
+              fullWidth
+            >
+              <DialogTitle>Férias atrasadas — sem afastamento cadastrado</DialogTitle>
+              <DialogContent dividers>
+                <DialogContentText component="div" sx={{ mb: 2 }}>
+                  Previsão em <strong>meses já passados</strong> em relação ao mês atual, ainda sem afastamento de
+                  Férias. Use <strong>Marcar férias agora</strong> para ir ao cadastro com policial, motivo e o{' '}
+                  <strong>exercício</strong> da previsão — informe as datas reais de gozo (podem ser no
+                  ano atual).
+                </DialogContentText>
+                <List dense disablePadding>
                   {ordenados.map((p) => {
-                    const nomeMesFerias = p.mesPrevisaoFerias != null
-                      ? (mesesDisponiveis.find((m) => m.valor === p.mesPrevisaoFerias)?.nome ?? String(p.mesPrevisaoFerias))
-                      : '—';
-                    const textoFerias = p.anoPrevisaoFerias != null
-                      ? `${nomeMesFerias}/${p.anoPrevisaoFerias}`
-                      : nomeMesFerias;
+                    const textoPrevisao = textoPrevisaoFeriasParaLista(p);
                     return (
-                    <ListItem key={p.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <ListItem
+                      key={p.id}
+                      alignItems="flex-start"
+                      sx={{
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        gap: 1,
+                        py: 1.5,
+                        borderBottom: '1px solid',
+                        borderColor: 'divider',
+                        '&:last-child': { borderBottom: 'none' },
+                      }}
+                    >
+                      <Chip size="small" color="error" label="Atrasada" variant="outlined" sx={{ width: 'fit-content', fontWeight: 600 }} />
                       <ListItemText
                         primary={(p.nome ?? '').toUpperCase()}
+                        primaryTypographyProps={{ fontWeight: 700 }}
                         secondary={
                           <>
                             {formatMatricula(p.matricula)}
-                            {p.mesPrevisaoFerias != null && (
-                              <> — Férias programadas: {textoFerias}</>
+                            {textoPrevisao != null && (
+                              <> — Previsão: {textoPrevisao}</>
                             )}
                           </>
                         }
@@ -1860,10 +2043,27 @@ export function DashboardHomeSection({
                           component="button"
                           variant="body2"
                           onClick={() => {
-                            onTabChange('afastamentos', { subTab: 'afastamentos', preencherCadastro: { policialId: p.id, motivoNome: 'Férias' } });
+                            onTabChange('afastamentos', {
+                              subTab: 'afastamentos',
+                              preencherCadastro: {
+                                policialId: p.id,
+                                motivoNome: 'Férias',
+                                ...(p.anoPrevisaoFerias != null ? { anoExercicioFerias: p.anoPrevisaoFerias } : {}),
+                              },
+                            });
                             setModalVerPoliciaisAtrasadosOpen(false);
                           }}
-                          sx={{ fontWeight: 600, flexShrink: 0 }}
+                          sx={{
+                            fontWeight: 600,
+                            alignSelf: 'flex-start',
+                            color: 'var(--text-primary)',
+                            textDecoration: 'underline',
+                            textUnderlineOffset: '3px',
+                            '&:hover': {
+                              color: 'var(--accent-muted)',
+                              textDecoration: 'underline',
+                            },
+                          }}
                         >
                           Marcar férias agora
                         </Link>
@@ -1873,18 +2073,27 @@ export function DashboardHomeSection({
                   })}
                 </List>
               </DialogContent>
-              <Box sx={{ px: 3, pb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap' }}>
+              <DialogActions
+                sx={{
+                  px: 3,
+                  py: 2,
+                  flexWrap: 'wrap',
+                  gap: 2,
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                }}
+              >
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                   {qtdPorMes.map((m) => (
                     <Typography key={`${m.ano}-${m.mes}`} variant="body2" color="text.secondary">
-                      {m.nome}: {m.qtd} policiais
+                      {m.nome}/{m.ano}: {m.qtd} policiais
                     </Typography>
                   ))}
                 </Box>
                 <Button onClick={() => setModalVerPoliciaisAtrasadosOpen(false)} variant="outlined">
                   Fechar
                 </Button>
-              </Box>
+              </DialogActions>
             </Dialog>
             </>
           );
@@ -1932,6 +2141,26 @@ export function DashboardHomeSection({
               {mesesDisponiveis.map((mes) => (
                 <MenuItem key={mes.valor} value={mes.valor}>
                   {mes.nome}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 130 }} variant="outlined">
+            <InputLabel id="dia-select-label">Dia</InputLabel>
+            <Select
+              labelId="dia-select-label"
+              id="dia-select"
+              value={diaSelecionado == null ? 'todos' : String(diaSelecionado)}
+              label="Dia"
+              onChange={(e) => {
+                const v = e.target.value as string;
+                setDiaSelecionado(v === 'todos' ? null : parseInt(v, 10));
+              }}
+            >
+              <MenuItem value="todos">Todo o mês</MenuItem>
+              {Array.from({ length: diasNoMesSelecionado }, (_, i) => i + 1).map((d) => (
+                <MenuItem key={d} value={String(d)}>
+                  {d}
                 </MenuItem>
               ))}
             </Select>
@@ -3069,7 +3298,7 @@ export function DashboardHomeSection({
                     <>
                       {afastamentosPorMotivoModal.length === 0 ? (
                         <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-                          Nenhum afastamento no mês selecionado.
+                          Nenhum afastamento no período selecionado.
                         </Typography>
                       ) : (
                         <List disablePadding>
@@ -3115,11 +3344,11 @@ export function DashboardHomeSection({
                           <Box sx={{ py: 1 }}>
                             <Typography variant="body1" sx={{ mb: 2, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
                               <strong>Efetivo total:</strong> {totalPoliciaisCadastrados} policiais ·{' '}
-                              <strong>Policiais afastados no mês:</strong> {policiaisUnicosAfastados} ({porcentagemEfetivoTotal}% do efetivo total)
+                              <strong>Policiais afastados no período:</strong> {policiaisUnicosAfastados} ({porcentagemEfetivoTotal}% do efetivo total)
                             </Typography>
                             {resumoEfetivo.length === 0 ? (
                               <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-                                Nenhum afastamento no mês selecionado.
+                                Nenhum afastamento no período selecionado.
                               </Typography>
                             ) : (
                               <List disablePadding>
@@ -3156,7 +3385,7 @@ export function DashboardHomeSection({
                 <>
                   {afastamentosPorMotivoModal.length === 0 ? (
                     <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
-                      Nenhum afastamento no mês selecionado.
+                      Nenhum afastamento no período selecionado.
                     </Typography>
                   ) : (
                     <List disablePadding>

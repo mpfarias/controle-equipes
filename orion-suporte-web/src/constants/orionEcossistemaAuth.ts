@@ -14,6 +14,12 @@ const LEGACY_ACESSO_KEYS = ['orion-suporte-web:acessoId'] as const;
 
 export const ORION_SSO_HASH_PARAM = 'orion_sso';
 
+/** Monta URL do SAD (ou outro app) com JWT no hash para consumo no destino. */
+export function buildUrlComHandoffJwt(urlBase: string, token: string): string {
+  const base = urlBase.replace(/#.*$/, '');
+  return `${base}#${ORION_SSO_HASH_PARAM}=${encodeURIComponent(token)}`;
+}
+
 export function migrarELerTokenSession(): string | null {
   let v = sessionStorage.getItem(ORION_ECOSISTEMA_TOKEN_KEY);
   if (v) {

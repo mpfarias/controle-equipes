@@ -9,7 +9,6 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
-  Switch,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -292,27 +291,6 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
     }
   }, [editandoId, nomeEdicao, descricaoEdicao, cancelarEdicao, carregarNiveis]);
 
-  const alternarAcessoOrionSuporte = useCallback(
-    async (nivel: UsuarioNivelOption, habilitar: boolean) => {
-      try {
-        setError(null);
-        await api.updateUsuarioNivel(nivel.id, { acessoOrionSuporte: habilitar });
-        await carregarNiveis();
-        setSucesso(
-          habilitar
-            ? `Nível ${formatNome(nivel.nome)} pode acessar o Órion Suporte.`
-            : `Acesso ao Órion Suporte removido para ${formatNome(nivel.nome)}.`,
-        );
-      } catch (err) {
-        setSucesso(null);
-        setError(
-          err instanceof Error ? err.message : 'Não foi possível atualizar o Órion Suporte.',
-        );
-      }
-    },
-    [carregarNiveis],
-  );
-
   const criarNivel = useCallback(async () => {
     if (!nomeNovo.trim()) {
       setError('Informe o nome do nível de acesso.');
@@ -473,11 +451,6 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
               <tr>
                 <th>Nome</th>
                 <th>Descrição</th>
-                <th>
-                  <Tooltip title="Usuários com este nível podem entrar no aplicativo Órion Suporte (gestão de chamados)." arrow>
-                    <span>Órion Suporte</span>
-                  </Tooltip>
-                </th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -508,24 +481,6 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
                       ) : (
                         nivel.descricao || '—'
                       )}
-                    </td>
-                    <td>
-                      <Tooltip
-                        title={
-                          nivel.ativo === false
-                            ? 'Reative o nível para alterar.'
-                            : 'Acesso ao app Órion Suporte (URL própria, independente do SAD).'
-                        }
-                        arrow
-                      >
-                        <Switch
-                          size="small"
-                          checked={nivel.acessoOrionSuporte === true}
-                          onChange={(_, c) => void alternarAcessoOrionSuporte(nivel, c)}
-                          disabled={nivel.ativo === false}
-                          inputProps={{ 'aria-label': `Órion Suporte para ${nivel.nome}` }}
-                        />
-                      </Tooltip>
                     </td>
                     <td>
                       {emEdicao ? (

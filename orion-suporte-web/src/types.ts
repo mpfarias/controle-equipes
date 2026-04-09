@@ -17,7 +17,7 @@ export interface Usuario {
   fotoUrl?: string | null;
   /** null = herdar nível; true = garantir; false = bloquear mesmo com nível habilitado. */
   acessoOrionSuporte?: boolean | null;
-  /** IDs alinhados à API (ex.: SAD, PATRIMONIO, OPERACOES). */
+  /** IDs alinhados à API (ex.: SAD, ORION_PATRIMONIO, OPERACOES). */
   sistemasPermitidos?: string[];
 }
 

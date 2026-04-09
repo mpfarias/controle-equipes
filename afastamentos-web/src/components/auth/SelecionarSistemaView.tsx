@@ -26,6 +26,7 @@ import {
   listaDestinosPosLogin,
   SISTEMA_ID_APP_ATUAL,
   SISTEMA_ID_ORION_JURIDICO,
+  SISTEMA_ID_ORION_PATRIMONIO,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
 } from '../../constants/sistemaDestinos';
@@ -35,11 +36,11 @@ const accent = '#FF7A1A';
 
 const ICONS: Record<string, ReactNode> = {
   SAD: <Description sx={{ fontSize: 28 }} />,
-  PATRIMONIO: <Inventory2 sx={{ fontSize: 28 }} />,
   OPERACOES: <Hub sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_SUPORTE]: <SupportAgent sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_QUALIDADE]: <FactCheck sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_JURIDICO]: <Gavel sx={{ fontSize: 28 }} />,
+  [SISTEMA_ID_ORION_PATRIMONIO]: <Inventory2 sx={{ fontSize: 28 }} />,
 };
 
 interface SelecionarSistemaViewProps {
@@ -105,8 +106,6 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
               (destino.tipo === 'externo' && !destino.configurado) ||
               (destino.tipo === 'orion-handoff' && !destino.configurado);
             const ehAtual = id === SISTEMA_ID_APP_ATUAL;
-            const ehSuporte = id === SISTEMA_ID_ORION_SUPORTE;
-            const ehHandoffOrion = destino.tipo === 'orion-handoff';
 
             return (
               <Paper
@@ -151,15 +150,6 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
                     <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#e8eef4' }}>
                       {labelSistema(id)}
                     </Typography>
-                    <Typography variant="caption" sx={{ color: alpha('#e8eef4', 0.5), display: 'block', mt: 0.25 }}>
-                      {ehAtual
-                        ? 'Abrir o Órion SAD (gestão de pessoal) neste navegador.'
-                        : ehSuporte || ehHandoffOrion
-                          ? 'Abrir o módulo Órion em nova origem (sessão repassada pelo ecossistema).'
-                          : urlOk
-                            ? 'Abrir em nova página / portal do sistema.'
-                            : 'URL do sistema não configurada (defina VITE_SISTEMA_URL_* ou VITE_ORION_*_URL no ambiente).'}
-                    </Typography>
                   </Box>
                   {ehAtual ? (
                     <ArrowForward sx={{ color: accent, flexShrink: 0 }} />
@@ -177,10 +167,10 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
           return d.tipo === 'externo' && !d.configurado;
         }) && (
           <Alert severity="info" sx={{ bgcolor: alpha('#2c7be5', 0.12), color: '#b8d4f0', border: `1px solid ${alpha('#2c7be5', 0.35)}` }}>
-            Configure as variáveis <code style={{ fontSize: '0.85em' }}>VITE_SISTEMA_URL_PATRIMONIO</code>,{' '}
-            <code style={{ fontSize: '0.85em' }}>VITE_SISTEMA_URL_OPERACOES</code>,{' '}
-            <code style={{ fontSize: '0.85em' }}>VITE_ORION_QUALIDADE_URL</code> e{' '}
-            <code style={{ fontSize: '0.85em' }}>VITE_ORION_JURIDICO_URL</code> no arquivo{' '}
+            Configure as variáveis <code style={{ fontSize: '0.85em' }}>VITE_SISTEMA_URL_OPERACOES</code>,{' '}
+            <code style={{ fontSize: '0.85em' }}>VITE_ORION_QUALIDADE_URL</code>,{' '}
+            <code style={{ fontSize: '0.85em' }}>VITE_ORION_JURIDICO_URL</code> e{' '}
+            <code style={{ fontSize: '0.85em' }}>VITE_ORION_PATRIMONIO_URL</code> no arquivo{' '}
             <code style={{ fontSize: '0.85em' }}>.env</code> quando o deploy não usar o host/porta padrão de desenvolvimento.
           </Alert>
         )}

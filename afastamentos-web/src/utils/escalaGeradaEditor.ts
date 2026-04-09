@@ -57,7 +57,7 @@ function horarioPadraoNovoNoBloco(blocoId: BlocoEscalaId | 'AFASTADOS'): string 
   if (blocoId === 'SVG_20_04') return '[SVG] 20h às 04h';
   if (blocoId === 'MOTORISTAS') return '[Motoristas] Conforme escala 24×72';
   if (blocoId === 'EQUIPE_DIURNA_07' || blocoId === 'EQUIPE_NOTURNA_19_07') {
-    return '[Operacional] Conforme escala 24×72';
+    return '[Operacional] Conforme escala 12×24 das equipes';
   }
   if (blocoId === 'AFASTADOS') return '[Expediente] Afastamento';
   return '[Expediente] Conforme regras UPM';

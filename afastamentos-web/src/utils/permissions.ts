@@ -37,6 +37,23 @@ export function expandirPermissoesLegadoEscalas(
 }
 
 /**
+ * A gestão de níveis usa `escalas-gerar` e `escalas-consultar`; a aba principal no menu é `escalas`.
+ * Propaga qualquer ação liberada nas sub-telas para a chave legada usada pelo menu e pelo roteamento.
+ */
+export function propagarPermissoesEscalasSubtelasParaAbaPrincipal(
+  base: Record<TabKey, Record<PermissaoAcao, boolean>>,
+): void {
+  const alvo = base['escalas'];
+  if (!alvo) return;
+  const gran: TabKey[] = ['escalas-gerar', 'escalas-consultar'];
+  for (const acao of TODAS_ACOES) {
+    if (gran.some((k) => base[k]?.[acao])) {
+      alvo[acao] = true;
+    }
+  }
+}
+
+/**
  * Verifica se o usuário tem uma permissão específica para uma tela
  */
 export function hasPermission(

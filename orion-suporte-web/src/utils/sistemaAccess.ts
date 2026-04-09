@@ -18,3 +18,11 @@ export function usuarioPodeAcessarOrionSAD(usuario: Usuario | null): boolean {
   if (usuario.isAdmin === true) return true;
   return sistemasPermitidosDoUsuario(usuario).includes(SISTEMA_ID_SAD);
 }
+
+/** Alinhado ao cadastro no SAD: só com `ORION_QUALIDADE` em sistemas permitidos. */
+export function usuarioPodeAcessarOrionQualidade(usuario: Usuario | null): boolean {
+  if (!usuario) return false;
+  return (usuario.sistemasPermitidos ?? []).some(
+    (s) => String(s).trim().toUpperCase() === 'ORION_QUALIDADE',
+  );
+}

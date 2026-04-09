@@ -1,4 +1,4 @@
-export type AfastamentoStatus = 'ATIVO' | 'ENCERRADO';
+export type AfastamentoStatus = 'ATIVO' | 'ENCERRADO' | 'DESATIVADO';
 
 export type PolicialStatus =
   | 'ATIVO'
@@ -46,7 +46,7 @@ export interface Usuario {
    * true = garantir; false = bloquear mesmo que o nível conceda.
    */
   acessoOrionSuporte?: boolean | null;
-  /** Sistemas integrados (IDs: SAD, PATRIMONIO, OPERACOES — exibição: Órion SAD, Órion Patrimônio, Órion Operações). */
+  /** Sistemas integrados (IDs: SAD, ORION_PATRIMONIO, OPERACOES, etc.). */
   sistemasPermitidos?: string[];
   createdById?: number | null;
   createdByName?: string | null;
@@ -128,6 +128,19 @@ export interface RestricaoMedica {
   updatedAt: string;
 }
 
+/** Uma linha de previsão por exercício (ano da cota). */
+export interface PrevisaoFeriasPorExercicioItem {
+  ano: number;
+  semMesDefinido: boolean;
+  mes: number | null;
+  confirmada: boolean;
+  reprogramada: boolean;
+  mesOriginal: number | null;
+  anoOriginal: number | null;
+  /** Em `GET /policiais/:id`: se o exercício é anterior ao civil e pode remover a previsão (sem férias ativas na cota). */
+  podeExcluirPrevisaoAnterior?: boolean;
+}
+
 export interface RestricaoMedicaHistorico {
   id: number;
   policialId: number;
@@ -166,6 +179,10 @@ export interface Policial {
   anoPrevisaoFeriasOriginal?: number | null;
   feriasConfirmadas?: boolean;
   feriasReprogramadas?: boolean;
+  /** Exercício anterior: previsão só com ano; mês ainda não definido. */
+  previsaoFeriasSomenteAno?: boolean;
+  /** Presente em `GET /policiais/:id`: todos os exercícios com previsão cadastrada. */
+  previsoesFeriasPorExercicio?: PrevisaoFeriasPorExercicioItem[];
   createdAt: string;
   updatedAt: string;
   dataDesativacaoAPartirDe?: string | null;
@@ -197,9 +214,19 @@ export interface Afastamento {
   motivo: { id: number; nome: string; descricao?: string | null };
   seiNumero: string;
   descricao?: string | null;
+  /** Ano da cota (exercício) quando o gozo é em outro ano; omitido/nulo = ano da data de início. */
+  anoExercicioFerias?: number | null;
   dataInicio: string;
   dataFim?: string | null;
   status: AfastamentoStatus;
+  /** Quem desativou o afastamento (manual ou “Sistema” no encerramento automático). */
+  desativadoPorId?: number | null;
+  desativadoPorNome?: string | null;
+  desativadoEm?: string | null;
+  createdById?: number | null;
+  createdByName?: string | null;
+  updatedById?: number | null;
+  updatedByName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -211,6 +238,8 @@ export interface CreateAfastamentoInput {
   descricao?: string;
   dataInicio: string;
   dataFim?: string;
+  /** Só para motivo Férias: ano da cota (ex.: 2024 com gozo em 2026). */
+  anoExercicioFerias?: number | null;
 }
 
 export interface MotivoAfastamentoOption {
@@ -307,9 +336,11 @@ export interface TrocaServico {
   updatedAt: string;
 }
 
-/** Item de GET /troca-servico/ativas (troca ainda ativa, com policiais atuais). */
+/** Item de GET /troca-servico/ativas (trocas ATIVA e CONCLUIDA para consulta na UI). */
 export interface TrocaServicoAtivaListaItem {
   id: number;
+  /** Ausente em respostas antigas do servidor; trate como ATIVA. */
+  status?: 'ATIVA' | 'CONCLUIDA';
   dataServicoA: string;
   dataServicoB: string;
   restauradoA: boolean;

@@ -13,6 +13,8 @@ const theme = createTheme({
     primary: { main: '#38bdf8' },
     secondary: { main: '#a78bfa' },
     background: { default: '#0c1222', paper: '#111827' },
+    success: { main: '#34d399' },
+    info: { main: '#7dd3fc' },
   },
   typography: {
     fontFamily: '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif',

@@ -70,7 +70,7 @@ export async function ensureInitialUser() {
         status: UsuarioStatus.ATIVO,
         isAdmin: true,
         nivelId: nivelAdmin.id,
-        sistemasPermitidos: ['SAD'],
+        sistemasPermitidos: ['SAD', 'ORION_QUALIDADE', 'ORION_PATRIMONIO'],
       },
     });
 

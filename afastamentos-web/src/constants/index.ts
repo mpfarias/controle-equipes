@@ -20,8 +20,16 @@ export type EfetivoSubTabKey = 'equipe' | 'policiais';
 /** Aba geral "Sistema" - agrupa as telas relacionadas. */
 export type SistemaSubTabKey = 'usuarios' | 'gestao-sistema' | 'relatorios';
 
+/** Payload ao abrir «Gerenciar afastamentos» já com policial/motivo (ex.: dashboard). */
+export type PreencherCadastroAfastamentoInput = {
+  policialId: number;
+  motivoNome: string;
+  /** Ano da cota de férias (exercício), alinhado à previsão no dashboard. */
+  anoExercicioFerias?: number;
+};
+
 export type TabChangeOptions = {
-  preencherCadastro?: { policialId: number; motivoNome: string };
+  preencherCadastro?: PreencherCadastroAfastamentoInput;
   /** Sub-tab a abrir ao navegar para a aba Afastamentos. */
   subTab?: AfastamentosSubTabKey;
 };
@@ -48,6 +56,11 @@ export type TabKey =
   | 'relatorios-servico'
   | 'restricao-afastamento'
   | 'gestao-sistema'
+  /**
+   * Chave legada / interna (não aparece em «Níveis de acesso»).
+   * Acesso ao app Órion Qualidade vem só de `sistemasPermitidos` no cadastro do usuário.
+   */
+  | 'orion-qualidade'
   /** Suporte: abrir chamado técnico (visível a todos os perfis). */
   | 'reportar-erro';
 
@@ -98,6 +111,7 @@ export const PERMISSION_TABS: { key: TabKey; label: string }[] = [
 export const STATUS_LABEL: Record<AfastamentoStatus, string> = {
   ATIVO: 'Ativo',
   ENCERRADO: 'Encerrado',
+  DESATIVADO: 'Desativado',
 };
 
 export const POLICIAL_STATUS_OPTIONS: { value: PolicialStatus; label: string }[] = [

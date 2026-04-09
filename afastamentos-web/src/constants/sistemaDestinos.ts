@@ -3,6 +3,7 @@ import { temAcessoOrionSuporteEfetivo } from '../utils/orionSuporteEfetivo';
 import { SISTEMAS_EXTERNOS_OPTIONS } from './sistemasExternos';
 import { getUrlOrionQualidade } from './orionQualidade';
 import { getUrlOrionJuridico } from './orionJuridico';
+import { getUrlOrionPatrimonio } from './orionPatrimonio';
 
 /** Este front (Órion / SAD) — permanece na SPA ao escolher. */
 export const SISTEMA_ID_APP_ATUAL = 'SAD' as const;
@@ -13,9 +14,9 @@ export const SISTEMA_ID_ORION_SUPORTE = 'ORION_SUPORTE' as const;
 /** Vêm de `sistemasPermitidos`; abrem em outra origem com handoff JWT (como o Suporte). */
 export const SISTEMA_ID_ORION_QUALIDADE = 'ORION_QUALIDADE' as const;
 export const SISTEMA_ID_ORION_JURIDICO = 'ORION_JURIDICO' as const;
+export const SISTEMA_ID_ORION_PATRIMONIO = 'ORION_PATRIMONIO' as const;
 
 const ENV_URL_KEYS: Record<string, keyof ImportMetaEnv> = {
-  PATRIMONIO: 'VITE_SISTEMA_URL_PATRIMONIO',
   OPERACOES: 'VITE_SISTEMA_URL_OPERACOES',
 };
 
@@ -38,6 +39,10 @@ export function getSistemaDestino(sistemaId: string): DestinoSistema {
   }
   if (sistemaId === SISTEMA_ID_ORION_JURIDICO) {
     const url = getUrlOrionJuridico();
+    return { tipo: 'orion-handoff', url, configurado: Boolean(url) };
+  }
+  if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
+    const url = getUrlOrionPatrimonio();
     return { tipo: 'orion-handoff', url, configurado: Boolean(url) };
   }
   const envKey = ENV_URL_KEYS[sistemaId];
@@ -67,6 +72,9 @@ export function labelSistema(sistemaId: string): string {
   if (sistemaId === SISTEMA_ID_ORION_JURIDICO) {
     return 'Órion Jurídico';
   }
+  if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
+    return 'Órion Patrimônio';
+  }
   return SISTEMAS_EXTERNOS_OPTIONS.find((o) => o.id === sistemaId)?.label ?? sistemaId;
 }
 
@@ -76,12 +84,22 @@ export function listaSistemasIntegradosExplicitos(usuario: Usuario | null): stri
   if (!Array.isArray(raw) || raw.length === 0) {
     return [];
   }
-  return [...new Set(raw.map((x) => String(x).trim().toUpperCase()))].filter(Boolean);
+  const seen = new Set<string>();
+  for (const x of raw) {
+    const id = String(x).trim().toUpperCase();
+    if (!id) continue;
+    if (id === 'PATRIMONIO') {
+      seen.add(SISTEMA_ID_ORION_PATRIMONIO);
+    } else {
+      seen.add(id);
+    }
+  }
+  return [...seen];
 }
 
 /**
- * Destinos possíveis após login (SAD, integrações cadastradas e Órion Suporte, se houver acesso).
- * Usado para decidir entre um único sistema (entrar direto) e a tela de escolha.
+ * Destinos após login: somente o que está em `sistemasPermitidos` no cadastro,
+ * mais Órion Suporte quando o cadastro/nível conceder (`temAcessoOrionSuporteEfetivo`).
  */
 export function listaDestinosPosLogin(usuario: Usuario): string[] {
   const explicit = listaSistemasIntegradosExplicitos(usuario);
@@ -107,7 +125,9 @@ export type ResultadoFluxoSistemas =
       redirecionarExterno?: string;
       /** Redirecionar ao Órion Suporte repassando o JWT no hash (SSO entre origens). */
       redirecionarOrionSuporteComHandoff?: boolean;
-      /** Qualidade, Jurídico e demais SPAs Órion com o mesmo padrão de handoff. */
+      /** Redirecionar ao Órion Qualidade com o mesmo padrão de handoff do Suporte. */
+      redirecionarOrionQualidadeComHandoff?: boolean;
+      /** Jurídico e demais SPAs Órion com handoff via URL explícita. */
       redirecionarOrionHandoffUrl?: string;
     }
   | { acao: 'escolher-sistema' };
@@ -150,6 +170,12 @@ function resultadoFluxoUmDestino(id: string): ResultadoFluxoSistemas {
   writeSistemaSessao(id);
   if (id === SISTEMA_ID_ORION_SUPORTE) {
     return { acao: 'app', redirecionarOrionSuporteComHandoff: true };
+  }
+  if (id === SISTEMA_ID_ORION_QUALIDADE) {
+    const d = getSistemaDestino(id);
+    if (d.tipo === 'orion-handoff' && d.configurado) {
+      return { acao: 'app', redirecionarOrionQualidadeComHandoff: true };
+    }
   }
   if (id !== SISTEMA_ID_APP_ATUAL) {
     const d = getSistemaDestino(id);

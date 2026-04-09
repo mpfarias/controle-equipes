@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -37,5 +38,12 @@ export class CreateAfastamentoDto {
   @IsOptional()
   @IsDateString()
   dataFim?: string;
+
+  /** Ano da cota (exercício) para férias gozadas em data de outro ano. Opcional; só válido com motivo Férias. */
+  @IsOptional()
+  @IsInt()
+  @Min(1990)
+  @Max(2100)
+  anoExercicioFerias?: number | null;
 }
 

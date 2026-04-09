@@ -1,20 +1,18 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { EscalasService } from '../escalas/escalas.service';
 import { CreateTrocaServicoDto } from './dto/create-troca-servico.dto';
 import { UpdateTrocaServicoDto } from './dto/update-troca-servico.dto';
+import { validarPolicialDeServicoNoDiaEmContextoTroca } from './troca-servico-escala.helper';
 
 @Injectable()
 export class TrocaServicoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly escalas: EscalasService,
   ) {}
 
   /** Data local (America/Sao_Paulo) no formato YYYY-MM-DD. */
@@ -45,6 +43,27 @@ export class TrocaServicoService {
     const mo = Number(m[2]);
     const day = Number(m[3]);
     return new Date(Date.UTC(y, mo - 1, day, 12, 0, 0, 0));
+  }
+
+  /**
+   * Se o policial já está em troca ATIVA (lado ainda não restaurado), devolve a equipe de origem gravada
+   * na troca mais antiga — para novas trocas não confundirem equipe temporária no cadastro com a permanente.
+   */
+  private async equipeOrigemRealSeEmTrocaAtiva(policialId: number): Promise<string | null> {
+    const t = await this.prisma.trocaServico.findFirst({
+      where: {
+        status: 'ATIVA',
+        OR: [
+          { policialAId: policialId, restauradoA: false },
+          { policialBId: policialId, restauradoB: false },
+        ],
+      },
+      orderBy: { id: 'asc' },
+    });
+    if (!t) return null;
+    if (t.policialAId === policialId && !t.restauradoA) return t.equipeOrigemA ?? null;
+    if (t.policialBId === policialId && !t.restauradoB) return t.equipeOrigemB ?? null;
+    return null;
   }
 
   /** Equipe operacional (não SEM_EQUIPE), motorista de dia, DESIGNADO, PTTC ou COMISSIONADO. */
@@ -161,38 +180,50 @@ export class TrocaServicoService {
       );
     }
 
-    const eqA = a.equipe ?? null;
-    const eqB = b.equipe ?? null;
-    if (eqA === eqB) {
+    const curA = a.equipe ?? null;
+    const curB = b.equipe ?? null;
+    if (curA === curB) {
       throw new BadRequestException(
-        'Não é permitido trocar com policial da mesma equipe (inclui ambos sem equipe).',
+        'Troca de serviço é sempre com policial de outra equipe. Não é permitido trocar com quem é da mesma equipe (inclui ambos sem equipe ou ambos SEM_EQUIPE).',
       );
     }
 
-    const conflito = await this.prisma.trocaServico.findFirst({
-      where: {
-        status: 'ATIVA',
-        OR: [
-          { policialAId: { in: [a.id, b.id] } },
-          { policialBId: { in: [a.id, b.id] } },
-        ],
-      },
-    });
-    if (conflito) {
-      throw new ConflictException(
-        'Um dos policiais já possui troca de serviço ativa. Conclua ou aguarde o retorno à equipe de origem.',
-      );
-    }
+    const [origA, origB] = await Promise.all([
+      this.equipeOrigemRealSeEmTrocaAtiva(a.id),
+      this.equipeOrigemRealSeEmTrocaAtiva(b.id),
+    ]);
+    const equipeOrigemGravarA = origA ?? curA;
+    const equipeOrigemGravarB = origB ?? curB;
 
-    const hoje = this.hojeYmdBrasil();
     const dsOrigem = dto.dataServicoPolicialOrigem.slice(0, 10);
     const dsOutro = dto.dataServicoPolicialOutro.slice(0, 10);
-    if (dsOrigem < hoje || dsOutro < hoje) {
-      throw new BadRequestException('As datas de serviço não podem ser anteriores a hoje.');
-    }
 
     const dataServicoA = this.parseDateOnly(dsOrigem);
     const dataServicoB = this.parseDateOnly(dsOutro);
+
+    const parametros = await this.escalas.getParametros();
+    const vA = validarPolicialDeServicoNoDiaEmContextoTroca(
+      { equipe: a.equipe, funcao: a.funcao, status: a.status },
+      dsOrigem,
+      parametros,
+      curB,
+    );
+    if (!vA.ok) {
+      throw new BadRequestException(
+        `Data de serviço do policial de origem: ${vA.motivo}`,
+      );
+    }
+    const vB = validarPolicialDeServicoNoDiaEmContextoTroca(
+      { equipe: b.equipe, funcao: b.funcao, status: b.status },
+      dsOutro,
+      parametros,
+      curA,
+    );
+    if (!vB.ok) {
+      throw new BadRequestException(
+        `Data de serviço do outro policial: ${vB.motivo}`,
+      );
+    }
 
     const actor = await this.audit.resolveActor(actorUserId);
 
@@ -204,8 +235,8 @@ export class TrocaServicoService {
         data: {
           policialAId: a.id,
           policialBId: b.id,
-          equipeOrigemA: eqA,
-          equipeOrigemB: eqB,
+          equipeOrigemA: equipeOrigemGravarA,
+          equipeOrigemB: equipeOrigemGravarB,
           dataServicoA,
           dataServicoB,
           createdById: actor?.id ?? null,
@@ -215,11 +246,11 @@ export class TrocaServicoService {
 
       await tx.policial.update({
         where: { id: a.id },
-        data: { equipe: eqB },
+        data: { equipe: curB },
       });
       await tx.policial.update({
         where: { id: b.id },
-        data: { equipe: eqA },
+        data: { equipe: curA },
       });
 
       return created;
@@ -255,10 +286,14 @@ export class TrocaServicoService {
     return troca;
   }
 
+  /**
+   * Trocas em andamento e concluídas (ex.: cadastro retroativo), para consulta na tela “Ver trocas”.
+   * Não inclui canceladas.
+   */
   async listarAtivas() {
     await this.processarRevertesPendentes();
     const rows = await this.prisma.trocaServico.findMany({
-      where: { status: 'ATIVA' },
+      where: { status: { in: ['ATIVA', 'CONCLUIDA'] } },
       orderBy: { id: 'desc' },
       include: {
         policialA: { select: { id: true, nome: true, matricula: true, equipe: true } },
@@ -267,6 +302,7 @@ export class TrocaServicoService {
     });
     return rows.map((t) => ({
       id: t.id,
+      status: t.status,
       dataServicoA: this.dateToYmd(t.dataServicoA),
       dataServicoB: this.dateToYmd(t.dataServicoB),
       restauradoA: t.restauradoA,
@@ -294,15 +330,56 @@ export class TrocaServicoService {
       );
     }
 
-    const hoje = this.hojeYmdBrasil();
     const dsA = dto.dataServicoA.slice(0, 10);
     const dsB = dto.dataServicoB.slice(0, 10);
-    if (dsA < hoje || dsB < hoje) {
-      throw new BadRequestException('As datas de serviço não podem ser anteriores a hoje.');
-    }
 
     const dataServicoA = this.parseDateOnly(dsA);
     const dataServicoB = this.parseDateOnly(dsB);
+
+    const [polA, polB] = await Promise.all([
+      this.prisma.policial.findUnique({
+        where: { id: troca.policialAId },
+        include: { status: true, funcao: true },
+      }),
+      this.prisma.policial.findUnique({
+        where: { id: troca.policialBId },
+        include: { status: true, funcao: true },
+      }),
+    ]);
+    if (!polA || !polB) {
+      throw new NotFoundException('Policial vinculado à troca não encontrado.');
+    }
+
+    const parametrosUpd = await this.escalas.getParametros();
+    const equipeOrigemA = troca.equipeOrigemA ?? polA.equipe;
+    const equipeOrigemB = troca.equipeOrigemB ?? polB.equipe;
+    const vUpdA = validarPolicialDeServicoNoDiaEmContextoTroca(
+      {
+        equipe: equipeOrigemA,
+        funcao: polA.funcao,
+        status: polA.status,
+      },
+      dsA,
+      parametrosUpd,
+      equipeOrigemB,
+    );
+    if (!vUpdA.ok) {
+      throw new BadRequestException(`Data de serviço do policial A: ${vUpdA.motivo}`);
+    }
+    const vUpdB = validarPolicialDeServicoNoDiaEmContextoTroca(
+      {
+        equipe: equipeOrigemB,
+        funcao: polB.funcao,
+        status: polB.status,
+      },
+      dsB,
+      parametrosUpd,
+      equipeOrigemA,
+    );
+    if (!vUpdB.ok) {
+      throw new BadRequestException(`Data de serviço do policial B: ${vUpdB.motivo}`);
+    }
+
     const actor = await this.audit.resolveActor(actorUserId);
 
     await this.prisma.trocaServico.update({

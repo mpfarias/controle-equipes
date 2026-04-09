@@ -257,7 +257,7 @@ function nomeFuncao(p: Policial): string | null {
 }
 
 /**
- * Função motorista (catálogo ou nome contendo "MOTORISTA"): não entra no operacional 24×72; use o tipo “Motoristas”.
+ * Função motorista (catálogo ou nome contendo "MOTORISTA"): não entra na escala 12×24 das equipes; use o tipo “Motoristas” (24×72).
  */
 function ehFuncaoMotorista(p: Policial, funcaoMotoristaId: number | null): boolean {
   if (funcaoMotoristaId != null && p.funcaoId === funcaoMotoristaId) return true;
@@ -267,7 +267,7 @@ function ehFuncaoMotorista(p: Policial, funcaoMotoristaId: number | null): boole
 
 /**
  * Monta o payload da escala (disponíveis × afastados) conforme tipo de serviço e data,
- * alinhado ao calendário 24×72 / motoristas / expediente.
+ * alinhado ao calendário (12×24 equipes / 24×72 motoristas) e expediente.
  */
 export type OperacionalTurnosOpcao = { diurno: boolean; noturno: boolean };
 
@@ -313,7 +313,7 @@ export function montarPayloadGerarEscalas(
       return {
         dataEscala: dataIso,
         tipoServico: tipo,
-        resumoEquipes: 'Data anterior a 01/01/2026 ou fora do cálculo da escala 24×72.',
+        resumoEquipes: 'Data anterior a 01/01/2026 ou fora do cálculo da escala 12×24 das equipes.',
         linhas: [],
       };
     }
@@ -329,7 +329,7 @@ export function montarPayloadGerarEscalas(
         `Noturno: equipe ${eq.equipeNoite}, ${ESCALA_NOITE_INICIO} do dia até ${ESCALA_NOITE_FIM} do dia seguinte`,
       );
     }
-    let resumo = `Operacional 24×72 — ${partesResumo.join(' · ')}`;
+    let resumo = `Operacional 12×24 — ${partesResumo.join(' · ')}`;
     if (turnos.diurno && turnos.noturno) {
       resumo += `. Período contínuo: das ${ESCALA_DIA_INICIO} da data da escala até as ${ESCALA_NOITE_FIM} do dia seguinte.`;
     }

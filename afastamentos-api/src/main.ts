@@ -44,14 +44,26 @@ async function bootstrap() {
   const allowedOrigins = [
     'http://localhost:5173', // Vite dev Órion SAD
     'http://localhost:5174', // legado / outro dev
-    'http://localhost:5180', // Vite dev Órion Suporte (porta dedicada)
+    'http://localhost:5180', // Vite dev Órion Suporte
+    'http://localhost:5182', // Vite dev Órion Qualidade
+    'http://localhost:5183', // Vite dev Órion Jurídico
+    'http://localhost:5184', // Vite dev Órion Patrimônio
     'http://localhost:4173', // Vite preview SAD
     'http://localhost:4180', // Vite preview Suporte
+    'http://localhost:4182',
+    'http://localhost:4183',
+    'http://localhost:4184',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5174',
     'http://127.0.0.1:5180',
+    'http://127.0.0.1:5182',
+    'http://127.0.0.1:5183',
+    'http://127.0.0.1:5184',
     'http://127.0.0.1:4173',
     'http://127.0.0.1:4180',
+    'http://127.0.0.1:4182',
+    'http://127.0.0.1:4183',
+    'http://127.0.0.1:4184',
   ];
 
   // Adicionar origem customizada se definida em variável de ambiente

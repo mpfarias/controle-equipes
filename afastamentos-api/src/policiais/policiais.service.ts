@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ConflictException, BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { AuditAction, Prisma, UsuarioStatus, Usuario } from '@prisma/client';
+import { AfastamentoStatus, AuditAction, Prisma, UsuarioStatus, Usuario } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
@@ -55,6 +55,18 @@ type PolicialStatusValue = typeof POLICIAL_STATUS_VALUES[number];
 
 type PolicialWithRelations = PolicialBase | PolicialWithHistorico;
 
+type PrevisaoFeriasPorExercicioItem = {
+  ano: number;
+  semMesDefinido: boolean;
+  mes: number | null;
+  confirmada: boolean;
+  reprogramada: boolean;
+  mesOriginal: number | null;
+  anoOriginal: number | null;
+  /** Preenchido em `findOne`: exercício anterior ao civil e sem gozo (afastamento Férias ativo) na cota. */
+  podeExcluirPrevisaoAnterior?: boolean;
+};
+
 type PolicialResponse = Omit<PolicialWithRelations, 'ferias' | 'status'> & {
   mesPrevisaoFerias?: number | null;
   anoPrevisaoFerias?: number | null;
@@ -62,6 +74,10 @@ type PolicialResponse = Omit<PolicialWithRelations, 'ferias' | 'status'> & {
   anoPrevisaoFeriasOriginal?: number | null;
   feriasConfirmadas?: boolean;
   feriasReprogramadas?: boolean;
+  /** Previsão cadastrada só com exercício (sem mês), permitido para anos &lt; ano civil. */
+  previsaoFeriasSomenteAno?: boolean;
+  /** Todos os exercícios com `FeriasPolicial` (quando a query inclui mais de um). */
+  previsoesFeriasPorExercicio?: PrevisaoFeriasPorExercicioItem[];
   status: PolicialStatusValue;
 };
 
@@ -135,22 +151,54 @@ export class PoliciaisService {
     return normalizado;
   }
 
+  /** Para ordenação por desligamento: prioriza data cadastrada na desativação, depois o instante do registro. */
+  private desligamentoTimestampMs(p: PolicialResponse): number {
+    const raw = p.dataDesativacaoAPartirDe ?? p.desativadoEm;
+    if (raw == null) return 0;
+    const t = typeof raw === 'string' ? Date.parse(raw) : (raw as Date).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  }
+
   private buildMonthRange(ano: number, mes: number): { dataInicio: Date; dataFim: Date } {
     const dataInicio = new Date(ano, mes - 1, 1, 0, 0, 0, 0);
     const dataFim = new Date(ano, mes, 0, 23, 59, 59, 999);
     return { dataInicio, dataFim };
   }
 
+  private mapLinhaPrevisaoFerias(f: FeriasPolicialEntity): PrevisaoFeriasPorExercicioItem {
+    return {
+      ano: f.ano,
+      semMesDefinido: f.semMesDefinido,
+      mes: f.semMesDefinido ? null : f.dataInicio.getMonth() + 1,
+      confirmada: f.confirmada,
+      reprogramada: f.reprogramada,
+      mesOriginal:
+        !f.semMesDefinido && f.dataInicioOriginal ? f.dataInicioOriginal.getMonth() + 1 : null,
+      anoOriginal:
+        !f.semMesDefinido && f.dataInicioOriginal ? f.dataInicioOriginal.getFullYear() : null,
+    };
+  }
+
   private mapFeriasPrevisao(policial: PolicialWithRelations & { ferias?: FeriasPolicialEntity[] }): PolicialResponse {
-    const feriasAtual = policial.ferias?.[0] ?? null;
-    const mesPrevisaoFerias = feriasAtual ? feriasAtual.dataInicio.getMonth() + 1 : null;
+    const lista = [...(policial.ferias ?? [])].sort((a, b) => {
+      if (b.ano !== a.ano) return b.ano - a.ano;
+      return b.id - a.id;
+    });
+    const anoCivil = new Date().getFullYear();
+    const feriasAtual = lista.find((f) => f.ano === anoCivil) ?? lista[0] ?? null;
+    const previsoesFeriasPorExercicio = lista.map((f) => this.mapLinhaPrevisaoFerias(f));
+    const previsaoFeriasSomenteAno = feriasAtual?.semMesDefinido ?? false;
+    const mesPrevisaoFerias =
+      feriasAtual && !feriasAtual.semMesDefinido ? feriasAtual.dataInicio.getMonth() + 1 : null;
     const anoPrevisaoFerias = feriasAtual ? feriasAtual.ano : null;
-    const mesPrevisaoFeriasOriginal = feriasAtual?.dataInicioOriginal
-      ? feriasAtual.dataInicioOriginal.getMonth() + 1
-      : null;
-    const anoPrevisaoFeriasOriginal = feriasAtual?.dataInicioOriginal
-      ? feriasAtual.dataInicioOriginal.getFullYear()
-      : null;
+    const mesPrevisaoFeriasOriginal =
+      feriasAtual && !feriasAtual.semMesDefinido && feriasAtual.dataInicioOriginal
+        ? feriasAtual.dataInicioOriginal.getMonth() + 1
+        : null;
+    const anoPrevisaoFeriasOriginal =
+      feriasAtual && !feriasAtual.semMesDefinido && feriasAtual.dataInicioOriginal
+        ? feriasAtual.dataInicioOriginal.getFullYear()
+        : null;
     const feriasConfirmadas = feriasAtual?.confirmada ?? false;
     const feriasReprogramadas = feriasAtual?.reprogramada ?? false;
     const statusNome = policial.status?.nome ?? 'ATIVO';
@@ -165,7 +213,31 @@ export class PoliciaisService {
       anoPrevisaoFeriasOriginal,
       feriasConfirmadas,
       feriasReprogramadas,
+      previsaoFeriasSomenteAno,
+      previsoesFeriasPorExercicio,
     };
+  }
+
+  /**
+   * Ano do `FeriasPolicial` a incluir na resposta após PATCH que mexeu em previsão.
+   * Deve coincidir com `anoReferencia` em `upsertFeriasPrevisao` — senão a API devolve o registro do ano civil atual e o front parece “grudar” em um único exercício.
+   */
+  private anoFeriasParaRespostaAposPayloadPrevisao(data: {
+    mesPrevisaoFerias?: number | null;
+    anoPrevisaoFerias?: number | null;
+    feriasConfirmadas?: boolean;
+    feriasReprogramadas?: boolean;
+    somenteAnoPrevisaoFerias?: boolean;
+  }): number {
+    const civil = new Date().getFullYear();
+    const mexeuPrevisao =
+      data.mesPrevisaoFerias !== undefined ||
+      data.anoPrevisaoFerias !== undefined ||
+      data.feriasConfirmadas !== undefined ||
+      data.feriasReprogramadas !== undefined ||
+      data.somenteAnoPrevisaoFerias !== undefined;
+    if (!mexeuPrevisao) return civil;
+    return data.anoPrevisaoFerias ?? civil;
   }
 
   private async resolveStatusId(status: string): Promise<number> {
@@ -189,6 +261,7 @@ export class PoliciaisService {
       anoPrevisaoFerias?: number | null;
       feriasConfirmadas?: boolean;
       feriasReprogramadas?: boolean;
+      somenteAnoPrevisaoFerias?: boolean;
     },
     actor?: { id?: number | null; nome?: string | null },
   ): Promise<void> {
@@ -196,16 +269,68 @@ export class PoliciaisService {
       data.mesPrevisaoFerias !== undefined ||
       data.anoPrevisaoFerias !== undefined ||
       data.feriasConfirmadas !== undefined ||
-      data.feriasReprogramadas !== undefined;
+      data.feriasReprogramadas !== undefined ||
+      data.somenteAnoPrevisaoFerias !== undefined;
 
     if (!hasFeriasPayload) {
       return;
     }
 
-    const anoReferencia = data.anoPrevisaoFerias ?? new Date().getFullYear();
+    const civil = new Date().getFullYear();
+    const anoReferencia = data.anoPrevisaoFerias ?? civil;
+    /** Permite exercícios antigos (direito não usufruído) e um ano à frente para planejamento. */
+    const minAnoPrevisaoFerias = 1985;
+    const maxAnoPrevisaoFerias = civil + 1;
+    if (anoReferencia < minAnoPrevisaoFerias || anoReferencia > maxAnoPrevisaoFerias) {
+      throw new BadRequestException(
+        `Ano de previsão de férias inválido (${anoReferencia}). Informe um exercício entre ${minAnoPrevisaoFerias} e ${maxAnoPrevisaoFerias}.`,
+      );
+    }
     let feriasAtual = await this.prisma.feriasPolicial.findUnique({
       where: { policialId_ano: { policialId, ano: anoReferencia } },
     });
+
+    if (data.somenteAnoPrevisaoFerias === true) {
+      if (anoReferencia >= civil) {
+        throw new BadRequestException(
+          'Registrar apenas o exercício (sem mês) é permitido somente para anos anteriores ao ano civil atual.',
+        );
+      }
+      const { dataInicio, dataFim } = this.buildMonthRange(anoReferencia, 1);
+      if (feriasAtual) {
+        await this.prisma.feriasPolicial.update({
+          where: { policialId_ano: { policialId, ano: anoReferencia } },
+          data: {
+            dataInicio,
+            dataFim,
+            semMesDefinido: true,
+            confirmada: false,
+            reprogramada: false,
+            dataInicioOriginal: null,
+            dataFimOriginal: null,
+            updatedById: actor?.id ?? null,
+            updatedByName: actor?.nome ?? null,
+          },
+        });
+      } else {
+        await this.prisma.feriasPolicial.create({
+          data: {
+            policialId,
+            ano: anoReferencia,
+            dataInicio,
+            dataFim,
+            semMesDefinido: true,
+            confirmada: false,
+            reprogramada: false,
+            createdById: actor?.id ?? null,
+            createdByName: actor?.nome ?? null,
+            updatedById: actor?.id ?? null,
+            updatedByName: actor?.nome ?? null,
+          },
+        });
+      }
+      return;
+    }
 
     if (data.mesPrevisaoFerias === null) {
       if (feriasAtual) {
@@ -265,6 +390,7 @@ export class PoliciaisService {
           data: {
             dataInicio,
             dataFim,
+            semMesDefinido: false,
             dataInicioOriginal: feriasAtual.confirmada && mesNovo !== mesAnterior ? dataInicioOriginal : feriasAtual.dataInicioOriginal,
             dataFimOriginal: feriasAtual.confirmada && mesNovo !== mesAnterior ? dataFimOriginal : feriasAtual.dataFimOriginal,
             reprogramada: feriasAtual.confirmada && mesNovo !== mesAnterior ? true : feriasAtual.reprogramada,
@@ -279,6 +405,7 @@ export class PoliciaisService {
             ano: anoReferencia,
             dataInicio,
             dataFim,
+            semMesDefinido: false,
             confirmada: data.feriasConfirmadas ?? false,
             reprogramada: data.feriasReprogramadas ?? false,
             createdById: actor?.id ?? null,
@@ -297,6 +424,11 @@ export class PoliciaisService {
     if (data.feriasConfirmadas !== undefined) {
       if (!feriasAtual) {
         throw new BadRequestException('Não existe previsão de férias cadastrada para confirmar.');
+      }
+      if (feriasAtual.semMesDefinido && data.feriasConfirmadas === true) {
+        throw new BadRequestException(
+          'Não é possível confirmar férias sem mês previsto. Informe o mês na previsão antes de confirmar.',
+        );
       }
       await this.prisma.feriasPolicial.update({
         where: { policialId_ano: { policialId, ano: anoReferencia } },
@@ -487,11 +619,13 @@ export class PoliciaisService {
     statuses?: string[];
     funcaoId?: number;
     funcaoIds?: number[];
-    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
+    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento';
     orderDir?: 'asc' | 'desc';
     /** Filtro para previsão de férias: só retorna policiais com férias programadas neste mês/ano */
     mesPrevisaoFerias?: number;
     anoPrevisaoFerias?: number;
+    /** Ano do registro FeriasPolicial incluído na resposta (padrão: ano civil atual) */
+    feriasAno?: number;
     /** Exclui COMISSIONADO do efetivo e das contagens (para cálculo do limite 1/12 de férias) */
     excluirComissionadosParaLimiteFerias?: boolean;
   }): Promise<
@@ -521,9 +655,10 @@ export class PoliciaisService {
       orderDir,
       mesPrevisaoFerias,
       anoPrevisaoFerias,
+      feriasAno,
       excluirComissionadosParaLimiteFerias,
     } = options || {};
-    const anoAtual = new Date().getFullYear();
+    const anoFeriasInclude = feriasAno ?? new Date().getFullYear();
     const include: {
       afastamentos?: boolean;
       funcao?: boolean;
@@ -533,7 +668,7 @@ export class PoliciaisService {
     } = {
       funcao: true,
       status: true,
-      ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+      ferias: { where: { ano: anoFeriasInclude }, orderBy: { id: 'desc' }, take: 1 },
     };
     if (includeAfastamentos === true) {
       include.afastamentos = true;
@@ -566,13 +701,20 @@ export class PoliciaisService {
       ];
     }
     const dir = orderDir ?? 'asc';
-    const orderByClause: Prisma.PolicialOrderByWithRelationInput = orderBy
-      ? orderBy === 'status'
-        ? { status: { nome: dir } }
-        : orderBy === 'funcao'
-          ? { funcao: { nome: dir } }
-          : ({ [orderBy]: dir } as Prisma.PolicialOrderByWithRelationInput)
-      : { nome: 'asc' };
+    const orderByClause: Prisma.PolicialOrderByWithRelationInput | Prisma.PolicialOrderByWithRelationInput[] =
+      orderBy === 'dataDesligamento'
+        ? [
+            { dataDesativacaoAPartirDe: dir },
+            { desativadoEm: dir },
+            { nome: 'asc' },
+          ]
+        : orderBy === 'status'
+          ? { status: { nome: dir } }
+          : orderBy === 'funcao'
+            ? { funcao: { nome: dir } }
+            : orderBy
+              ? ({ [orderBy]: dir } as Prisma.PolicialOrderByWithRelationInput)
+              : { nome: 'asc' };
 
     // Se não fornecer paginação, retornar todos (incluindo desativados)
     if (page === undefined && pageSize === undefined) {
@@ -618,6 +760,14 @@ export class PoliciaisService {
     // Ordenar em memória: desativados sempre por último, depois pelo campo solicitado
     const orderField = orderBy || 'nome';
     mapped.sort((a, b) => {
+      if (orderField === 'dataDesligamento') {
+        const ta = this.desligamentoTimestampMs(a);
+        const tb = this.desligamentoTimestampMs(b);
+        if (ta !== tb) {
+          return dir === 'desc' ? tb - ta : ta - tb;
+        }
+        return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
+      }
       const aDesativado = a.status === 'DESATIVADO';
       const bDesativado = b.status === 'DESATIVADO';
       if (aDesativado && !bDesativado) return 1;
@@ -681,8 +831,22 @@ export class PoliciaisService {
     };
   }
 
+  /**
+   * Maior e menor `ano` em `FeriasPolicial` (global ou de um policial).
+   * A tela de previsão precisa dos dois: o máximo sozinho esconde exercícios antigos no filtro.
+   */
+  async getUltimoAnoCadastradoFeriasOpcional(
+    policialId?: number,
+  ): Promise<{ ano: number | null; anoMinimo: number | null }> {
+    const agg = await this.prisma.feriasPolicial.aggregate({
+      _max: { ano: true },
+      _min: { ano: true },
+      ...(policialId != null ? { where: { policialId } } : {}),
+    });
+    return { ano: agg._max.ano, anoMinimo: agg._min.ano };
+  }
+
   async findOne(id: number): Promise<PolicialResponse> {
-    const anoAtual = new Date().getFullYear();
     const policial = await this.prisma.policial.findUnique({
       where: { id },
       include: { 
@@ -690,7 +854,7 @@ export class PoliciaisService {
         funcao: true, 
         restricaoMedica: true,
         status: true,
-        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+        ferias: { orderBy: [{ ano: 'desc' }, { id: 'desc' }] },
         restricoesMedicasHistorico: {
           include: { restricaoMedica: true },
           orderBy: { dataFim: 'desc' },
@@ -702,7 +866,94 @@ export class PoliciaisService {
       throw new NotFoundException(`Policial ${id} não encontrado.`);
     }
 
-    return this.mapFeriasPrevisao(policial);
+    const base = this.mapFeriasPrevisao(policial);
+    const civil = new Date().getFullYear();
+    const anosComGozoFerias = await this.getAnosExercicioComAfastamentoFeriasAtivo(id);
+    if (base.previsoesFeriasPorExercicio?.length) {
+      base.previsoesFeriasPorExercicio = base.previsoesFeriasPorExercicio.map((p) => ({
+        ...p,
+        podeExcluirPrevisaoAnterior: p.ano < civil && !anosComGozoFerias.has(p.ano),
+      }));
+    }
+    return base;
+  }
+
+  /** Anos de cota (exercício) que já têm afastamento de Férias **ativo** para o policial. */
+  private async getAnosExercicioComAfastamentoFeriasAtivo(policialId: number): Promise<Set<number>> {
+    const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
+      where: { nome: 'Férias' },
+      select: { id: true },
+    });
+    if (!motivoFerias) return new Set();
+    const rows = await this.prisma.afastamento.findMany({
+      where: {
+        policialId,
+        motivoId: motivoFerias.id,
+        status: AfastamentoStatus.ATIVO,
+      },
+      select: { anoExercicioFerias: true, dataInicio: true },
+    });
+    return new Set(rows.map((a) => a.anoExercicioFerias ?? a.dataInicio.getFullYear()));
+  }
+
+  /**
+   * Remove `FeriasPolicial` de um exercício **anterior ao ano civil**, se não houver gozo (afastamento Férias ativo) na cota.
+   */
+  async removePrevisaoFeriasExercicioAnterior(
+    policialId: number,
+    anoExercicio: number,
+    responsavelId?: number,
+  ): Promise<PolicialResponse> {
+    const civil = new Date().getFullYear();
+    if (anoExercicio >= civil) {
+      throw new BadRequestException(
+        'Só é permitido excluir previsão de exercícios anteriores ao ano civil atual.',
+      );
+    }
+
+    const policial = await this.prisma.policial.findUnique({
+      where: { id: policialId },
+      select: { id: true, status: { select: { nome: true } } },
+    });
+    if (!policial) {
+      throw new NotFoundException(`Policial ${policialId} não encontrado.`);
+    }
+    if (policial.status.nome === 'DESATIVADO') {
+      throw new BadRequestException(
+        'Policiais desativados não podem ter previsão de férias alterada.',
+      );
+    }
+
+    const feriasRow = await this.prisma.feriasPolicial.findUnique({
+      where: { policialId_ano: { policialId, ano: anoExercicio } },
+    });
+    if (!feriasRow) {
+      throw new NotFoundException(
+        `Não há previsão de férias cadastrada para o exercício de ${anoExercicio}.`,
+      );
+    }
+
+    const anosComGozo = await this.getAnosExercicioComAfastamentoFeriasAtivo(policialId);
+    if (anosComGozo.has(anoExercicio)) {
+      throw new BadRequestException(
+        `Não é possível excluir a previsão do exercício de ${anoExercicio}: já existe afastamento de férias ativo vinculado a esse período.`,
+      );
+    }
+
+    const actor = await this.audit.resolveActor(responsavelId);
+    await this.prisma.feriasPolicial.delete({
+      where: { policialId_ano: { policialId, ano: anoExercicio } },
+    });
+
+    await this.audit.record({
+      entity: 'FeriasPolicial',
+      entityId: feriasRow.id,
+      action: AuditAction.DELETE,
+      actor,
+      before: feriasRow,
+    });
+
+    return this.findOne(policialId);
   }
 
   /**
@@ -726,6 +977,8 @@ export class PoliciaisService {
     const feriasPrevisao = await this.prisma.feriasPolicial.findMany({
       where: {
         ano: { in: [anoAtual, anoProximo] },
+        /** Placeholder de “só ano” é janeiro; não deve gerar alerta de mês previsto no dashboard. */
+        semMesDefinido: false,
       },
       select: {
         policialId: true,
@@ -755,7 +1008,7 @@ export class PoliciaisService {
       where: {
         policialId: { in: Array.from(policialIdsComPrevisaoNoPeriodo) },
         motivoId: motivoFerias.id,
-        // Incluir ATIVO e ENCERRADO: afastamentos já encerrados (dataFim passou) contam como "marcados"
+        status: { not: AfastamentoStatus.DESATIVADO },
       },
       select: { policialId: true, dataInicio: true, dataFim: true },
     });
@@ -837,6 +1090,7 @@ export class PoliciaisService {
     const feriasPrevisao = await this.prisma.feriasPolicial.findMany({
       where: {
         ano: { in: [anoAnterior1, anoAnterior2] },
+        semMesDefinido: false,
       },
       select: {
         policialId: true,
@@ -865,7 +1119,7 @@ export class PoliciaisService {
       where: {
         policialId: { in: Array.from(policialIdsComPrevisaoNoPeriodo) },
         motivoId: motivoFerias.id,
-        // Incluir ATIVO e ENCERRADO: afastamentos já encerrados (dataFim passou) contam como "marcados"
+        status: { not: AfastamentoStatus.DESATIVADO },
       },
       select: { policialId: true, dataInicio: true, dataFim: true },
     });
@@ -1053,7 +1307,8 @@ export class PoliciaisService {
       data.mesPrevisaoFerias !== undefined ||
       data.anoPrevisaoFerias !== undefined ||
       data.feriasConfirmadas !== undefined ||
-      data.feriasReprogramadas !== undefined;
+      data.feriasReprogramadas !== undefined ||
+      data.somenteAnoPrevisaoFerias !== undefined;
     const permaneceDesativado =
       before.status?.nome === 'DESATIVADO' &&
       (data.status === undefined || data.status === 'DESATIVADO');
@@ -1093,6 +1348,7 @@ export class PoliciaisService {
         anoPrevisaoFerias: data.anoPrevisaoFerias,
         feriasConfirmadas: data.feriasConfirmadas,
         feriasReprogramadas: data.feriasReprogramadas,
+        somenteAnoPrevisaoFerias: data.somenteAnoPrevisaoFerias,
       },
       actor ?? undefined,
     );
@@ -1112,7 +1368,7 @@ export class PoliciaisService {
       after: updated,
     });
 
-    const anoAtual = new Date().getFullYear();
+    const anoFeriasResposta = this.anoFeriasParaRespostaAposPayloadPrevisao(data);
     const updatedWithFerias = await this.prisma.policial.findUnique({
       where: { id: updated.id },
       include: {
@@ -1120,7 +1376,7 @@ export class PoliciaisService {
         funcao: true,
         restricaoMedica: true,
         status: true,
-        ferias: { where: { ano: anoAtual }, orderBy: { id: 'desc' }, take: 1 },
+        ferias: { where: { ano: anoFeriasResposta }, orderBy: { id: 'desc' }, take: 1 },
       },
     });
 

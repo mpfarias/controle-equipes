@@ -91,8 +91,24 @@ export class AfastamentosService {
     return mesProgramado === mes;
   }
 
-  private async deveIgnorarRestricaoParaFerias(policialId: number, dataInicio: Date): Promise<boolean> {
-    return this.policialTemFeriasProgramadasNoMes(policialId, dataInicio);
+  private async deveIgnorarRestricaoParaFerias(
+    policialId: number,
+    dataInicio: Date,
+    anoExercicioFerias?: number | null,
+  ): Promise<boolean> {
+    if (await this.policialTemFeriasProgramadasNoMes(policialId, dataInicio)) {
+      return true;
+    }
+    const anoGozo = dataInicio.getFullYear();
+    const anoCota = anoExercicioFerias ?? anoGozo;
+    if (anoExercicioFerias != null && anoCota < anoGozo) {
+      const reg = await this.prisma.feriasPolicial.findUnique({
+        where: { policialId_ano: { policialId, ano: anoCota } },
+        select: { id: true },
+      });
+      if (reg) return true;
+    }
+    return false;
   }
 
   private async assertPodeGerenciarAfastamentos(userId?: number): Promise<void> {
@@ -210,8 +226,9 @@ export class AfastamentosService {
   }
 
   /**
-   * Impede cadastro/edição que sobreponha outro afastamento do mesmo policial
-   * (ATIVO ou ENCERRADO — evita duplicar o mesmo período no histórico; se o SEI for o mesmo, mensagem específica).
+   * Impede cadastro/edição que sobreponha outro afastamento do mesmo policial (qualquer motivo).
+   * Considera só ATIVO e ENCERRADO. DESATIVADO (manual) não entra: permite novo lançamento no mesmo
+   * motivo/período/SEI, como se o registro desativado não existisse para efeito de bloqueio.
    */
   private async assertPolicialSemAfastamentoSobreposto(
     policialId: number,
@@ -223,6 +240,7 @@ export class AfastamentosService {
     const existentes = await this.prisma.afastamento.findMany({
       where: {
         policialId,
+        status: { in: [AfastamentoStatus.ATIVO, AfastamentoStatus.ENCERRADO] },
         ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
       },
       select: {
@@ -243,7 +261,7 @@ export class AfastamentosService {
         throw new BadRequestException(
           mesmoSei
             ? 'Já existe um registro de afastamento para este policial no mesmo período e com o mesmo número de processo (SEI). Não é permitido lançar em duplicidade.'
-            : 'Já existe um registro de afastamento para este policial que cobre parte ou a totalidade deste período (inclusive encerrado). Ajuste as datas ou exclua o registro anterior antes de lançar outro.',
+            : 'Já existe um registro de afastamento para este policial que cobre parte ou a totalidade deste período (ativos e encerrados pelo fim do período; desativações manuais não bloqueiam). Ajuste as datas ou exclua o registro anterior antes de lançar outro.',
         );
       }
     }
@@ -382,17 +400,21 @@ export class AfastamentosService {
     }
   }
 
+  private anoExercicioEfetivoFerias(af: { anoExercicioFerias: number | null; dataInicio: Date }): number {
+    return af.anoExercicioFerias ?? af.dataInicio.getFullYear();
+  }
+
   /**
-   * Valida regras específicas para férias baseado no status do policial
+   * Valida regras específicas para férias baseado no status do policial.
+   * @param anoExercicioFerias Ano da cota (exercício). Nulo = ano civil da data de início do gozo.
    */
   private async validarRegrasFerias(
     policialId: number,
     dataInicio: Date,
     dataFim: Date | null,
     excluirAfastamentoId?: number,
+    anoExercicioFerias?: number | null,
   ): Promise<void> {
-    // Regra removida: permitir cadastrar/editar férias com data de início anterior à data atual.
-
     // Para férias, data fim é obrigatória
     if (!dataFim) {
       throw new BadRequestException(
@@ -400,13 +422,21 @@ export class AfastamentosService {
       );
     }
 
-    const anoReferencia = dataInicio.getFullYear();
-    // Buscar o policial para verificar o status e previsão de férias do ano
+    const anoGozo = dataInicio.getFullYear();
+    const anoCota = anoExercicioFerias ?? anoGozo;
+    if (anoCota > anoGozo) {
+      throw new BadRequestException(
+        'O ano de exercício das férias não pode ser posterior ao ano da data de início do gozo.',
+      );
+    }
+    const ehAcumulado = anoCota < anoGozo;
+
+    // Previsão e regras de mês referem-se ao exercício (cota) consumida
     const policial = await this.prisma.policial.findUnique({
       where: { id: policialId },
       select: {
         status: { select: { nome: true } },
-        ferias: { where: { ano: anoReferencia }, orderBy: { id: 'desc' }, take: 1 },
+        ferias: { where: { ano: anoCota }, orderBy: { id: 'desc' }, take: 1 },
       },
     });
 
@@ -415,32 +445,40 @@ export class AfastamentosService {
     }
 
     const feriasAtual = policial.ferias?.[0];
-    
-    // REGRA: O policial deve ter mês de previsão de férias cadastrado
+
+    // REGRA: O policial deve ter mês de previsão de férias cadastrado para o exercício
     if (!feriasAtual || !feriasAtual.dataInicio) {
       throw new BadRequestException(
-        'Não é possível cadastrar férias para um policial que não possui mês de previsão de férias definido. É necessário cadastrar o mês de previsão de férias antes de registrar o afastamento.',
+        ehAcumulado
+          ? `Não é possível lançar férias acumuladas do exercício de ${anoCota} sem previsão de férias cadastrada para esse ano. Cadastre a previsão em "Previsão de férias" para ${anoCota} antes de registrar o gozo (com data de início e data de término).`
+          : 'Não é possível cadastrar férias sem previsão de férias para o exercício. Cadastre a previsão em "Previsão de férias" antes de registrar o afastamento (com data de início e data de término).',
       );
     }
-    
-    // REGRA 3: Não pode cadastrar férias para depois do mês previsto
-    if (feriasAtual.dataInicio && feriasAtual.ano) {
+
+    const feriasRow = feriasAtual as typeof feriasAtual & { semMesDefinido?: boolean };
+
+    // Prazo “até o fim do mês previsto” só quando há mês real na previsão (sem placeholder “só ano”); não se aplica no acúmulo (gozo em ano posterior ao exercício)
+    if (
+      !ehAcumulado &&
+      feriasRow.semMesDefinido !== true &&
+      feriasAtual.dataInicio &&
+      feriasAtual.ano
+    ) {
       const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
       const anoPrevisto = feriasAtual.ano;
       const ultimoDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto, 0, 23, 59, 59, 999);
       const dataInicioNormalizada = new Date(dataInicio);
       dataInicioNormalizada.setHours(0, 0, 0, 0);
-      
-      // Bloquear se a data de início for após o último dia do mês previsto
+
       if (dataInicioNormalizada > ultimoDiaMesPrevisto) {
         const meses = [
           'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+          'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
         ];
         const nomeMesPrevisto = meses[mesPrevisto - 1];
-        
+
         throw new BadRequestException(
-          `Não é possível cadastrar férias após ${nomeMesPrevisto}/${anoPrevisto}. As férias devem ser totalmente usufruídas até o último dia do mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`
+          `Não é possível cadastrar férias após ${nomeMesPrevisto}/${anoPrevisto}. As férias devem ser totalmente usufruídas até o último dia do mês previsto (${nomeMesPrevisto}/${anoPrevisto}).`,
         );
       }
     }
@@ -479,46 +517,19 @@ export class AfastamentosService {
       return; // Se não encontrar o motivo, não valida
     }
 
-    const ano = dataInicio.getFullYear();
-    const inicioAno = new Date(ano, 0, 1);
-    const fimAno = new Date(ano, 11, 31, 23, 59, 59);
-
-    // Buscar todas as férias ativas do policial (não apenas do ano, mas que possam se sobrepor)
-    // Buscar férias que começam no ano OU que terminam no ano OU que se sobrepõem ao período solicitado
-    const feriasExistentes = await this.prisma.afastamento.findMany({
+    const todasFeriasAtivas = await this.prisma.afastamento.findMany({
       where: {
         policialId,
         motivoId: motivoFerias.id,
         status: AfastamentoStatus.ATIVO,
-        OR: [
-          // Férias que começam no ano
-          {
-            dataInicio: {
-              gte: inicioAno,
-              lte: fimAno,
-            },
-          },
-          // Férias que terminam no ano
-          {
-            dataFim: {
-              gte: inicioAno,
-              lte: fimAno,
-            },
-          },
-          // Férias que começam antes do ano mas terminam depois (cobrem o ano inteiro)
-          {
-            dataInicio: {
-              lt: inicioAno,
-            },
-            dataFim: {
-              gt: fimAno,
-            },
-          },
-        ],
         ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
       },
       orderBy: { dataInicio: 'asc' },
     });
+
+    const feriasDoExercicio = todasFeriasAtivas.filter(
+      (f) => this.anoExercicioEfetivoFerias(f) === anoCota,
+    );
 
     // Função auxiliar para converter Date para string YYYY-MM-DD
     const dateToString = (date: Date): string => {
@@ -538,7 +549,7 @@ export class AfastamentosService {
     const novoInicioStr = dateToString(novoInicio);
     const novoFimStr = dateToString(novoFim);
 
-    for (const feriasExistente of feriasExistentes) {
+    for (const feriasExistente of todasFeriasAtivas) {
       if (!feriasExistente.dataFim) continue; // Pular se não tiver data fim
       
       // Normalizar as datas existentes também
@@ -584,9 +595,9 @@ export class AfastamentosService {
       );
     }
 
-    // Calcular total de dias já usados no ano
+    // Total de dias já usados na mesma cota (exercício)
     let totalDias = 0;
-    for (const feriasExistente of feriasExistentes) {
+    for (const feriasExistente of feriasDoExercicio) {
       if (feriasExistente.dataFim) {
         const dias = this.calcularDiasEntreDatas(
           feriasExistente.dataInicio,
@@ -596,16 +607,16 @@ export class AfastamentosService {
       }
     }
 
-    // Regra: Não pode ultrapassar 30 dias por ano (válido para todos)
+    // Regra: Não pode ultrapassar 30 dias por exercício (válido para todos)
     const totalAposCadastro = totalDias + diasSolicitados;
     if (totalAposCadastro > 30) {
       const diasRestantes = 30 - totalDias;
       throw new BadRequestException(
-        `O policial já usufruiu ${totalDias} dias de férias no ano, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite anual de 30 dias.`,
+        `O policial já usufruiu ${totalDias} dias de férias no exercício de ${anoCota}, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite de 30 dias por exercício.`,
       );
     }
 
-    const totalPeriodos = feriasExistentes.length;
+    const totalPeriodos = feriasDoExercicio.length;
     const totalPeriodosAposCadastro = totalPeriodos + 1; // Incluir o período sendo cadastrado
 
     // Função auxiliar para calcular dias entre duas datas (sem incluir os dias finais)
@@ -621,7 +632,7 @@ export class AfastamentosService {
     // REGRA 1: Máximo de 3 períodos por ano (válido para todos os status)
     if (totalPeriodosAposCadastro > 3) {
       throw new BadRequestException(
-        'As férias podem ser parceladas em até 3 períodos por ano. Não é possível cadastrar mais períodos.',
+        `As férias podem ser parceladas em até 3 períodos por exercício (${anoCota}). Não é possível cadastrar mais períodos.`,
       );
     }
 
@@ -637,8 +648,8 @@ export class AfastamentosService {
     if (isComissionado) {
       // Validação de máximo de períodos já feita acima
 
-      // Verificar intervalo mínimo de 30 dias entre períodos
-      for (const feriasExistente of feriasExistentes) {
+      // Verificar intervalo mínimo de 30 dias entre períodos (mesmo exercício)
+      for (const feriasExistente of feriasDoExercicio) {
         if (!feriasExistente.dataFim) continue;
 
         const dataFimExistente = new Date(feriasExistente.dataFim);
@@ -693,25 +704,19 @@ export class AfastamentosService {
       }
     }
 
-    // Validar que o último período de férias (cronologicamente) seja no mês previsto
-    // IMPORTANTE: A regra exige que o ÚLTIMO período no tempo esteja no mês previsto, não o período
-    // que está sendo cadastrado. Ex.: ao cadastrar Julho após já ter Nov e Set, o último é Nov (OK).
-    if (feriasAtual?.dataInicio && feriasAtual.ano) {
+    // Validar que o último período (cronologicamente) do exercício inicie no mês previsto — não exige isso para gozo acumulado em ano posterior
+    if (!ehAcumulado && feriasAtual?.dataInicio && feriasAtual.ano) {
       const mesPrevisto = feriasAtual.dataInicio.getMonth() + 1;
       const anoPrevisto = feriasAtual.ano;
 
-      // Calcular total de dias após cadastrar este período
       const totalDiasAposCadastro = totalDias + diasSolicitados;
-      const diasRestantes = 30 - totalDiasAposCadastro;
-      const totalPeriodosAposCadastro = feriasExistentes.length + 1;
+      const totalPeriodosAposCadastroUltimo = feriasDoExercicio.length + 1;
 
-      // Criar data do primeiro e último dia do mês previsto para comparação
       const primeiroDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto - 1, 1, 0, 0, 0, 0);
       const ultimoDiaMesPrevisto = new Date(anoPrevisto, mesPrevisto, 0, 23, 59, 59, 999);
 
-      // Coletar todos os períodos (existentes + novo) e ordenar por data de início
       const todosPeriodos: Date[] = [
-        ...feriasExistentes
+        ...feriasDoExercicio
           .filter((f) => f.dataFim)
           .map((f) => new Date(f.dataInicio)),
         new Date(dataInicio),
@@ -737,10 +742,10 @@ export class AfastamentosService {
       // Aplicar validação apenas quando o conjunto completo exige o último período no mês previsto:
       // - completa/ultrapassa 30 dias, OU
       // - é o 3º período (último possível)
-      if (totalDiasAposCadastro >= 30 || totalPeriodosAposCadastro === 3) {
+      if (totalDiasAposCadastro >= 30 || totalPeriodosAposCadastroUltimo === 3) {
         if (!ultimoPeriodoEstaNoMesPrevisto) {
           throw new BadRequestException(
-            `O último período de férias (cronologicamente) deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Verifique se já existe um período no mês previsto ou se o período que completa os 30 dias está correto.`
+            `O último período de férias (cronologicamente) deve iniciar obrigatoriamente no mês previsto (${nomeMesPrevisto}/${anoPrevisto}), podendo ser até o último dia do mês. Verifique se já existe um período no mês previsto ou se o período que completa os 30 dias está correto.`,
           );
         }
       }
@@ -756,6 +761,7 @@ export class AfastamentosService {
     dataInicio: Date,
     dataFim: Date | null,
     excluirAfastamentoId?: number,
+    anoExercicioFerias?: number | null,
   ): Promise<void> {
     // Buscar o motivo para obter o nome
     const motivo = await this.prisma.motivoAfastamento.findUnique({
@@ -781,6 +787,7 @@ export class AfastamentosService {
         dataInicio,
         dataFim,
         excluirAfastamentoId,
+        anoExercicioFerias,
       );
       return;
     }
@@ -852,21 +859,30 @@ export class AfastamentosService {
       data.motivoId,
     );
 
+    const motivo = await this.prisma.motivoAfastamento.findUnique({
+      where: { id: data.motivoId },
+    });
+    const motivoEhFerias = (motivo?.nome ?? '').toLowerCase() === 'férias';
+    if (data.anoExercicioFerias != null && !motivoEhFerias) {
+      throw new BadRequestException(
+        'O ano de exercício das férias só pode ser informado quando o motivo for Férias.',
+      );
+    }
+    const anoExercicioParaFerias = motivoEhFerias ? (data.anoExercicioFerias ?? null) : null;
+
     // Validar limites de dias para férias e abono
     await this.validarLimitesDias(
       data.policialId,
       data.motivoId,
       dataInicio,
       dataFim,
+      undefined,
+      anoExercicioParaFerias,
     );
 
     // Validar restrições de afastamento
     // Verificar apenas se o início está dentro de uma restrição
     // (Para Férias, a restrição deve bloquear apenas o início, não qualquer sobreposição)
-    const motivo = await this.prisma.motivoAfastamento.findUnique({
-      where: { id: data.motivoId },
-    });
-    
     const restricao = await this.restricoesAfastamentoService.verificarRestricao(
       dataInicio,
       data.motivoId,
@@ -875,8 +891,12 @@ export class AfastamentosService {
     if (restricao.bloqueado && restricao.restricao) {
       // Exceção: se for Férias e o policial tiver férias programadas/confirmadas para este mês,
       // a restrição não deve bloquear.
-      if ((motivo?.nome ?? '').toLowerCase() === 'férias') {
-        const ignoraRestricao = await this.deveIgnorarRestricaoParaFerias(data.policialId, dataInicio);
+      if (motivoEhFerias) {
+        const ignoraRestricao = await this.deveIgnorarRestricaoParaFerias(
+          data.policialId,
+          dataInicio,
+          anoExercicioParaFerias,
+        );
         if (ignoraRestricao) {
           // segue o fluxo normalmente (não bloqueia)
         } else {
@@ -901,6 +921,7 @@ export class AfastamentosService {
         motivo: { connect: { id: data.motivoId } },
         seiNumero: data.seiNumero.trim(),
         descricao: data.descricao ? data.descricao.trim() : null,
+        anoExercicioFerias: anoExercicioParaFerias,
         dataInicio,
         dataFim,
         status: AfastamentoStatus.ATIVO,
@@ -956,7 +977,7 @@ export class AfastamentosService {
     } = options || {};
 
     // Se não fornecer paginação, retornar todos (compatibilidade com código existente)
-    // Se status não for fornecido, mostrar tanto ATIVO quanto ENCERRADO
+    // Se status não for fornecido, mostrar ATIVO, ENCERRADO e DESATIVADO
     const baseWhere: Prisma.AfastamentoWhereInput = {
       ...(status ? { status: status as AfastamentoStatus } : {}), // Se status for fornecido, filtrar por ele, senão mostrar todos
       ...(motivoId ? { motivoId } : {}),
@@ -1119,6 +1140,32 @@ export class AfastamentosService {
     const seiNumeroFinal =
       data.seiNumero !== undefined ? data.seiNumero.trim() : before.seiNumero.trim();
 
+    const motivoFinal = await this.prisma.motivoAfastamento.findUnique({
+      where: { id: motivoIdFinal },
+      select: { nome: true },
+    });
+    const motivoFinalEhFerias = (motivoFinal?.nome ?? '').toLowerCase() === 'férias';
+
+    const anoExercicioFeriasFinal =
+      data.anoExercicioFerias !== undefined
+        ? data.anoExercicioFerias
+        : before.anoExercicioFerias ?? null;
+
+    if (data.anoExercicioFerias != null && !motivoFinalEhFerias) {
+      throw new BadRequestException(
+        'O ano de exercício das férias só pode ser informado quando o motivo for Férias.',
+      );
+    }
+    if (
+      motivoFinalEhFerias &&
+      anoExercicioFeriasFinal != null &&
+      anoExercicioFeriasFinal > dataInicioFinal.getFullYear()
+    ) {
+      throw new BadRequestException(
+        'O ano de exercício não pode ser posterior ao ano da data de início do gozo.',
+      );
+    }
+
     await this.assertPolicialSemAfastamentoSobreposto(
       policialIdFinal,
       dataInicioFinal,
@@ -1143,15 +1190,11 @@ export class AfastamentosService {
       dataInicioFinal,
       dataFimFinal,
       id, // Excluir este afastamento do cálculo
+      motivoFinalEhFerias ? anoExercicioFeriasFinal : null,
     );
 
     // Validar restrições de afastamento
     // Para Férias: validar somente pela data de início (não por sobreposição de período)
-    const motivoFinal = await this.prisma.motivoAfastamento.findUnique({
-      where: { id: motivoIdFinal },
-      select: { nome: true },
-    });
-    const motivoFinalEhFerias = (motivoFinal?.nome ?? '').toLowerCase() === 'férias';
 
     const restricao = motivoFinalEhFerias
       ? await this.restricoesAfastamentoService.verificarRestricao(dataInicioFinal, motivoIdFinal)
@@ -1161,7 +1204,11 @@ export class AfastamentosService {
       // Exceção: se for Férias e o policial tiver férias programadas/confirmadas para este mês,
       // a restrição não deve bloquear.
       if (motivoFinalEhFerias) {
-        const ignoraRestricao = await this.deveIgnorarRestricaoParaFerias(policialIdFinal, dataInicioFinal);
+        const ignoraRestricao = await this.deveIgnorarRestricaoParaFerias(
+          policialIdFinal,
+          dataInicioFinal,
+          anoExercicioFeriasFinal,
+        );
         if (!ignoraRestricao) {
           const motivoNome = motivoFinal?.nome || 'este tipo de afastamento';
           const restricaoNome = restricao.restricao.tipoRestricao?.nome || 'restrição';
@@ -1207,6 +1254,12 @@ export class AfastamentosService {
       updateData.policial = { connect: { id: data.policialId } };
     }
 
+    if (!motivoFinalEhFerias) {
+      updateData.anoExercicioFerias = null;
+    } else if (data.anoExercicioFerias !== undefined) {
+      updateData.anoExercicioFerias = data.anoExercicioFerias;
+    }
+
     const updated = await this.prisma.afastamento.update({
       where: { id },
       data: updateData,
@@ -1238,16 +1291,25 @@ export class AfastamentosService {
       throw new NotFoundException(`Afastamento ${id} não encontrado.`);
     }
 
+    if (before.status === AfastamentoStatus.DESATIVADO) {
+      throw new BadRequestException('Este afastamento já foi desativado manualmente.');
+    }
     if (before.status === AfastamentoStatus.ENCERRADO) {
-      throw new BadRequestException('O afastamento já está desativado.');
+      throw new BadRequestException(
+        'Este afastamento já foi encerrado automaticamente ao fim do período cadastrado.',
+      );
     }
 
     const actor = await this.audit.resolveActor(responsavelId);
 
+    const agora = new Date();
     const updated = await this.prisma.afastamento.update({
       where: { id },
       data: {
-        status: AfastamentoStatus.ENCERRADO,
+        status: AfastamentoStatus.DESATIVADO,
+        desativadoPorId: actor?.id ?? null,
+        desativadoPorNome: actor?.nome ?? null,
+        desativadoEm: agora,
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
@@ -1304,6 +1366,9 @@ export class AfastamentosService {
       },
       data: {
         status: AfastamentoStatus.ENCERRADO,
+        desativadoPorId: null,
+        desativadoPorNome: null,
+        desativadoEm: null,
         updatedById: null,
         updatedByName: 'Sistema',
       },

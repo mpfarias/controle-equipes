@@ -59,6 +59,8 @@ model FeriasPolicial {
   ano                Int
   dataInicio         DateTime
   dataFim            DateTime
+  /** Exercícios anteriores ao ano civil: permite cadastrar só o ano; datas são placeholder (jan.) até definir o mês. */
+  semMesDefinido     Boolean   @default(false)
   confirmada         Boolean   @default(false)
   reprogramada       Boolean   @default(false)
   dataInicioOriginal DateTime?
@@ -90,9 +92,18 @@ model Afastamento {
   motivo        MotivoAfastamento @relation(fields: [motivoId], references: [id])
   seiNumero     String
   descricao     String?
+  /**
+   * Ano da cota de férias (exercício) quando o gozo é em outro ano (ex.: direito de 2024, gozo em 2026).
+   * Nulo = considerar o ano civil da data de início (comportamento legado).
+   */
+  anoExercicioFerias Int?
   dataInicio    DateTime
   dataFim       DateTime?
   status        AfastamentoStatus @default(ATIVO)
+  /** Preenchido ao desativar manualmente ou pelo encerramento automático (fim do período). */
+  desativadoPorId   Int?
+  desativadoPorNome String?
+  desativadoEm      DateTime?
   createdById   Int?
   createdByName String?
   updatedById   Int?
@@ -153,16 +164,91 @@ model Usuario {
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   errorReports          ErrorReport[]
+  /** Registros criados no módulo Órion Qualidade. */
+  qualidadeRegistrosCriados QualidadeRegistro[] @relation("QualidadeRegistroAutor")
+  /** Bens cadastrados no módulo Órion Patrimônio. */
+  patrimonioBensCriados PatrimonioBem[] @relation("PatrimonioBemAutor")
 }
 
 enum AfastamentoStatus {
   ATIVO
+  /** Fim automático após o término do período (data fim). */
   ENCERRADO
+  /** Desativação manual no sistema; mantém auditoria em desativadoPor* / desativadoEm. */
+  DESATIVADO
 }
 
 enum UsuarioStatus {
   ATIVO
   DESATIVADO
+}
+
+/** Ciclo de vida de um registro de gestão da qualidade (Órion Qualidade). */
+enum QualidadeRegistroStatus {
+  ABERTO
+  EM_TRATAMENTO
+  ENCERRADO
+}
+
+/**
+ * Registro de oportunidade de melhoria / não conformidade leve / acompanhamento de qualidade.
+ * Acesso à API restrito a quem tem `ORION_QUALIDADE` em sistemasPermitidos (cadastro no SAD).
+ */
+model QualidadeRegistro {
+  id                Int                     @id @default(autoincrement())
+  titulo            String
+  descricao         String?                 @db.Text
+  status            QualidadeRegistroStatus @default(ABERTO)
+  criadoPorId       Int
+  criadoPor         Usuario                 @relation("QualidadeRegistroAutor", fields: [criadoPorId], references: [id])
+  criadoPorNome     String
+  atualizadoPorId   Int?
+  atualizadoPorNome String?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([criadoPorId])
+  @@index([status])
+  @@map("qualidade_registro")
+}
+
+/** Situação do bem no acervo do COPOM (Órion Patrimônio). */
+enum PatrimonioBemSituacao {
+  EM_USO
+  GUARDADO
+  MANUTENCAO
+  EMPRESTADO
+  BAIXADO
+}
+
+/**
+ * Bem patrimonial tombado. Acesso à API restrito a quem tem `ORION_PATRIMONIO` em sistemasPermitidos.
+ */
+model PatrimonioBem {
+  id                Int                   @id @default(autoincrement())
+  tombamento        String                @unique @db.VarChar(64)
+  descricao         String                @db.VarChar(500)
+  categoria         String?               @db.VarChar(120)
+  marca             String?               @db.VarChar(120)
+  modelo            String?               @db.VarChar(120)
+  numeroSerie       String?               @db.VarChar(120)
+  localizacaoSetor  String?               @db.VarChar(200)
+  situacao          PatrimonioBemSituacao @default(EM_USO)
+  observacoes       String?               @db.Text
+  dataAquisicao     DateTime?             @db.Date
+  valorAquisicao    Decimal?              @db.Decimal(14, 2)
+  criadoPorId       Int
+  criadoPor         Usuario               @relation("PatrimonioBemAutor", fields: [criadoPorId], references: [id])
+  criadoPorNome     String                @db.VarChar(200)
+  atualizadoPorId   Int?
+  atualizadoPorNome String?               @db.VarChar(200)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([situacao])
+  @@index([criadoPorId])
+  @@index([tombamento])
+  @@map("patrimonio_bem")
 }
 
 enum PermissaoAcao {
@@ -319,7 +405,7 @@ model HorarioSvg {
   @@unique([horaInicio, horaFim])
 }
 
-/** Parâmetros globais da escala 24×72 (equipes) e motoristas — chaves fixas no serviço. */
+/** Parâmetros globais: escala 12×24 das equipes operacionais (cinco letras, turnos dia/noite) e escala 24×72 dos motoristas — chaves fixas no serviço. */
 model EscalaParametro {
   id            Int      @id @default(autoincrement())
   chave         String   @unique

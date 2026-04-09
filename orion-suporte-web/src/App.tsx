@@ -6,6 +6,7 @@ import {
   Button,
   Chip,
   CircularProgress,
+  Divider,
   IconButton,
   InputAdornment,
   Menu,
@@ -15,21 +16,50 @@ import {
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { CallSplit, Groups, Lock, Logout, PhotoCamera, Visibility, VisibilityOff } from '@mui/icons-material';
+import {
+  Description,
+  FactCheck,
+  Gavel,
+  Hub,
+  Inventory2,
+  Lock,
+  Logout,
+  PhotoCamera,
+  SupportAgent,
+  Visibility,
+  VisibilityOff,
+} from '@mui/icons-material';
 import { GestaoChamadosSection } from './gestao/GestaoChamadosSection';
 import { LoginSuporteView } from './auth/LoginSuporteView';
 import { ImageCropper } from './components/common/ImageCropper';
 import { api, getToken, removeToken } from './api';
+import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
 import type { Usuario } from './types';
 import { formatMatricula } from './utils/formatMatricula';
-import { getUrlOrionSAD } from './constants/orionSAD';
-import { usuarioPodeAcessarOrionSAD } from './utils/sistemaAccess';
+import { listaMenuOutrosSistemas } from './utils/sistemaDestinosMenu';
 import { temAcessoOrionSuporteEfetivo } from './utils/orionSuporteEfetivo';
 
 const DOC_TITLE = 'Órion Suporte — Chamados';
 
 function usuarioPodeAcessarOrionSuporte(user: Usuario): boolean {
   return temAcessoOrionSuporteEfetivo(user);
+}
+
+function iconeMenuOutroSistema(id: string) {
+  switch (id) {
+    case 'SAD':
+      return Description;
+    case 'OPERACOES':
+      return Hub;
+    case 'ORION_QUALIDADE':
+      return FactCheck;
+    case 'ORION_JURIDICO':
+      return Gavel;
+    case 'ORION_PATRIMONIO':
+      return Inventory2;
+    default:
+      return Description;
+  }
 }
 
 function getIniciaisUsuario(nome: string): string {
@@ -62,8 +92,8 @@ export default function App() {
   const [showSenhaConfirmar, setShowSenhaConfirmar] = useState(false);
   const [senhaConfirmarValidarAoSair, setSenhaConfirmarValidarAoSair] = useState(false);
 
-  const podeAcessarSAD = useMemo(
-    () => (currentUser ? usuarioPodeAcessarOrionSAD(currentUser) : false),
+  const outrosSistemasMenu = useMemo(
+    () => (currentUser ? listaMenuOutrosSistemas(currentUser) : []),
     [currentUser],
   );
 
@@ -268,13 +298,21 @@ export default function App() {
     return (
       <div className="app-suporte app-suporte--auth">
         {bootstrapError ? (
-          <Box sx={{ px: 2, pt: 2, maxWidth: 560, mx: 'auto' }}>
+          <Box sx={{ px: 2, pt: 2, maxWidth: 560, mx: 'auto', flexShrink: 0 }}>
             <Alert severity="warning">{bootstrapError}</Alert>
           </Box>
         ) : null}
-        <LoginSuporteView onSuccess={handleLoginSuccess} />
-        <footer className="auth-suporte-footer">
-          COPOM · {new Date().getFullYear()} · Órion Suporte (módulo de chamados, separado do Órion SAD)
+        <div className="app-suporte__auth-shell">
+          <LoginSuporteView onSuccess={handleLoginSuccess} />
+        </div>
+        <footer className="app-footer app-footer--auth">
+          <span className="app-footer__label">Desenvolvido por</span>
+          <div className="app-footer__credits">
+            <span className="app-footer__name">2º SGT M. Farias</span>
+            <span className="app-footer__separator">·</span>
+            <span className="app-footer__name">2º SGT Gadelha</span>
+          </div>
+          <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
       </div>
     );
@@ -285,56 +323,200 @@ export default function App() {
       <Box
         component="header"
         sx={{
-          px: 2,
-          py: 1.25,
-          borderBottom: `1px solid ${alpha('#2dd4bf', 0.28)}`,
-          background: `linear-gradient(90deg, ${alpha('#042f2e', 0.92)} 0%, ${alpha('#0f172a', 0.95)} 100%)`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 1.5,
+          position: 'sticky',
+          top: 0,
+          zIndex: (theme) => theme.zIndex.appBar,
+          borderBottom: `1px solid ${alpha('#2dd4bf', 0.2)}`,
+          background: `linear-gradient(
+            105deg,
+            ${alpha('#022c22', 0.97)} 0%,
+            ${alpha('#0f172a', 0.98)} 42%,
+            ${alpha('#134e4a', 0.35)} 100%
+          )`,
+          boxShadow: `0 4px 28px -10px ${alpha('#000', 0.55)}`,
+          backdropFilter: 'blur(14px)',
+          WebkitBackdropFilter: 'blur(14px)',
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1.5} flexWrap="wrap" sx={{ gap: 1 }}>
-          <CallSplit sx={{ fontSize: 28, color: 'var(--suporte-accent)' }} aria-hidden />
-          <Box>
-            <Stack direction="row" alignItems="center" flexWrap="wrap" sx={{ gap: 1 }}>
-              <Typography variant="h6" sx={{ fontWeight: 800, color: '#ecfdf5', letterSpacing: '-0.02em' }}>
+        <Box
+          sx={{
+            maxWidth: 1400,
+            mx: 'auto',
+            px: { xs: 2, sm: 2.5, md: 3 },
+            py: { xs: 1.5, sm: 2 },
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 2,
+            flexWrap: 'wrap',
+          }}
+        >
+          <Stack direction="row" alignItems="center" spacing={2} sx={{ flex: 1, minWidth: 0 }}>
+            <Box
+              sx={{
+                flexShrink: 0,
+                width: { xs: 46, sm: 54 },
+                height: { xs: 46, sm: 54 },
+                borderRadius: 2.5,
+                background: `linear-gradient(145deg, ${alpha('#2dd4bf', 0.4)} 0%, ${alpha('#0f766e', 0.92)} 50%, ${alpha('#042f2e', 1)} 100%)`,
+                border: `1px solid ${alpha('#2dd4bf', 0.42)}`,
+                boxShadow: `${`0 0 0 1px ${alpha('#000', 0.25)} inset`}, 0 10px 32px -14px ${alpha('#2dd4bf', 0.55)}`,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                p: 1,
+              }}
+              aria-hidden
+            >
+              <Box
+                component="img"
+                src={`${import.meta.env.BASE_URL}favicon.svg`}
+                alt=""
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.35))',
+                }}
+              />
+            </Box>
+            <Divider
+              orientation="vertical"
+              flexItem
+              sx={{
+                display: { xs: 'none', md: 'block' },
+                borderColor: alpha('#2dd4bf', 0.18),
+                alignSelf: 'stretch',
+                my: 0.5,
+              }}
+            />
+            <Box sx={{ minWidth: 0 }}>
+              <Stack direction="row" alignItems="center" gap={1} flexWrap="wrap" sx={{ mb: 0.25 }}>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: alpha('#ecfdf5', 0.48),
+                    letterSpacing: '0.16em',
+                    fontWeight: 600,
+                    fontSize: '0.65rem',
+                    lineHeight: 1.2,
+                  }}
+                >
+                  COPOM · Ecossistema Órion
+                </Typography>
+                <Chip
+                  icon={<SupportAgent sx={{ fontSize: '16px !important', ml: '4px !important' }} />}
+                  label="Chamados técnicos"
+                  size="small"
+                  sx={{
+                    height: 24,
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    bgcolor: alpha('#2dd4bf', 0.1),
+                    color: alpha('#ecfdf5', 0.95),
+                    border: `1px solid ${alpha('#2dd4bf', 0.28)}`,
+                    '& .MuiChip-icon': { color: 'var(--suporte-accent)' },
+                  }}
+                />
+              </Stack>
+              <Typography
+                component="h1"
+                sx={{
+                  fontWeight: 800,
+                  fontSize: { xs: '1.28rem', sm: '1.55rem' },
+                  letterSpacing: '-0.035em',
+                  color: '#ecfdf5',
+                  lineHeight: 1.15,
+                }}
+              >
                 Órion Suporte
               </Typography>
-            </Stack>
-            <Typography variant="caption" sx={{ color: alpha('#ecfdf5', 0.55), display: 'block', mt: 0.25 }}>
-              Gestão de chamados
-            </Typography>
-          </Box>
-        </Stack>
-        <Stack direction="row" alignItems="center" spacing={1.5}>
-          <Typography variant="body2" sx={{ color: 'var(--text-secondary)', display: { xs: 'none', sm: 'block' } }}>
-            {currentUser.nome} — {formatMatricula(currentUser.matricula)}
-          </Typography>
-          <IconButton
-            onClick={(e) => setAvatarMenuAnchor(e.currentTarget)}
-            aria-label="Menu do usuário"
-            aria-controls={avatarMenuAnchor ? 'user-menu-suporte' : undefined}
-            aria-haspopup="true"
-            aria-expanded={avatarMenuAnchor ? 'true' : undefined}
-            sx={{ p: 0 }}
-          >
-            <Avatar
-              src={currentUser.fotoUrl ?? undefined}
+              <Typography
+                variant="body2"
+                sx={{
+                  color: alpha('#ecfdf5', 0.52),
+                  mt: 0.35,
+                  maxWidth: 520,
+                  lineHeight: 1.45,
+                }}
+              >
+                <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                  Central de gestão e acompanhamento de solicitações ao time de suporte.
+                </Box>
+                <Box component="span" sx={{ display: { xs: 'inline', sm: 'none' } }}>
+                  Gestão de chamados técnicos.
+                </Box>
+              </Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" alignItems="center" spacing={1.75} sx={{ flexShrink: 0 }}>
+            <Box
               sx={{
-                width: 40,
-                height: 40,
-                bgcolor: 'var(--sentinela-blue)',
-                fontSize: '1rem',
-                border: `1px solid ${alpha('#2dd4bf', 0.35)}`,
+                display: { xs: 'none', sm: 'flex' },
+                flexDirection: 'column',
+                alignItems: 'flex-end',
+                pr: 0.25,
+                minWidth: 0,
               }}
             >
-              {getIniciaisUsuario(currentUser.nome)}
-            </Avatar>
-          </IconButton>
-          <Menu
+              <Typography
+                variant="caption"
+                sx={{
+                  color: alpha('#ecfdf5', 0.4),
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                  fontSize: '0.65rem',
+                  fontWeight: 600,
+                }}
+              >
+                Sessão
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  color: 'var(--text-secondary)',
+                  fontWeight: 600,
+                  textAlign: 'right',
+                  lineHeight: 1.35,
+                }}
+              >
+                {currentUser.nome} — {formatMatricula(currentUser.matricula)}
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                p: '3px',
+                borderRadius: '50%',
+                background: `linear-gradient(135deg, ${alpha('#2dd4bf', 0.5)}, ${alpha('#0f766e', 0.25)})`,
+              }}
+            >
+              <IconButton
+                onClick={(e) => setAvatarMenuAnchor(e.currentTarget)}
+                aria-label="Menu do usuário"
+                aria-controls={avatarMenuAnchor ? 'user-menu-suporte' : undefined}
+                aria-haspopup="true"
+                aria-expanded={avatarMenuAnchor ? 'true' : undefined}
+                sx={{ p: 0 }}
+              >
+                <Avatar
+                  src={currentUser.fotoUrl ?? undefined}
+                  sx={{
+                    width: 42,
+                    height: 42,
+                    bgcolor: 'var(--sentinela-blue)',
+                    fontSize: '1rem',
+                    border: `2px solid ${alpha('#0f172a', 0.9)}`,
+                  }}
+                >
+                  {getIniciaisUsuario(currentUser.nome)}
+                </Avatar>
+              </IconButton>
+            </Box>
+          </Stack>
+        </Box>
+      </Box>
+
+      <Menu
             id="user-menu-suporte"
             anchorEl={avatarMenuAnchor}
             open={Boolean(avatarMenuAnchor)}
@@ -351,17 +533,23 @@ export default function App() {
               <Lock sx={{ mr: 1.5, fontSize: 20 }} />
               Alterar senha
             </MenuItem>
-            {podeAcessarSAD ? (
-              <MenuItem
-                onClick={() => {
-                  setAvatarMenuAnchor(null);
-                  window.open(getUrlOrionSAD(), '_blank', 'noopener,noreferrer');
-                }}
-              >
-                <Groups sx={{ mr: 1.5, fontSize: 20 }} />
-                Órion SAD
-              </MenuItem>
-            ) : null}
+            {outrosSistemasMenu.map((item) => {
+              const Icon = iconeMenuOutroSistema(item.id);
+              return (
+                <MenuItem
+                  key={item.id}
+                  onClick={() => {
+                    setAvatarMenuAnchor(null);
+                    const t = getToken();
+                    const url = t ? buildUrlComHandoffJwt(item.url, t) : item.url;
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  <Icon sx={{ mr: 1.5, fontSize: 20 }} />
+                  {item.label}
+                </MenuItem>
+              );
+            })}
             <MenuItem
               onClick={() => {
                 void handleLogout();
@@ -371,8 +559,6 @@ export default function App() {
               Sair
             </MenuItem>
           </Menu>
-        </Stack>
-      </Box>
 
       {fotoModalOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={closeFotoModal}>
@@ -596,6 +782,16 @@ export default function App() {
       <main className="app-suporte__main">
         <GestaoChamadosSection />
       </main>
+
+      <footer className="app-footer">
+        <span className="app-footer__label">Desenvolvido por</span>
+        <div className="app-footer__credits">
+          <span className="app-footer__name">2º SGT M. Farias</span>
+          <span className="app-footer__separator">·</span>
+          <span className="app-footer__name">2º SGT Gadelha</span>
+        </div>
+        <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
+      </footer>
     </div>
   );
 }

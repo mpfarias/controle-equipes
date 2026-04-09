@@ -60,6 +60,7 @@ export class PoliciaisController {
     @Query('orderDir') orderDir?: string,
     @Query('mesPrevisaoFerias') mesPrevisaoFerias?: string,
     @Query('anoPrevisaoFerias') anoPrevisaoFerias?: string,
+    @Query('feriasAno') feriasAno?: string,
     @Query('excluirComissionadosParaLimiteFerias') excluirComissionadosParaLimiteFerias?: string,
   ) {
     const includeAfastamentosParsed = includeAfastamentos === 'true';
@@ -75,9 +76,17 @@ export class PoliciaisController {
           .map((id) => Number.parseInt(id.trim(), 10))
           .filter((id) => !Number.isNaN(id))
       : undefined;
-    const orderByAllowed = orderBy === 'nome' || orderBy === 'matricula' || orderBy === 'equipe' || orderBy === 'status' || orderBy === 'funcao';
+    const orderByAllowed =
+      orderBy === 'nome' ||
+      orderBy === 'matricula' ||
+      orderBy === 'equipe' ||
+      orderBy === 'status' ||
+      orderBy === 'funcao' ||
+      orderBy === 'dataDesligamento';
     if (orderBy && !orderByAllowed) {
-      throw new BadRequestException('O orderBy deve ser nome, matricula, equipe, status ou funcao.');
+      throw new BadRequestException(
+        'O orderBy deve ser nome, matricula, equipe, status, funcao ou dataDesligamento.',
+      );
     }
     const orderDirAllowed = orderDir === 'asc' || orderDir === 'desc';
     if (orderDir && !orderDirAllowed) {
@@ -90,6 +99,29 @@ export class PoliciaisController {
     }
     if (anoPrevisaoFerias && Number.isNaN(anoPrevisaoParsed!)) {
       throw new BadRequestException('O anoPrevisaoFerias deve ser numérico.');
+    }
+    const feriasAnoParsed = feriasAno ? Number.parseInt(feriasAno, 10) : undefined;
+    if (feriasAno && Number.isNaN(feriasAnoParsed!)) {
+      throw new BadRequestException('O feriasAno deve ser numérico.');
+    }
+    const civilLista = new Date().getFullYear();
+    const minAnoPrevisaoLista = 1985;
+    const maxAnoPrevisaoLista = civilLista + 1;
+    if (
+      feriasAnoParsed != null &&
+      (feriasAnoParsed < minAnoPrevisaoLista || feriasAnoParsed > maxAnoPrevisaoLista)
+    ) {
+      throw new BadRequestException(
+        `O feriasAno deve estar entre ${minAnoPrevisaoLista} e ${maxAnoPrevisaoLista}.`,
+      );
+    }
+    if (
+      anoPrevisaoParsed != null &&
+      (anoPrevisaoParsed < minAnoPrevisaoLista || anoPrevisaoParsed > maxAnoPrevisaoLista)
+    ) {
+      throw new BadRequestException(
+        `O anoPrevisaoFerias deve estar entre ${minAnoPrevisaoLista} e ${maxAnoPrevisaoLista}.`,
+      );
     }
     const excluirComissionadosParsed = excluirComissionadosParaLimiteFerias === 'true';
     return this.policiaisService.findAll({
@@ -104,10 +136,13 @@ export class PoliciaisController {
       statuses: statusesParsed?.length ? statusesParsed : undefined,
       funcaoId: !funcaoIdsParsed?.length ? funcaoIdParsed : undefined,
       funcaoIds: funcaoIdsParsed?.length ? funcaoIdsParsed : undefined,
-      orderBy: orderByAllowed ? (orderBy as 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') : undefined,
+      orderBy: orderByAllowed
+        ? (orderBy as 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento')
+        : undefined,
       orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
       mesPrevisaoFerias: mesPrevisaoParsed,
       anoPrevisaoFerias: anoPrevisaoParsed,
+      feriasAno: feriasAnoParsed,
       excluirComissionadosParaLimiteFerias: excluirComissionadosParsed,
     });
   }
@@ -194,6 +229,32 @@ export class PoliciaisController {
   @Roles('ADMINISTRADOR', 'SAD')
   deleteStatusPolicial(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: Usuario) {
     return this.policiaisService.deleteStatusPolicial(id, user.id);
+  }
+
+  /**
+   * Maior e menor ano de exercício com `FeriasPolicial` (global ou de um policial).
+   * `ano` = máximo (compatível com clientes antigos); `anoMinimo` = mínimo, para montar o filtro da lista.
+   */
+  @Get('previsao-ferias/ultimo-ano')
+  getUltimoAnoPrevisaoFerias(@Query('policialId') policialId?: string) {
+    if (policialId != null && policialId !== '') {
+      const id = Number.parseInt(policialId, 10);
+      if (Number.isNaN(id)) {
+        throw new BadRequestException('policialId deve ser numérico.');
+      }
+      return this.policiaisService.getUltimoAnoCadastradoFeriasOpcional(id);
+    }
+    return this.policiaisService.getUltimoAnoCadastradoFeriasOpcional();
+  }
+
+  @Delete(':id/previsao-ferias/:ano')
+  @Roles('ADMINISTRADOR', 'SAD')
+  removePrevisaoFeriasExercicio(
+    @Param('id', ParseIntPipe) policialId: number,
+    @Param('ano', ParseIntPipe) ano: number,
+    @CurrentUser() user: Usuario,
+  ) {
+    return this.policiaisService.removePrevisaoFeriasExercicioAnterior(policialId, ano, user.id);
   }
 
   @Get(':id')

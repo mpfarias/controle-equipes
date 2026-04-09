@@ -2,7 +2,7 @@ import { getUrlAbrirChamado } from '../../constants/suporte';
 import { dispatchNavigateTab } from '../../constants/appNavigation';
 
 export interface AbrirChamadoLinkProps {
-  /** Card mais estreito (ex.: cabeçalho da Gestão do Sistema). */
+  /** Card mais estreito (ex.: cabeçalhos com pouco espaço horizontal). */
   compact?: boolean;
   /** Chamado antes de navegar (ex.: exibir o formulário na hora na tela Reportar erro). */
   onAbrirChamado?: () => void;

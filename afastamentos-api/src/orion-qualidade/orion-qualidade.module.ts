@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
 import { OrionQualidadeController } from './orion-qualidade.controller';
 import { OrionQualidadeService } from './orion-qualidade.service';
+import { PrismaService } from '../prisma.service';
 
 @Module({
   controllers: [OrionQualidadeController],
-  providers: [OrionQualidadeService],
+  providers: [OrionQualidadeService, PrismaService],
   exports: [OrionQualidadeService],
 })
 export class OrionQualidadeModule {}

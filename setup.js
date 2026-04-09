@@ -69,7 +69,7 @@ async function main() {
   }
   
   // Verificar se o banco está rodando, se não, iniciar
-  logStep('1/8', 'Verificando se o banco de dados está rodando...');
+  logStep('1/10', 'Verificando se o banco de dados está rodando...');
   try {
     const output = execSync('docker ps --filter name=afastamentos-postgres --format "{{.Names}}"', { 
       encoding: 'utf-8',
@@ -97,7 +97,7 @@ async function main() {
   }
   
   // Aguardar banco estar pronto
-  logStep('2/8', 'Aguardando banco de dados ficar pronto...');
+  logStep('2/10', 'Aguardando banco de dados ficar pronto...');
   const dbReady = await checkDatabase();
   if (!dbReady) {
     log('\n❌ Setup interrompido. Banco de dados não disponível.', 'red');
@@ -118,28 +118,28 @@ async function main() {
     // Verificar se o conteúdo está correto (PostgreSQL)
     const currentContent = fs.readFileSync(envPath, 'utf-8');
     if (!currentContent.includes('postgresql://') && !currentContent.includes('postgres://')) {
-      logStep('3/8', 'Atualizando arquivo .env da API para PostgreSQL...');
+      logStep('3/10', 'Atualizando arquivo .env da API para PostgreSQL...');
       fs.writeFileSync(envPath, expectedEnvContent);
       log('✅ Arquivo .env da API atualizado!', 'green');
     } else {
-      logStep('3/8', 'Arquivo .env da API já existe e está correto.');
+      logStep('3/10', 'Arquivo .env da API já existe e está correto.');
     }
   }
   
   // Instalar dependências da API
   const nodeModulesApi = path.join(apiDir, 'node_modules');
   if (!fs.existsSync(nodeModulesApi)) {
-    logStep('4/8', 'Instalando dependências da API...');
+    logStep('4/10', 'Instalando dependências da API...');
     process.chdir(apiDir);
     execSync('npm install', { stdio: 'inherit', shell: true });
     log('✅ Dependências da API instaladas!', 'green');
     process.chdir(__dirname);
   } else {
-    logStep('4/8', 'Dependências da API já instaladas.');
+    logStep('4/10', 'Dependências da API já instaladas.');
   }
   
   // Configurar Prisma
-  logStep('5/8', 'Configurando banco de dados (Prisma)...');
+  logStep('5/10', 'Configurando banco de dados (Prisma)...');
   process.chdir(apiDir);
   
   // Verificar se as migrations são do MySQL e precisam ser recriadas
@@ -240,7 +240,7 @@ async function main() {
   }
   
   // Rodar seed
-  logStep('6/8', 'Criando usuário administrador inicial...');
+  logStep('6/10', 'Criando usuário administrador inicial...');
   try {
     execSync('npm run prisma:seed', { stdio: 'inherit', shell: true });
     log('✅ Usuário administrador criado!', 'green');
@@ -256,25 +256,50 @@ async function main() {
   const webEnvPath = path.join(webDir, '.env');
   
   if (!fs.existsSync(webEnvPath)) {
-    logStep('7/8', 'Criando arquivo .env do Frontend...');
+    logStep('7/10', 'Criando arquivo .env do Frontend...');
     const webEnvContent = 'VITE_API_URL=http://localhost:3002\n';
     fs.writeFileSync(webEnvPath, webEnvContent);
     log('✅ Arquivo .env do Frontend criado!', 'green');
   } else {
-    logStep('7/8', 'Arquivo .env do Frontend já existe.');
+    logStep('7/10', 'Arquivo .env do Frontend já existe.');
   }
   
   // Instalar dependências do Frontend
   const nodeModulesWeb = path.join(webDir, 'node_modules');
   if (!fs.existsSync(nodeModulesWeb)) {
-    logStep('8/8', 'Instalando dependências do Frontend...');
+    logStep('8/10', 'Instalando dependências do Frontend...');
     process.chdir(webDir);
     execSync('npm install', { stdio: 'inherit', shell: true });
     log('✅ Dependências do Frontend instaladas!', 'green');
     process.chdir(__dirname);
   } else {
-    logStep('8/8', 'Dependências do Frontend já instaladas.');
+    logStep('8/10', 'Dependências do Frontend já instaladas.');
   }
+
+  const orionSpaDirs = ['orion-suporte-web', 'orion-qualidade-web', 'orion-patrimonio-web'];
+  const spaEnvLine = 'VITE_API_URL=http://localhost:3002\n';
+  logStep('9/10', 'Apps Órion (Suporte, Qualidade, Patrimônio): .env e dependências...');
+  for (const dir of orionSpaDirs) {
+    const spaDir = path.join(__dirname, dir);
+    if (!fs.existsSync(spaDir)) {
+      log(`   ⚠️  Pasta ${dir} não encontrada, ignorando.`, 'yellow');
+      continue;
+    }
+    const spaEnvPath = path.join(spaDir, '.env');
+    if (!fs.existsSync(spaEnvPath)) {
+      fs.writeFileSync(spaEnvPath, spaEnvLine);
+      log(`   ✅ .env criado em ${dir}`, 'green');
+    }
+    const spaNodeModules = path.join(spaDir, 'node_modules');
+    if (!fs.existsSync(spaNodeModules)) {
+      log(`   Instalando dependências de ${dir}...`, 'yellow');
+      process.chdir(spaDir);
+      execSync('npm install', { stdio: 'inherit', shell: true });
+      process.chdir(__dirname);
+      log(`   ✅ ${dir}`, 'green');
+    }
+  }
+  logStep('10/10', 'Verificação final do banco...');
   try {
     const result = execSync('docker exec afastamentos-postgres psql -U postgres -d afastamentos_db -c "\\dt"', {
       encoding: 'utf-8',
@@ -293,14 +318,22 @@ async function main() {
   log('   Matrícula: 1966901', 'green');
   log('   Senha: admin123\n', 'green');
   log('🚀 Para iniciar o projeto:', 'cyan');
-  log('   1. Terminal 1 - API:  npm run start:api', 'yellow');
-  log('   2. Terminal 2 - Web:  npm run start:web\n', 'yellow');
-  log('   Ou execute ambos manualmente:', 'cyan');
-  log('   - cd afastamentos-api && npm run start:dev', 'yellow');
-  log('   - cd afastamentos-web && npm run dev\n', 'yellow');
-  log('🌐 URLs:', 'cyan');
-  log('   Frontend: http://localhost:5173', 'green');
-  log('   API:      http://localhost:3002\n', 'green');
+  log('   Raiz: npm run start:full  → API + SAD + Órion Suporte + Órion Qualidade + Órion Patrimônio', 'yellow');
+  log('   (start:full já sobe a API na 3002 — não rode start:api em outro terminal.)', 'yellow');
+  log('   Se a API já estiver rodando: npm run start:full:without-api', 'yellow');
+  log('   Ou separado:', 'cyan');
+  log('   1. npm run start:api', 'yellow');
+  log('   2. npm run start:web', 'yellow');
+  log('   3. npm run start:orion-suporte  (porta 5180)', 'yellow');
+  log('   4. npm run start:orion-qualidade (porta 5182)', 'yellow');
+  log('   5. npm run start:orion-patrimonio (porta 5184)\n', 'yellow');
+  log('   Instalar deps dos SPAs Órion: npm run install:all\n', 'yellow');
+  log('🌐 URLs (dev):', 'cyan');
+  log('   SAD:       http://localhost:5173', 'green');
+  log('   API:       http://localhost:3002', 'green');
+  log('   Suporte:   http://localhost:5180', 'green');
+  log('   Qualidade:  http://localhost:5182', 'green');
+  log('   Patrimônio: http://localhost:5184\n', 'green');
   log('⚠️  IMPORTANTE: Altere a senha após o primeiro login!\n', 'yellow');
 }
 

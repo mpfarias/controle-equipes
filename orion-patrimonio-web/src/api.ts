@@ -1,0 +1,189 @@
+import type { LoginInput, PatrimonioBem, PatrimonioBemSituacao, Usuario } from './types';
+import {
+  gravarAcessoIdSession,
+  gravarTokenSession,
+  migrarELerAcessoIdSession,
+  migrarELerTokenSession,
+  removerAcessoIdSession,
+  removerTokenSession,
+} from './constants/orionEcossistemaAuth';
+
+const envApiUrl = import.meta.env.VITE_API_URL;
+const fallbackApiUrl = `${window.location.protocol}//${window.location.hostname}:3002`;
+const apiUrlFromEnv = envApiUrl?.trim();
+const isEnvLocalhost =
+  apiUrlFromEnv?.includes('localhost') || apiUrlFromEnv?.includes('127.0.0.1');
+const isBrowserRemoteHost =
+  window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+const API_URL =
+  isBrowserRemoteHost && isEnvLocalhost ? fallbackApiUrl : apiUrlFromEnv ?? fallbackApiUrl;
+
+export function getToken(): string | null {
+  return migrarELerTokenSession();
+}
+
+export function setToken(token: string): void {
+  gravarTokenSession(token);
+}
+
+export function removeToken(): void {
+  removerTokenSession();
+}
+
+function getAcessoId(): number | null {
+  return migrarELerAcessoIdSession();
+}
+
+function setAcessoId(acessoId: number): void {
+  gravarAcessoIdSession(acessoId);
+}
+
+function removeAcessoId(): void {
+  removerAcessoIdSession();
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = new Headers(options.headers ?? {});
+  if (!(options.body instanceof FormData)) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const token = getToken();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    let detail = '';
+    try {
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('application/json')) {
+        const text = await response.text();
+        if (text?.trim()) {
+          const errorData = JSON.parse(text) as { message?: string; error?: string };
+          detail = errorData.message ?? errorData.error ?? text;
+        }
+      } else {
+        detail = await response.text();
+      }
+    } catch {
+      detail = response.statusText;
+    }
+    throw new Error(detail || `Erro ${response.status}`);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  const text = await response.text();
+  if (!text) {
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
+}
+
+export const api = {
+  async login(payload: LoginInput): Promise<{ accessToken: string; usuario: Usuario; acessoId?: number }> {
+    const response = await request<{ accessToken: string; usuario: Usuario; acessoId?: number }>(
+      '/auth/login',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
+    setToken(response.accessToken);
+    if (response.acessoId) {
+      setAcessoId(response.acessoId);
+    }
+    return response;
+  },
+
+  async logout(): Promise<void> {
+    const acessoId = getAcessoId();
+    if (acessoId) {
+      try {
+        await request('/acessos/logout', {
+          method: 'POST',
+          body: JSON.stringify({ acessoId }),
+        });
+      } catch {
+        /* ignora */
+      }
+    }
+    removeToken();
+    removeAcessoId();
+  },
+
+  async getMe(): Promise<Usuario> {
+    return request<Usuario>('/auth/me');
+  },
+
+  async patchMeProfile(payload: { fotoUrl?: string }): Promise<Usuario> {
+    return request<Usuario>('/usuarios/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async changePassword(payload: {
+    senhaAtual: string;
+    novaSenha: string;
+  }): Promise<{ message: string }> {
+    return request<{ message: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async listarBens(): Promise<PatrimonioBem[]> {
+    return request<PatrimonioBem[]>('/orion-patrimonio/v1/bens');
+  },
+
+  async criarBem(body: {
+    tombamento: string;
+    descricao: string;
+    categoria?: string;
+    marca?: string;
+    modelo?: string;
+    numeroSerie?: string;
+    localizacaoSetor?: string;
+    situacao?: PatrimonioBemSituacao;
+    observacoes?: string;
+    dataAquisicao?: string;
+    valorAquisicao?: number;
+  }): Promise<PatrimonioBem> {
+    return request<PatrimonioBem>('/orion-patrimonio/v1/bens', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async atualizarBem(
+    id: number,
+    body: Partial<{
+      descricao: string;
+      categoria: string | null;
+      marca: string | null;
+      modelo: string | null;
+      numeroSerie: string | null;
+      localizacaoSetor: string | null;
+      situacao: PatrimonioBemSituacao;
+      observacoes: string | null;
+      dataAquisicao: string | null;
+      valorAquisicao: number | null;
+    }>,
+  ): Promise<PatrimonioBem> {
+    return request<PatrimonioBem>(`/orion-patrimonio/v1/bens/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async excluirBem(id: number): Promise<void> {
+    await request(`/orion-patrimonio/v1/bens/${id}`, { method: 'DELETE' });
+  },
+};
