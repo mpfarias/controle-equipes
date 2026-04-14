@@ -28,6 +28,7 @@ import {
   SupportAgent,
   Visibility,
   VisibilityOff,
+  Woman,
 } from '@mui/icons-material';
 import { GestaoChamadosSection } from './gestao/GestaoChamadosSection';
 import { LoginSuporteView } from './auth/LoginSuporteView';
@@ -57,6 +58,8 @@ function iconeMenuOutroSistema(id: string) {
       return Gavel;
     case 'ORION_PATRIMONIO':
       return Inventory2;
+    case 'ORION_MULHER':
+      return Woman;
     default:
       return Description;
   }

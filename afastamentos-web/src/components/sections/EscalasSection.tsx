@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Alert, Box, Paper, Stack, Tab, Tabs } from '@mui/material';
+import type { EscalasSubTabKey } from '../../constants';
 import type { Usuario } from '../../types';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canView } from '../../utils/permissions';
@@ -11,11 +12,15 @@ import { VisualizarEscalasTab } from './VisualizarEscalasTab';
 interface EscalasSectionProps {
   currentUser: Usuario;
   permissoes?: PermissoesPorTela | null;
+  /** Subaba inicial ao montar ou quando o valor mudar (ex.: vindo do Dashboard). */
+  initialSubTab?: EscalasSubTabKey;
+  /** Incrementado no App ao re-clicar em «Escalas» ou navegar de novo — força voltar à subaba desejada. */
+  subTabSyncNonce?: number;
   /** Atualiza o título da aba do navegador (subárea de Escalas). */
   onPainelTituloChange?: (label: string | null) => void;
 }
 
-type EscalasPainelKey = 'gerar' | 'consultar';
+type EscalasPainelKey = EscalasSubTabKey;
 
 function EscalasTabPanel(props: {
   children?: ReactNode;
@@ -34,7 +39,13 @@ function EscalasTabPanel(props: {
   );
 }
 
-export function EscalasSection({ currentUser, permissoes, onPainelTituloChange }: EscalasSectionProps) {
+export function EscalasSection({
+  currentUser,
+  permissoes,
+  initialSubTab = 'gerar',
+  subTabSyncNonce = 0,
+  onPainelTituloChange,
+}: EscalasSectionProps) {
   const { parsed: escalaParsed, error: errorParametros } = useEscalaParametros();
   const [abaEscalas, setAbaEscalas] = useState(0);
 
@@ -48,6 +59,11 @@ export function EscalasSection({ currentUser, permissoes, onPainelTituloChange }
     }
     return list;
   }, [permissoes]);
+
+  useEffect(() => {
+    const idx = abasVisiveis.findIndex((a) => a.key === initialSubTab);
+    if (idx >= 0) setAbaEscalas(idx);
+  }, [initialSubTab, abasVisiveis, subTabSyncNonce]);
 
   useEffect(() => {
     if (abaEscalas >= abasVisiveis.length) setAbaEscalas(0);

@@ -22,10 +22,20 @@ import {
   TextField,
   Tooltip,
   Typography,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import { Block, Edit } from '@mui/icons-material';
 import { api } from '../../api';
-import type { EscalaGerada, EscalaGeradaResumo, TrocaServicoAtivaListaItem, Usuario } from '../../types';
+import type {
+  EscalaGerada,
+  EscalaGeradaResumo,
+  TrocaServicoAtivaListaItem,
+  TrocaServicoTurno,
+  Usuario,
+} from '../../types';
 import { formatEquipeLabel } from '../../constants';
 import { formatDate, formatMatricula } from '../../utils/dateUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
@@ -40,6 +50,11 @@ import {
 function ymdFromApi(value: string): string {
   const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1]! : value.slice(0, 10);
+}
+
+function labelTurnoTroca(t: TrocaServicoTurno | undefined): string {
+  if (t === 'NOTURNO') return 'Noturno (19h–07h)';
+  return 'Diurno (07h–19h)';
 }
 
 function escalaGeradaToDraft(eg: EscalaGerada): EscalaGeradaDraftPayload {
@@ -81,6 +96,8 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
   const [editRow, setEditRow] = useState<TrocaServicoAtivaListaItem | null>(null);
   const [editDataA, setEditDataA] = useState('');
   const [editDataB, setEditDataB] = useState('');
+  const [editTurnoA, setEditTurnoA] = useState<TrocaServicoTurno>('DIURNO');
+  const [editTurnoB, setEditTurnoB] = useState<TrocaServicoTurno>('DIURNO');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -153,6 +170,8 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
     setEditRow(row);
     setEditDataA(ymdFromApi(row.dataServicoA));
     setEditDataB(ymdFromApi(row.dataServicoB));
+    setEditTurnoA(row.turnoServicoA ?? 'NOTURNO');
+    setEditTurnoB(row.turnoServicoB ?? 'NOTURNO');
   };
 
   const salvarEdicao = async () => {
@@ -163,6 +182,8 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
       await api.updateTrocaServicoDatas(editRow.id, {
         dataServicoA: editDataA.trim(),
         dataServicoB: editDataB.trim(),
+        turnoServicoA: editTurnoA,
+        turnoServicoB: editTurnoB,
       });
       setEditRow(null);
       await carregarTrocas();
@@ -306,24 +327,24 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                           overflowX: 'auto',
                         }}
                       >
-                        <Table size="small" stickyHeader sx={{ minWidth: 860 }}>
+                        <Table size="small" stickyHeader sx={{ minWidth: 920 }}>
                           <TableHead>
                             <TableRow>
                               <TableCell>Policial A</TableCell>
                               <TableCell
-                                sx={{ whiteSpace: 'nowrap', minWidth: 130 }}
-                                title="Data do serviço"
+                                sx={{ whiteSpace: 'nowrap', minWidth: 150 }}
+                                title="Data e turno do serviço trocado"
                                 align="center"
                               >
-                                Data do serviço
+                                Data e turno
                               </TableCell>
                               <TableCell>Policial B</TableCell>
                               <TableCell
-                                sx={{ whiteSpace: 'nowrap', minWidth: 130 }}
-                                title="Data do serviço"
+                                sx={{ whiteSpace: 'nowrap', minWidth: 150 }}
+                                title="Data e turno do serviço trocado"
                                 align="center"
                               >
-                                Data do serviço
+                                Data e turno
                               </TableCell>
                               <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>Situação</TableCell>
                               <TableCell align="right" sx={{ minWidth: 96, whiteSpace: 'nowrap' }}>
@@ -346,8 +367,13 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 Origem: {formatEquipeLabel(row.equipeOrigemA)}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 130 }} align="center">
-                              {formatDate(row.dataServicoA)}
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 150 }} align="center">
+                              <Typography variant="body2" component="span" display="block">
+                                {formatDate(row.dataServicoA)}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" component="span" display="block">
+                                {labelTurnoTroca(row.turnoServicoA)}
+                              </Typography>
                             </TableCell>
                             <TableCell>
                               <Typography
@@ -366,8 +392,13 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 Origem: {formatEquipeLabel(row.equipeOrigemB)}
                               </Typography>
                             </TableCell>
-                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 130 }} align="center">
-                              {formatDate(row.dataServicoB)}
+                            <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 150 }} align="center">
+                              <Typography variant="body2" component="span" display="block">
+                                {formatDate(row.dataServicoB)}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" component="span" display="block">
+                                {labelTurnoTroca(row.turnoServicoB)}
+                              </Typography>
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>
                               {row.status === 'CONCLUIDA' && (
@@ -392,7 +423,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                   <Tooltip
                                     title={
                                       podeAlterarDatas(row)
-                                        ? 'Alterar datas'
+                                        ? 'Alterar datas e turnos'
                                         : 'Após retorno parcial, altere apenas cancelando e registrando nova troca.'
                                     }
                                   >
@@ -402,7 +433,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                         color="warning"
                                         onClick={() => abrirEdicao(row)}
                                         disabled={!podeAlterarDatas(row)}
-                                        aria-label="Alterar datas"
+                                        aria-label="Alterar datas e turnos"
                                       >
                                         <Edit fontSize="small" />
                                       </IconButton>
@@ -547,11 +578,20 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
         </div>
       </div>
 
-      <Dialog open={Boolean(editRow)} onClose={() => !editSaving && setEditRow(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Alterar datas da troca</DialogTitle>
+      <Dialog open={Boolean(editRow)} onClose={() => !editSaving && setEditRow(null)} maxWidth="sm" fullWidth>
+        <DialogTitle>Alterar datas e turnos da troca</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {editError && <Alert severity="error">{editError}</Alert>}
+            {editRow && (
+              <Typography variant="body2" color="text.secondary">
+                Ajuste data e horário (turno 12×24) para cada policial. O cadastro volta à equipe de origem após o fim do
+                turno informado (diurno: 19h do dia; noturno: 07h do dia seguinte, Brasília).
+              </Typography>
+            )}
+            <Typography variant="subtitle2" sx={{ mt: 0.5 }}>
+              {editRow?.policialA.nome ?? 'Policial A'}
+            </Typography>
             <TextField
               label="Data do serviço"
               type="date"
@@ -559,7 +599,23 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
               onChange={(e) => setEditDataA(e.target.value)}
               InputLabelProps={{ shrink: true }}
               fullWidth
+              size="small"
             />
+            <FormControl fullWidth size="small">
+              <InputLabel id="edit-troca-turno-a">Turno do serviço</InputLabel>
+              <Select
+                labelId="edit-troca-turno-a"
+                label="Turno do serviço"
+                value={editTurnoA}
+                onChange={(e) => setEditTurnoA(e.target.value as TrocaServicoTurno)}
+              >
+                <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
+                <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+              </Select>
+            </FormControl>
+            <Typography variant="subtitle2" sx={{ mt: 1 }}>
+              {editRow?.policialB.nome ?? 'Policial B'}
+            </Typography>
             <TextField
               label="Data do serviço"
               type="date"
@@ -567,7 +623,20 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
               onChange={(e) => setEditDataB(e.target.value)}
               InputLabelProps={{ shrink: true }}
               fullWidth
+              size="small"
             />
+            <FormControl fullWidth size="small">
+              <InputLabel id="edit-troca-turno-b">Turno do serviço</InputLabel>
+              <Select
+                labelId="edit-troca-turno-b"
+                label="Turno do serviço"
+                value={editTurnoB}
+                onChange={(e) => setEditTurnoB(e.target.value as TrocaServicoTurno)}
+              >
+                <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
+                <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+              </Select>
+            </FormControl>
           </Stack>
         </DialogContent>
         <DialogActions>

@@ -9,6 +9,7 @@ import {
   type TabKey,
   type TabChangeOptions,
   type AfastamentosSubTabKey,
+  type EscalasSubTabKey,
   type SistemaSubTabKey,
   type PreencherCadastroAfastamentoInput,
 } from './constants';
@@ -17,6 +18,7 @@ import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
 import { getUrlOrionJuridico } from './constants/orionJuridico';
 import { getUrlOrionQualidade } from './constants/orionQualidade';
 import { getUrlOrionPatrimonio } from './constants/orionPatrimonio';
+import { getUrlOrionMulher } from './constants/orionMulher';
 import { getUrlOrionSuporte } from './constants/orionSuporte';
 import {
   expandirPermissoesLegadoEscalas,
@@ -52,6 +54,7 @@ import {
   Inventory2,
   Visibility,
   VisibilityOff,
+  Woman,
 } from '@mui/icons-material';
 import { ImageCropper } from './components/common/ImageCropper';
 import {
@@ -68,6 +71,7 @@ import {
   SISTEMA_ID_APP_ATUAL,
   SISTEMA_ID_ORION_JURIDICO,
   SISTEMA_ID_ORION_PATRIMONIO,
+  SISTEMA_ID_ORION_MULHER,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
   writeSistemaSessao,
@@ -130,6 +134,10 @@ export default function App() {
   const [afastamentosInitialSubTab, setAfastamentosInitialSubTab] = useState<AfastamentosSubTabKey>('afastamentos');
   /** Sub-tab inicial ao navegar para aba Sistema. */
   const [sistemaInitialSubTab, setSistemaInitialSubTab] = useState<SistemaSubTabKey>('usuarios');
+  /** Subaba Escalas (Gerar / Visualizar) ao navegar a partir do menu, Dashboard ou evento global. */
+  const [escalasInitialSubTab, setEscalasInitialSubTab] = useState<EscalasSubTabKey>('gerar');
+  /** Incrementado ao cada navegação explícita para Escalas — reaplica a subaba mesmo se o rótulo não mudar. */
+  const [escalasSubTabSyncNonce, setEscalasSubTabSyncNonce] = useState(0);
   const [avatarMenuAnchor, setAvatarMenuAnchor] = useState<HTMLElement | null>(null);
   const [fotoModalOpen, setFotoModalOpen] = useState(false);
   const [imageForCrop, setImageForCrop] = useState('');
@@ -338,6 +346,10 @@ export default function App() {
       const detail = (event as CustomEvent<NavigateTabEventDetail>).detail;
       if (!detail?.tab) return;
       setActiveTab(detail.tab);
+      if (detail.tab === 'escalas') {
+        setEscalasInitialSubTab(detail.escalasSubTab ?? 'gerar');
+        setEscalasSubTabSyncNonce((n) => n + 1);
+      }
       if (detail.focusChamadoForm) {
         setFocusChamadoFormSeq((n) => n + 1);
       }
@@ -408,6 +420,10 @@ export default function App() {
     }
     if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
       navegarComHandoffJwt(getUrlOrionPatrimonio());
+      return;
+    }
+    if (sistemaId === SISTEMA_ID_ORION_MULHER) {
+      navegarComHandoffJwt(getUrlOrionMulher());
       return;
     }
     if (sistemaId !== SISTEMA_ID_APP_ATUAL) {
@@ -647,6 +663,11 @@ export default function App() {
     return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_PATRIMONIO);
   }, [currentUser]);
 
+  const usuarioPodeOrionMulher = useMemo(() => {
+    if (!currentUser) return false;
+    return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_MULHER);
+  }, [currentUser]);
+
   const [chamadosAbertosGestao, setChamadosAbertosGestao] = useState<number | null>(null);
 
   const carregarContagemChamadosGestao = useCallback(async () => {
@@ -695,10 +716,8 @@ export default function App() {
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
       permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
-    const temAcessoEfetivo =
-      permissoesPorTela['equipe']?.VISUALIZAR ||
-      permissoesPorTela['policiais']?.VISUALIZAR ||
-      permissoesPorTela['troca-servico']?.VISUALIZAR;
+    const temAcessoListaEfetivo =
+      permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
     const temAcessoSistema =
       permissoesPorTela['usuarios']?.VISUALIZAR ||
       permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
@@ -706,7 +725,7 @@ export default function App() {
     return TABS.filter((tab) => {
       if (tab.key === 'reportar-erro') return true;
       if (tab.key === 'afastamentos') return Boolean(temAcessoAfastamentos);
-      if (tab.key === 'equipe') return Boolean(temAcessoEfetivo);
+      if (tab.key === 'equipe') return Boolean(temAcessoListaEfetivo);
       if (tab.key === 'sistema') return Boolean(temAcessoSistema);
       if (tab.key === 'escalas') return temAcessoEscalas(permissoesPorTela);
       return Boolean(permissoesPorTela[tab.key]?.VISUALIZAR);
@@ -762,10 +781,8 @@ export default function App() {
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
       permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
-    const temAcessoEfetivo =
-      permissoesPorTela['equipe']?.VISUALIZAR ||
-      permissoesPorTela['policiais']?.VISUALIZAR ||
-      permissoesPorTela['troca-servico']?.VISUALIZAR;
+    const temAcessoListaEfetivo =
+      permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
     const temAcessoSistema =
       permissoesPorTela['usuarios']?.VISUALIZAR ||
       permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
@@ -776,12 +793,12 @@ export default function App() {
         : activeTab === 'afastamentos'
           ? temAcessoAfastamentos
           : activeTab === 'equipe'
-            ? temAcessoEfetivo
+            ? temAcessoListaEfetivo
             : activeTab === 'sistema'
-              ? temAcessoSistema
-              : activeTab === 'escalas'
-                ? temAcessoEscalas(permissoesPorTela)
-                : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
+                ? temAcessoSistema
+                : activeTab === 'escalas'
+                  ? temAcessoEscalas(permissoesPorTela)
+                  : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
     if (!podeAcessar) {
       const destino =
         (() => {
@@ -789,10 +806,8 @@ export default function App() {
             permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
             permissoesPorTela['afastamentos']?.VISUALIZAR ||
             permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
-          const temEfet =
-            permissoesPorTela['equipe']?.VISUALIZAR ||
-            permissoesPorTela['policiais']?.VISUALIZAR ||
-            permissoesPorTela['troca-servico']?.VISUALIZAR;
+          const temListaEfet =
+            permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
           const temSis =
             permissoesPorTela['usuarios']?.VISUALIZAR ||
             permissoesPorTela['gestao-sistema']?.VISUALIZAR ||
@@ -812,13 +827,33 @@ export default function App() {
             if (k === 'calendario' && permissoesPorTela['calendario']?.VISUALIZAR) return k;
             if (k === 'escalas' && temAcessoEscalas(permissoesPorTela)) return k;
             if (k === 'afastamentos' && temAfast) return k;
-            if (k === 'equipe' && temEfet) return k;
+            if (k === 'equipe' && temListaEfet) return k;
             if (k === 'sistema' && temSis) return k;
           }
           return 'reportar-erro' as TabKey;
         })();
       setActiveTab(destino);
     }
+  }, [currentUser, activeTab, permissoesPorTela, usuarioEhAdministrador]);
+
+  /** Aba dedicada removida: evita tela em branco se o estado ainda for `troca-servico`. */
+  useEffect(() => {
+    if (!currentUser || activeTab !== 'troca-servico') return;
+    if (usuarioEhAdministrador) {
+      setActiveTab('dashboard');
+      return;
+    }
+    if (!permissoesPorTela) return;
+    const temEfetivo =
+      Boolean(permissoesPorTela['equipe']?.VISUALIZAR) ||
+      Boolean(permissoesPorTela['policiais']?.VISUALIZAR);
+    setActiveTab(
+      temEfetivo
+        ? 'equipe'
+        : permissoesPorTela['dashboard']?.VISUALIZAR
+          ? 'dashboard'
+          : 'reportar-erro',
+    );
   }, [currentUser, activeTab, permissoesPorTela, usuarioEhAdministrador]);
 
   if (!currentUser) {
@@ -976,6 +1011,18 @@ export default function App() {
               </IconButton>
             </Tooltip>
           ) : null}
+          {usuarioPodeOrionMulher ? (
+            <Tooltip title="Órion Mulher — abrir em nova aba">
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionMulher())}
+                aria-label="Abrir Órion Mulher"
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <Woman sx={{ fontSize: 24 }} />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           {usuarioPodeOrionJuridico ? (
             <Tooltip title="Órion Jurídico — abrir em nova aba">
               <IconButton
@@ -1047,6 +1094,17 @@ export default function App() {
               >
                 <Inventory2 sx={{ mr: 1.5, fontSize: 20 }} />
                 Órion Patrimônio
+              </MenuItem>
+            ) : null}
+            {usuarioPodeOrionMulher ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionMulher());
+                }}
+              >
+                <Woman sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Mulher
               </MenuItem>
             ) : null}
             {usuarioPodeOrionJuridico ? (
@@ -1313,6 +1371,10 @@ export default function App() {
               setActiveTab(tab.key);
               if (tab.key === 'afastamentos') setAfastamentosInitialSubTab('afastamentos');
               if (tab.key === 'sistema') setSistemaInitialSubTab('usuarios');
+              if (tab.key === 'escalas') {
+                setEscalasInitialSubTab('gerar');
+                setEscalasSubTabSyncNonce((n) => n + 1);
+              }
             }}
               >
                 {tab.label}
@@ -1345,6 +1407,10 @@ export default function App() {
                 if (options?.subTab) setAfastamentosInitialSubTab(options.subTab);
                 if (options?.preencherCadastro) setAfastamentosPreencherCadastro(options.preencherCadastro);
               }
+              if (tab === 'escalas') {
+                setEscalasInitialSubTab(options?.escalasSubTab ?? 'gerar');
+                setEscalasSubTabSyncNonce((n) => n + 1);
+              }
             }}
             refreshKeyPoliciais={policiaisVersion}
             refreshKeyAfastamentos={afastamentosVersion}
@@ -1355,6 +1421,8 @@ export default function App() {
           <EscalasSection
             currentUser={currentUser}
             permissoes={permissoesPorTela}
+            initialSubTab={escalasInitialSubTab}
+            subTabSyncNonce={escalasSubTabSyncNonce}
             onPainelTituloChange={handlePainelTituloSAD}
           />
         )}

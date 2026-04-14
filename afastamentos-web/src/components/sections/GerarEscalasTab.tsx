@@ -212,7 +212,8 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
     writeEscalaGeradaLoadingWindow(win);
 
     try {
-      const [funcoes, policiais, afastamentos] = await Promise.all([
+      await api.processarRevertesTrocaServico();
+      const [funcoes, policiais, afastamentos, trocasServicoAtivas] = await Promise.all([
         api.listFuncoes(),
         carregarTodosPoliciaisAtivos(),
         api.listAfastamentos({
@@ -221,6 +222,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
           status: 'ATIVO',
           includePolicialFuncao: false,
         }),
+        api.listTrocasServicoAtivas(),
       ]);
 
       /** Sempre no momento da geração (evita IDs vazios por corrida com o useEffect ou falha silenciosa no carregamento). */
@@ -243,6 +245,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
           funcoesExpedienteIds: [...idsExpGeracao],
           operacionalTurnos:
             tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined,
+          trocasServicoAtivas,
           dataGeracaoIso: new Date().toISOString(),
         },
       );

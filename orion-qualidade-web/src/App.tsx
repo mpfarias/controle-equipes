@@ -30,6 +30,7 @@ import {
   SupportAgent,
   Visibility,
   VisibilityOff,
+  Woman,
 } from '@mui/icons-material';
 import { LoginQualidadeView } from './auth/LoginQualidadeView';
 import { ImageCropper } from './components/common/ImageCropper';
@@ -57,6 +58,8 @@ function iconeMenuOutroSistema(id: string) {
       return SupportAgent;
     case 'ORION_PATRIMONIO':
       return Inventory2;
+    case 'ORION_MULHER':
+      return Woman;
     default:
       return Description;
   }

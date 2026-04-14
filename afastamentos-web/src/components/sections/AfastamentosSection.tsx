@@ -144,16 +144,23 @@ function tituloIconeDesativarAfastamento(af: Afastamento): string {
 
 const formFieldSx = {
   '& .MuiOutlinedInput-root': {
+    backgroundColor: theme.cardBg,
     borderRadius: '8px',
     fontSize: '0.95rem',
+    color: theme.textPrimary,
     '& fieldset': { borderColor: 'var(--border-soft)' },
     '&:hover fieldset': { borderColor: 'var(--border-soft)' },
     '&.Mui-focused fieldset': {
       borderColor: 'var(--accent-muted)',
       boxShadow: '0 0 0 3px rgba(107, 155, 196, 0.2)',
     },
-    '& input, & textarea': { padding: '10px 12px' },
+    '& input, & textarea, & .MuiSelect-select': { padding: '10px 12px' },
   },
+  '& .MuiInputLabel-root': {
+    color: theme.textSecondary,
+    '&.Mui-focused': { color: theme.accentMuted },
+  },
+  '& .MuiSvgIcon-root': { color: theme.textSecondary },
 };
 
 interface AfastamentosSectionProps {
@@ -2814,7 +2821,7 @@ export function AfastamentosSection({
               placeholder="Pesquisar por nome ou matrícula"
               value={searchTermPrevisao}
               onChange={(e) => setSearchTermPrevisao(e.target.value.toUpperCase())}
-              sx={{ minWidth: 220 }}
+              sx={{ minWidth: 220, ...formFieldSx }}
             />
             <TextField
               select
@@ -2827,7 +2834,7 @@ export function AfastamentosSection({
               }}
               SelectProps={{ native: true }}
               InputLabelProps={{ shrink: true }}
-              sx={{ minWidth: 130 }}
+              sx={{ minWidth: 130, ...formFieldSx }}
             >
               {anosSelectFiltroPrevisao.map((y) => (
                 <option key={y} value={y}>
@@ -2835,7 +2842,7 @@ export function AfastamentosSection({
                 </option>
               ))}
             </TextField>
-            <FormControl size="small" sx={{ minWidth: 140 }}>
+            <FormControl size="small" sx={{ minWidth: 140, ...formFieldSx }}>
               <InputLabel id="previsao-mes-label">Mês</InputLabel>
               <Select
                 labelId="previsao-mes-label"
@@ -2845,6 +2852,15 @@ export function AfastamentosSection({
                   const v = String(e.target.value ?? '');
                   setMesFiltroPrevisao(v === '' ? '' : Number(v));
                   setPaginaAtualPrevisao(1);
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      bgcolor: theme.cardBg,
+                      border: `1px solid ${theme.borderSoft}`,
+                      '& .MuiMenuItem-root': { color: theme.textPrimary },
+                    },
+                  },
                 }}
               >
                 {mesesPrevisao.map((m) => (
@@ -2862,7 +2878,7 @@ export function AfastamentosSection({
             >
               Atualizar lista
             </Button>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+            <FormControl size="small" sx={{ minWidth: 120, ...formFieldSx }}>
               <InputLabel id="previsao-itens-label">Itens por página</InputLabel>
               <Select
                 labelId="previsao-itens-label"
@@ -2871,6 +2887,15 @@ export function AfastamentosSection({
                 onChange={(e) => {
                   setItensPorPaginaPrevisao(Number(e.target.value));
                   setPaginaAtualPrevisao(1);
+                }}
+                MenuProps={{
+                  PaperProps: {
+                    sx: {
+                      bgcolor: theme.cardBg,
+                      border: `1px solid ${theme.borderSoft}`,
+                      '& .MuiMenuItem-root': { color: theme.textPrimary },
+                    },
+                  },
                 }}
               >
                 <MenuItem value={10}>10</MenuItem>

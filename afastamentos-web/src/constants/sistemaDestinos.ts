@@ -4,6 +4,7 @@ import { SISTEMAS_EXTERNOS_OPTIONS } from './sistemasExternos';
 import { getUrlOrionQualidade } from './orionQualidade';
 import { getUrlOrionJuridico } from './orionJuridico';
 import { getUrlOrionPatrimonio } from './orionPatrimonio';
+import { getUrlOrionMulher } from './orionMulher';
 
 /** Este front (Órion / SAD) — permanece na SPA ao escolher. */
 export const SISTEMA_ID_APP_ATUAL = 'SAD' as const;
@@ -15,6 +16,7 @@ export const SISTEMA_ID_ORION_SUPORTE = 'ORION_SUPORTE' as const;
 export const SISTEMA_ID_ORION_QUALIDADE = 'ORION_QUALIDADE' as const;
 export const SISTEMA_ID_ORION_JURIDICO = 'ORION_JURIDICO' as const;
 export const SISTEMA_ID_ORION_PATRIMONIO = 'ORION_PATRIMONIO' as const;
+export const SISTEMA_ID_ORION_MULHER = 'ORION_MULHER' as const;
 
 const ENV_URL_KEYS: Record<string, keyof ImportMetaEnv> = {
   OPERACOES: 'VITE_SISTEMA_URL_OPERACOES',
@@ -43,6 +45,10 @@ export function getSistemaDestino(sistemaId: string): DestinoSistema {
   }
   if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
     const url = getUrlOrionPatrimonio();
+    return { tipo: 'orion-handoff', url, configurado: Boolean(url) };
+  }
+  if (sistemaId === SISTEMA_ID_ORION_MULHER) {
+    const url = getUrlOrionMulher();
     return { tipo: 'orion-handoff', url, configurado: Boolean(url) };
   }
   const envKey = ENV_URL_KEYS[sistemaId];
@@ -74,6 +80,9 @@ export function labelSistema(sistemaId: string): string {
   }
   if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
     return 'Órion Patrimônio';
+  }
+  if (sistemaId === SISTEMA_ID_ORION_MULHER) {
+    return 'Órion Mulher';
   }
   return SISTEMAS_EXTERNOS_OPTIONS.find((o) => o.id === sistemaId)?.label ?? sistemaId;
 }

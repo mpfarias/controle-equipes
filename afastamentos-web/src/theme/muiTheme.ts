@@ -186,6 +186,7 @@ export const muiTheme = createTheme({
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
+          backgroundColor: designTokens.cardBg,
           '& fieldset': {
             borderColor: designTokens.borderSoft,
             borderWidth: '1px',

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../api';
-import type { Afastamento, Policial, Equipe, FuncaoOption, PolicialStatus, Usuario, EquipeOption, HorarioSvg } from '../../types';
+import type {
+  Afastamento,
+  Policial,
+  Equipe,
+  FuncaoOption,
+  PolicialStatus,
+  Usuario,
+  EquipeOption,
+  HorarioSvg,
+  TrocaServicoTurno,
+} from '../../types';
 import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, STATUS_LABEL, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
 import {
   SVG_INTERVALO_ESCALAS_HORAS,
@@ -102,21 +112,21 @@ function timestampDataDesligamentoPolicial(p: Policial): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
-/** Texto para coluna “Desligamento” na lista (data cadastrada ou instante da desativação). */
+/** Texto para coluna “Desligamento” na lista (data cadastrada ou instante da desativação); sem data → traço. */
 function textoDataDesligamentoLista(p: Policial): string {
   const a = p.dataDesativacaoAPartirDe;
   const b = p.desativadoEm;
   if (a != null && String(a).trim() !== '') {
     const d = new Date(a);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
+    return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR');
   }
   if (b != null && String(b).trim() !== '') {
     const d = new Date(b);
     return Number.isNaN(d.getTime())
-      ? '—'
+      ? '-'
       : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
-  return '—';
+  return '-';
 }
 
 export function MostrarEquipeSection({
@@ -264,6 +274,8 @@ export function MostrarEquipeSection({
   const [trocaPolicialOutroId, setTrocaPolicialOutroId] = useState<number | ''>('');
   const [trocaDataPolicialOrigem, setTrocaDataPolicialOrigem] = useState('');
   const [trocaDataPolicialOutro, setTrocaDataPolicialOutro] = useState('');
+  const [trocaTurnoPolicialOrigem, setTrocaTurnoPolicialOrigem] = useState<TrocaServicoTurno>('DIURNO');
+  const [trocaTurnoPolicialOutro, setTrocaTurnoPolicialOutro] = useState<TrocaServicoTurno>('DIURNO');
   const [trocaCandidatos, setTrocaCandidatos] = useState<Policial[]>([]);
   const [trocaCandidatosLoading, setTrocaCandidatosLoading] = useState(false);
   const [trocaSubmitting, setTrocaSubmitting] = useState(false);
@@ -844,12 +856,9 @@ export function MostrarEquipeSection({
     }
   }, []);
   const [ordenacao, setOrdenacao] = useState<{
-    campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao';
+    campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento';
     direcao: 'asc' | 'desc';
   } | null>(null);
-  /** Só faz sentido com filtro exclusivo de desativados; ordena por data de desligamento (backend + cliente). */
-  const [organizarPorDataDesligamento, setOrganizarPorDataDesligamento] = useState(false);
-  const [mostrarDatasDesligamento, setMostrarDatasDesligamento] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(50);
   const [totalPoliciais, setTotalPoliciais] = useState(0);
@@ -962,19 +971,6 @@ export function MostrarEquipeSection({
     }
   }, [statusSelecionados, excluirDesativados]);
 
-  /** Mostra o atalho quando o usuário incluiu “Desativado” no filtro avançado (caso de uso principal). */
-  const mostrarLinkOrdenacaoDesligamento = useMemo(
-    () => statusSelecionados.includes('DESATIVADO'),
-    [statusSelecionados],
-  );
-
-  useEffect(() => {
-    if (!mostrarLinkOrdenacaoDesligamento) {
-      setOrganizarPorDataDesligamento(false);
-      setMostrarDatasDesligamento(false);
-    }
-  }, [mostrarLinkOrdenacaoDesligamento]);
-
   const carregarPoliciais = useCallback(async (page: number, pageSize: number) => {
     try {
       setLoading(true);
@@ -1046,10 +1042,7 @@ export function MostrarEquipeSection({
       if (funcoesSelecionadas.length > 0 && !buscarTodosParaFiltro) {
         params.funcaoIds = funcoesSelecionadas;
       }
-      if (organizarPorDataDesligamento && statusSelecionados.includes('DESATIVADO')) {
-        params.orderBy = 'dataDesligamento';
-        params.orderDir = 'desc';
-      } else if (ordenacao && !buscarTodos) {
+      if (ordenacao && !buscarTodos) {
         params.orderBy = ordenacao.campo;
         params.orderDir = ordenacao.direcao;
       }
@@ -1106,8 +1099,6 @@ export function MostrarEquipeSection({
     excluirDesativados,
     somenteComRestricaoMedica,
     tabAtiva,
-    organizarPorDataDesligamento,
-    statusSelecionados,
   ]);
 
   const carregarFuncoes = useCallback(async () => {
@@ -1197,7 +1188,16 @@ export function MostrarEquipeSection({
 
   useEffect(() => {
     void carregarPoliciais(paginaAtual, itensPorPagina);
-  }, [carregarPoliciais, paginaAtual, itensPorPagina, refreshKey, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, debouncedSearchTerm]);
+  }, [
+    carregarPoliciais,
+    paginaAtual,
+    itensPorPagina,
+    refreshKey,
+    equipesSelecionadas,
+    statusSelecionados,
+    funcoesSelecionadas,
+    debouncedSearchTerm,
+  ]);
 
   useEffect(() => {
     void carregarFuncoes();
@@ -1246,6 +1246,8 @@ export function MostrarEquipeSection({
     setTrocaCandidatos([]);
     setTrocaOrigensLista([]);
     setTrocaOrigensLoading(false);
+    setTrocaTurnoPolicialOrigem('DIURNO');
+    setTrocaTurnoPolicialOutro('DIURNO');
   }, []);
 
   const carregarCandidatosTroca = useCallback(
@@ -1341,6 +1343,8 @@ export function MostrarEquipeSection({
     const hoje = hojeIsoLocal();
     setTrocaDataPolicialOrigem(hoje);
     setTrocaDataPolicialOutro(hoje);
+    setTrocaTurnoPolicialOrigem('DIURNO');
+    setTrocaTurnoPolicialOutro('DIURNO');
     setTrocaModalError(null);
     setTrocaCandidatos([]);
     setTrocaModalOpen(true);
@@ -1367,6 +1371,8 @@ export function MostrarEquipeSection({
       const hoje = hojeIsoLocal();
       setTrocaDataPolicialOrigem(hoje);
       setTrocaDataPolicialOutro(hoje);
+      setTrocaTurnoPolicialOrigem('DIURNO');
+      setTrocaTurnoPolicialOutro('DIURNO');
       setTrocaModalError(null);
       setTrocaOrigensLista([]);
       setTrocaModalOpen(true);
@@ -1392,11 +1398,13 @@ export function MostrarEquipeSection({
         policialOutroId: Number(trocaPolicialOutroId),
         dataServicoPolicialOrigem: trocaDataPolicialOrigem.trim(),
         dataServicoPolicialOutro: trocaDataPolicialOutro.trim(),
+        turnoServicoPolicialOrigem: trocaTurnoPolicialOrigem,
+        turnoServicoPolicialOutro: trocaTurnoPolicialOutro,
       });
       await api.processarRevertesTrocaServico();
       fecharModalTroca();
       setSuccess(
-        'Troca de serviço registrada. As equipes foram invertidas imediatamente; após cada data de serviço (calendário de Brasília), o policial volta automaticamente à equipe de origem.',
+        'Troca de serviço registrada. As equipes foram invertidas imediatamente; após o fim do turno informado para cada data (diurno: até 19h; noturno: até 07h do dia seguinte, horário de Brasília), cada policial volta automaticamente à equipe de origem.',
       );
       void carregarPoliciais(paginaAtual, itensPorPagina);
       onChanged?.();
@@ -1759,16 +1767,19 @@ export function MostrarEquipeSection({
       if (excluirDesativados) {
         base = base.filter((p) => p.status !== 'DESATIVADO');
       }
-      if (organizarPorDataDesligamento) {
-        return [...base];
-      }
       return [...base].sort((a, b) => {
+        const campo = ordenacao?.campo ?? 'nome';
+        const dir = ordenacao?.direcao ?? 'asc';
+        if (campo === 'dataDesligamento') {
+          const ta = timestampDataDesligamentoPolicial(a);
+          const tb = timestampDataDesligamentoPolicial(b);
+          if (ta !== tb) return dir === 'desc' ? tb - ta : ta - tb;
+          return comparePorPatenteENome(a, b);
+        }
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
         if (aDesativado && !bDesativado) return 1;
         if (!aDesativado && bDesativado) return -1;
-        const campo = ordenacao?.campo ?? 'nome';
-        const dir = ordenacao?.direcao ?? 'asc';
         if (campo === 'nome') {
           const cmp = comparePorPatenteENome(a, b);
           return dir === 'asc' ? cmp : -cmp;
@@ -1854,15 +1865,16 @@ export function MostrarEquipeSection({
       resultado = resultado.filter((policial) => policial.restricaoMedicaId != null);
     }
 
-    if (organizarPorDataDesligamento) {
+    if (ordenacao) {
       resultado = [...resultado].sort((a, b) => {
-        const ta = timestampDataDesligamentoPolicial(a);
-        const tb = timestampDataDesligamentoPolicial(b);
-        if (tb !== ta) return tb - ta;
-        return comparePorPatenteENome(a, b);
-      });
-    } else if (ordenacao) {
-      resultado = [...resultado].sort((a, b) => {
+        if (ordenacao.campo === 'dataDesligamento') {
+          const ta = timestampDataDesligamentoPolicial(a);
+          const tb = timestampDataDesligamentoPolicial(b);
+          if (ta !== tb) {
+            return ordenacao.direcao === 'desc' ? tb - ta : ta - tb;
+          }
+          return comparePorPatenteENome(a, b);
+        }
         const aDesativado = a.status === 'DESATIVADO';
         const bDesativado = b.status === 'DESATIVADO';
         if (aDesativado && !bDesativado) return 1;
@@ -1884,8 +1896,16 @@ export function MostrarEquipeSection({
             valorA = a.equipe || '';
             valorB = b.equipe || '';
             break;
+          case 'status':
+            valorA = (a.status ?? '').toUpperCase();
+            valorB = (b.status ?? '').toUpperCase();
+            break;
+          case 'funcao':
+            valorA = (a.funcao?.nome ?? '').toUpperCase();
+            valorB = (b.funcao?.nome ?? '').toUpperCase();
+            break;
           default:
-            return 0;
+            return comparePorPatenteENome(a, b);
         }
 
         const comparacao = valorA < valorB ? -1 : valorA > valorB ? 1 : 0;
@@ -1913,7 +1933,6 @@ export function MostrarEquipeSection({
     somenteComRestricaoMedica,
     ordenacao,
     paginacaoNoServidor,
-    organizarPorDataDesligamento,
   ]);
 
   // Recalcular total e paginação baseado nos dados filtrados
@@ -1973,8 +1992,9 @@ export function MostrarEquipeSection({
     setPaginaAtual(1);
   }, [normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, somenteComRestricaoMedica]);
 
-  const handleOrdenacao = (campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao') => {
-    setOrganizarPorDataDesligamento(false);
+  const handleOrdenacao = (
+    campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento',
+  ) => {
     setOrdenacao((prev) => {
       if (prev?.campo === campo) {
         // Mesmo campo: 1º clique = asc, 2º = desc, 3º = remove ordenação (volta ao padrão)
@@ -2015,10 +2035,7 @@ export function MostrarEquipeSection({
     }
     if (statusSelecionados.length > 0) params.statuses = statusSelecionados;
     if (funcoesSelecionadas.length > 0 && !buscarTodosParaFiltro) params.funcaoIds = funcoesSelecionadas;
-    if (organizarPorDataDesligamento && statusSelecionados.includes('DESATIVADO')) {
-      params.orderBy = 'dataDesligamento';
-      params.orderDir = 'desc';
-    } else if (ordenacao && !buscarTodosParaFiltro) {
+    if (ordenacao && !buscarTodosParaFiltro) {
       params.orderBy = ordenacao.campo;
       params.orderDir = ordenacao.direcao;
     }
@@ -2072,7 +2089,7 @@ export function MostrarEquipeSection({
     );
     y += 8;
 
-    const head = [['Policial', 'Matrícula', 'Status', 'Função', 'Equipe']];
+    const head = [['Policial', 'Matrícula', 'Status', 'Função', 'Equipe', 'Data desligamento', 'Telefone']];
     const body = listaPdf.map((p) => [
       p.nome,
       p.status === 'COMISSIONADO' && (p.matriculaComissionadoGdf ?? '').trim()
@@ -2081,6 +2098,8 @@ export function MostrarEquipeSection({
       POLICIAL_STATUS_OPTIONS.find((o) => o.value === p.status)?.label ?? p.status,
       p.funcao?.nome ? formatNome(p.funcao.nome) : '—',
       formatEquipeLabel(p.equipe) === '—' ? '—' : (p.equipe ?? '—'),
+      textoDataDesligamentoLista(p),
+      p.telefone ? maskTelefone(p.telefone) : '—',
     ]);
 
     autoTable(doc, {
@@ -2134,7 +2153,6 @@ export function MostrarEquipeSection({
     excluirDesativados,
     somenteComRestricaoMedica,
     ordenacao,
-    organizarPorDataDesligamento,
   ]);
 
   return (
@@ -2544,97 +2562,6 @@ export function MostrarEquipeSection({
         <p className="empty-state">Carregando policiais...</p>
       ) : (
         <>
-          {mostrarLinkOrdenacaoDesligamento && (
-            <Box
-              sx={{
-                mb: 2,
-                p: 1.5,
-                borderRadius: '8px',
-                border: `1px solid ${theme.borderSoft}`,
-                bgcolor: theme.alertInfoBg,
-                boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-              }}
-            >
-              <Typography
-                variant="caption"
-                display="block"
-                sx={{ mb: 1.25, color: theme.textSecondary, lineHeight: 1.45 }}
-              >
-                Filtro com status Desativado: ordene por data de desligamento ou exiba a coluna na tabela.
-              </Typography>
-              <Stack direction="row" flexWrap="wrap" gap={1} alignItems="center">
-                <Button
-                  type="button"
-                  variant={organizarPorDataDesligamento ? 'contained' : 'outlined'}
-                  size="small"
-                  title="Ordena pela data informada na desativação (mais recente primeiro); sem essa data, usa o registro de desativação no sistema."
-                  onClick={() => {
-                    setOrganizarPorDataDesligamento((v) => !v);
-                    setPaginaAtual(1);
-                  }}
-                  sx={{
-                    textTransform: 'none',
-                    fontSize: '0.75rem',
-                    py: 0.35,
-                    px: 1,
-                    minHeight: 28,
-                    lineHeight: 1.2,
-                    ...(organizarPorDataDesligamento
-                      ? {
-                          bgcolor: theme.sentinelaBlue,
-                          color: theme.textPrimary,
-                          boxShadow: 'none',
-                          '&:hover': { bgcolor: '#0d2438', boxShadow: 'none' },
-                        }
-                      : {
-                          borderColor: theme.borderSoft,
-                          color: theme.textPrimary,
-                          '&:hover': { borderColor: theme.accentMuted, bgcolor: 'rgba(107, 155, 196, 0.08)' },
-                        }),
-                  }}
-                >
-                  {organizarPorDataDesligamento ? 'Ordem padrão' : 'Organizar por data'}
-                </Button>
-                <Button
-                  type="button"
-                  variant={mostrarDatasDesligamento ? 'contained' : 'outlined'}
-                  size="small"
-                  title="Exibe ou oculta a coluna com a data de desligamento de cada policial."
-                  onClick={() => setMostrarDatasDesligamento((v) => !v)}
-                  sx={{
-                    textTransform: 'none',
-                    fontSize: '0.75rem',
-                    py: 0.35,
-                    px: 1,
-                    minHeight: 28,
-                    lineHeight: 1.2,
-                    ...(mostrarDatasDesligamento
-                      ? {
-                          bgcolor: theme.sentinelaBlue,
-                          color: theme.textPrimary,
-                          boxShadow: 'none',
-                          '&:hover': { bgcolor: '#0d2438', boxShadow: 'none' },
-                        }
-                      : {
-                          borderColor: theme.borderSoft,
-                          color: theme.textPrimary,
-                          '&:hover': { borderColor: theme.accentMuted, bgcolor: 'rgba(107, 155, 196, 0.08)' },
-                        }),
-                  }}
-                >
-                  {mostrarDatasDesligamento ? 'Ocultar datas' : 'Mostrar datas de desligamento'}
-                </Button>
-              </Stack>
-              {(organizarPorDataDesligamento || mostrarDatasDesligamento) && (
-                <Typography variant="caption" display="block" sx={{ mt: 1, color: theme.statusPttcText, lineHeight: 1.45 }}>
-                  {organizarPorDataDesligamento &&
-                    'Ordenação: data da desativação (mais recente primeiro); na falta dela, data/hora do registro. '}
-                  {mostrarDatasDesligamento &&
-                    'A coluna Telefone é trocada por Desligamento (data do cadastro da desativação ou do registro).'}
-                </Typography>
-              )}
-            </Box>
-          )}
           {totalPoliciais === 0 ? (
             <p className="empty-state">
               {searchTerm.trim() ||
@@ -2812,15 +2739,45 @@ export function MostrarEquipeSection({
                     )}
                   </button>
                 </th>
-                <th
-                  style={{
-                    color: 'var(--text-primary)',
-                    whiteSpace: 'nowrap',
-                    fontSize: mostrarDatasDesligamento ? '0.85rem' : undefined,
-                  }}
-                >
-                  {mostrarDatasDesligamento ? 'Desligamento' : 'Telefone'}
+                <th>
+                  <button
+                    type="button"
+                    onClick={() => handleOrdenacao('dataDesligamento')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      font: 'inherit',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      fontWeight: ordenacao?.campo === 'dataDesligamento' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'nowrap',
+                      fontSize: '0.85rem',
+                    }}
+                    title={
+                      ordenacao?.campo === 'dataDesligamento'
+                        ? `Ordenar por data do desligamento (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter`
+                        : 'Ordenar por data do desligamento'
+                    }
+                  >
+                    Data do desligamento
+                    {ordenacao?.campo === 'dataDesligamento' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
+                    )}
+                  </button>
                 </th>
+                <th style={{ color: 'var(--text-primary)' }}>Telefone</th>
                 <th style={{ color: 'var(--text-primary)' }}>Ações</th>
               </tr>
             </thead>
@@ -2926,19 +2883,16 @@ export function MostrarEquipeSection({
                   )}
                 </td>
                 <td
-                  style={
-                    mostrarDatasDesligamento
-                      ? { fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }
-                      : undefined
-                  }
+                  style={{
+                    fontSize: '0.8rem',
+                    color: 'var(--text-secondary)',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
-                  {mostrarDatasDesligamento ? (
-                    policial.status === 'DESATIVADO' ? (
-                      textoDataDesligamentoLista(policial)
-                    ) : (
-                      <span style={{ fontStyle: 'italic' }}>—</span>
-                    )
-                  ) : policial.telefone ? (
+                  {textoDataDesligamentoLista(policial)}
+                </td>
+                <td>
+                  {policial.telefone ? (
                     maskTelefone(policial.telefone)
                   ) : (
                     <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>—</span>
@@ -3111,9 +3065,10 @@ export function MostrarEquipeSection({
               <strong>Troca de serviço é sempre entre dois policiais de equipes diferentes</strong> — não há troca com quem
               é da mesma equipe. Policiais elegíveis: escala 12×24 (cinco equipes), motorista de dia (24×72), ou Designado
               / PTTC / Comissionado. As equipes são invertidas na hora até as datas abaixo; depois cada um retorna à equipe
-              original. Cada data deve ser um dia em que, na escala 12×24, **a equipe do próprio policial ou a do parceiro**
-              esteja de serviço (dia ou noite) — assim vale tanto o turno “normal” do cadastro quanto o dia em que um
-              substitui o outro. Motoristas seguem a escala 24×72. Parâmetros em Gestão de escalas e Calendário.
+              original. Informe também o **horário (turno)** de cada data: isso define quando o cadastro volta à equipe de
+              origem e deve bater com a escala 12×24 (equipe do parceiro no turno diurno ou noturno daquele dia). Cada
+              data deve ser um dia em que **a equipe do próprio policial ou a do parceiro** esteja de serviço na escala
+              12×24. Motoristas de dia: use sempre turno diurno (07h–19h). Parâmetros em Gestão de escalas e Calendário.
             </Typography>
 
             {trocaModalError && (
@@ -3263,6 +3218,30 @@ export function MostrarEquipeSection({
                   onChange={(e) => setTrocaDataPolicialOutro(e.target.value)}
                   InputLabelProps={{ shrink: true }}
                 />
+                <FormControl size="small" fullWidth sx={formFieldSx}>
+                  <InputLabel id="troca-turno-origem-label">Horário do serviço — policial de origem</InputLabel>
+                  <Select
+                    labelId="troca-turno-origem-label"
+                    label="Horário do serviço — policial de origem"
+                    value={trocaTurnoPolicialOrigem}
+                    onChange={(e) => setTrocaTurnoPolicialOrigem(e.target.value as TrocaServicoTurno)}
+                  >
+                    <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
+                    <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+                  </Select>
+                </FormControl>
+                <FormControl size="small" fullWidth sx={formFieldSx}>
+                  <InputLabel id="troca-turno-outro-label">Horário do serviço — outro policial</InputLabel>
+                  <Select
+                    labelId="troca-turno-outro-label"
+                    label="Horário do serviço — outro policial"
+                    value={trocaTurnoPolicialOutro}
+                    onChange={(e) => setTrocaTurnoPolicialOutro(e.target.value as TrocaServicoTurno)}
+                  >
+                    <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
+                    <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+                  </Select>
+                </FormControl>
               </>
             )}
           </Stack>

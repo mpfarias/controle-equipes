@@ -20,6 +20,9 @@ export type EfetivoSubTabKey = 'equipe' | 'policiais';
 /** Aba geral "Sistema" - agrupa as telas relacionadas. */
 export type SistemaSubTabKey = 'usuarios' | 'gestao-sistema' | 'relatorios';
 
+/** Subáreas da aba Escalas (Gerar vs Visualizar). */
+export type EscalasSubTabKey = 'gerar' | 'consultar';
+
 /** Payload ao abrir «Gerenciar afastamentos» já com policial/motivo (ex.: dashboard). */
 export type PreencherCadastroAfastamentoInput = {
   policialId: number;
@@ -32,6 +35,8 @@ export type TabChangeOptions = {
   preencherCadastro?: PreencherCadastroAfastamentoInput;
   /** Sub-tab a abrir ao navegar para a aba Afastamentos. */
   subTab?: AfastamentosSubTabKey;
+  /** Sub-tab a abrir ao navegar para a aba Escalas (Gerar / Visualizar). */
+  escalasSubTab?: EscalasSubTabKey;
 };
 
 export type TabKey =
@@ -44,7 +49,7 @@ export type TabKey =
   | 'escalas-gerar'
   /** Consultar / imprimir escalas salvas (aba Visualizar). */
   | 'escalas-consultar'
-  /** Registrar e gerenciar trocas de serviço (Efetivo + área de trocas em Escalas). */
+  /** Permissão granular (ex.: ver trocas em Escalas – Consultar); troca no cadastro é no Efetivo. */
   | 'troca-servico'
   | 'sistema'
   | 'afastamentos-mes'

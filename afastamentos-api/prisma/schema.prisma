@@ -156,6 +156,7 @@ model Usuario {
    * Órion Suporte: null = herdar do nível; true = garantir acesso; false = bloquear mesmo que o nível conceda.
    */
   acessoOrionSuporte    Boolean?
+  /** SPAs do ecossistema: SAD, OPERACOES, ORION_QUALIDADE, ORION_JURIDICO, ORION_PATRIMONIO, ORION_MULHER, … (ver `SISTEMAS_EXTERNOS_IDS` na API). */
   sistemasPermitidos    String[]      @default([])
   createdById           Int?
   createdByName         String?
@@ -463,6 +464,12 @@ enum TrocaServicoStatus {
   CANCELADA
 }
 
+/** Turno 12×24 da escala operacional coberto pela troca (revert após o fim desse turno em Brasília). */
+enum TrocaServicoTurno {
+  DIURNO
+  NOTURNO
+}
+
 /** Troca temporária de equipe entre dois policiais; após as datas de serviço, equipes de origem são restauradas. */
 model TrocaServico {
   id            Int                @id @default(autoincrement())
@@ -474,6 +481,8 @@ model TrocaServico {
   equipeOrigemB String?
   dataServicoA  DateTime           @db.Date
   dataServicoB  DateTime           @db.Date
+  turnoServicoA TrocaServicoTurno  @default(NOTURNO)
+  turnoServicoB TrocaServicoTurno  @default(NOTURNO)
   restauradoA   Boolean            @default(false)
   restauradoB   Boolean            @default(false)
   status        TrocaServicoStatus @default(ATIVA)

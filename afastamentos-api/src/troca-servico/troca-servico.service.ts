@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AuditAction } from '@prisma/client';
+import { AuditAction, TrocaServicoTurno } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EscalasService } from '../escalas/escalas.service';
 import { CreateTrocaServicoDto } from './dto/create-troca-servico.dto';
 import { UpdateTrocaServicoDto } from './dto/update-troca-servico.dto';
-import { validarPolicialDeServicoNoDiaEmContextoTroca } from './troca-servico-escala.helper';
+import {
+  calcularEquipesOperacionalDia,
+  validarPolicialDeServicoNoDiaEmContextoTroca,
+  type TrocaServicoEscalaParametros,
+} from './troca-servico-escala.helper';
 
 @Injectable()
 export class TrocaServicoService {
@@ -28,6 +32,105 @@ export class TrocaServicoService {
     const m = parts.find((p) => p.type === 'month')?.value;
     const d = parts.find((p) => p.type === 'day')?.value;
     return `${y}-${m}-${d}`;
+  }
+
+  /**
+   * Instante atual em SP como string comparável (lexicográfica) com `YYYY-MM-DDTHH:mm`.
+   */
+  private agoraSaoPauloYmdHm(): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(new Date());
+    const get = (t: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === t)?.value ?? '00';
+    return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+  }
+
+  /** Soma dias a um YYYY-MM-DD (calendário gregoriano, componentes numéricos). */
+  private addDaysYmd(ymd: string, dias: number): string {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd.trim());
+    if (!m) return ymd;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    const dt = new Date(Date.UTC(y, mo - 1, d + dias));
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  /**
+   * Fim do turno informado na troca (America/Sao_Paulo): diurno até 19:00 do dia civil;
+   * noturno até 07:00 do dia seguinte (19h→07h).
+   */
+  private passouFimJanelaServico(ymdServico: string, turno: TrocaServicoTurno): boolean {
+    const limite =
+      turno === TrocaServicoTurno.DIURNO
+        ? `${ymdServico}T19:00`
+        : `${this.addDaysYmd(ymdServico, 1)}T07:00`;
+    return this.agoraSaoPauloYmdHm() >= limite;
+  }
+
+  private turnoDtoParaEnum(v: 'DIURNO' | 'NOTURNO'): TrocaServicoTurno {
+    return v === 'DIURNO' ? TrocaServicoTurno.DIURNO : TrocaServicoTurno.NOTURNO;
+  }
+
+  private resolverTurnoUpdate(
+    dtoVal: 'DIURNO' | 'NOTURNO' | undefined,
+    atual: TrocaServicoTurno,
+  ): TrocaServicoTurno {
+    if (dtoVal === 'DIURNO') return TrocaServicoTurno.DIURNO;
+    if (dtoVal === 'NOTURNO') return TrocaServicoTurno.NOTURNO;
+    return atual;
+  }
+
+  /**
+   * Garante que o turno escolhido corresponde à equipe de origem do parceiro na escala 12×24 naquela data.
+   * Motoristas de dia: apenas diurno.
+   */
+  private assertTurnoServicoCompativel(
+    ymd: string,
+    turno: TrocaServicoTurno,
+    equipeParceiroOrigem: string | null,
+    policialQueCumpreServico: { funcao: { nome: string } | null },
+    parametros: TrocaServicoEscalaParametros,
+  ): void {
+    const fn = policialQueCumpreServico.funcao?.nome?.toUpperCase() ?? '';
+    if (fn.includes('MOTORISTA DE DIA')) {
+      if (turno !== TrocaServicoTurno.DIURNO) {
+        throw new BadRequestException(
+          'Para motorista de dia, o horário do serviço trocado deve ser diurno (07h–19h).',
+        );
+      }
+      return;
+    }
+
+    const ep = (equipeParceiroOrigem ?? '').trim();
+    if (!ep || ep === 'SEM_EQUIPE') {
+      return;
+    }
+
+    const op = calcularEquipesOperacionalDia(ymd, parametros);
+    if (!op) {
+      throw new BadRequestException(
+        `Não foi possível validar o turno na escala 12×24 para ${ymd}. Verifique os parâmetros da escala.`,
+      );
+    }
+    const esperada =
+      turno === TrocaServicoTurno.DIURNO ? op.equipeDia : op.equipeNoite;
+    if (ep !== esperada) {
+      const turnoLabel =
+        turno === TrocaServicoTurno.DIURNO ? '07h–19h (diurno)' : '19h–07h (noturno)';
+      throw new BadRequestException(
+        `Turno informado (${turnoLabel}) não coincide com a escala do dia ${ymd}: nesse turno a equipe de serviço é ${esperada}; a equipe de origem do parceiro da troca é ${ep}. Ajuste a data, o turno ou o cadastro.`,
+      );
+    }
   }
 
   private dateToYmd(d: Date): string {
@@ -82,11 +185,10 @@ export class TrocaServicoService {
   }
 
   /**
-   * Após o dia de serviço (calendário SP), restaura a equipe de origem de cada policial.
+   * Restaura a equipe de origem após o fim do turno gravado (diurno: 19:00 do dia; noturno: 07:00 do dia seguinte, SP).
    * Idempotente; pode ser chamada a cada carregamento da lista.
    */
   async processarRevertesPendentes(): Promise<{ policiaisRestaurados: number }> {
-    const hoje = this.hojeYmdBrasil();
     const ativas = await this.prisma.trocaServico.findMany({
       where: { status: 'ATIVA' },
     });
@@ -98,7 +200,7 @@ export class TrocaServicoService {
       let restauradoA = t.restauradoA;
       let restauradoB = t.restauradoB;
 
-      if (!restauradoA && hoje > ymdA) {
+      if (!restauradoA && this.passouFimJanelaServico(ymdA, t.turnoServicoA)) {
         await this.prisma.policial.update({
           where: { id: t.policialAId },
           data: { equipe: t.equipeOrigemA },
@@ -106,7 +208,7 @@ export class TrocaServicoService {
         restauradoA = true;
         policiaisRestaurados += 1;
       }
-      if (!restauradoB && hoje > ymdB) {
+      if (!restauradoB && this.passouFimJanelaServico(ymdB, t.turnoServicoB)) {
         await this.prisma.policial.update({
           where: { id: t.policialBId },
           data: { equipe: t.equipeOrigemB },
@@ -225,6 +327,11 @@ export class TrocaServicoService {
       );
     }
 
+    const turnoA = this.turnoDtoParaEnum(dto.turnoServicoPolicialOrigem);
+    const turnoB = this.turnoDtoParaEnum(dto.turnoServicoPolicialOutro);
+    this.assertTurnoServicoCompativel(dsOrigem, turnoA, equipeOrigemGravarB, a, parametros);
+    this.assertTurnoServicoCompativel(dsOutro, turnoB, equipeOrigemGravarA, b, parametros);
+
     const actor = await this.audit.resolveActor(actorUserId);
 
     const antesA = { id: a.id, equipe: a.equipe };
@@ -239,6 +346,8 @@ export class TrocaServicoService {
           equipeOrigemB: equipeOrigemGravarB,
           dataServicoA,
           dataServicoB,
+          turnoServicoA: turnoA,
+          turnoServicoB: turnoB,
           createdById: actor?.id ?? null,
           createdByName: actor?.nome ?? null,
         },
@@ -309,6 +418,8 @@ export class TrocaServicoService {
       restauradoB: t.restauradoB,
       equipeOrigemA: t.equipeOrigemA,
       equipeOrigemB: t.equipeOrigemB,
+      turnoServicoA: t.turnoServicoA,
+      turnoServicoB: t.turnoServicoB,
       policialA: t.policialA,
       policialB: t.policialB,
     }));
@@ -380,11 +491,21 @@ export class TrocaServicoService {
       throw new BadRequestException(`Data de serviço do policial B: ${vUpdB.motivo}`);
     }
 
+    const turnoANovo = this.resolverTurnoUpdate(dto.turnoServicoA, troca.turnoServicoA);
+    const turnoBNovo = this.resolverTurnoUpdate(dto.turnoServicoB, troca.turnoServicoB);
+    this.assertTurnoServicoCompativel(dsA, turnoANovo, equipeOrigemB, polA, parametrosUpd);
+    this.assertTurnoServicoCompativel(dsB, turnoBNovo, equipeOrigemA, polB, parametrosUpd);
+
     const actor = await this.audit.resolveActor(actorUserId);
 
     await this.prisma.trocaServico.update({
       where: { id },
-      data: { dataServicoA, dataServicoB },
+      data: {
+        dataServicoA,
+        dataServicoB,
+        turnoServicoA: turnoANovo,
+        turnoServicoB: turnoBNovo,
+      },
     });
 
     await this.audit.record({
@@ -396,11 +517,15 @@ export class TrocaServicoService {
         id: troca.id,
         dataServicoA: this.dateToYmd(troca.dataServicoA),
         dataServicoB: this.dateToYmd(troca.dataServicoB),
+        turnoServicoA: troca.turnoServicoA,
+        turnoServicoB: troca.turnoServicoB,
       },
       after: {
         id: troca.id,
         dataServicoA: dsA,
         dataServicoB: dsB,
+        turnoServicoA: turnoANovo,
+        turnoServicoB: turnoBNovo,
       },
     });
 

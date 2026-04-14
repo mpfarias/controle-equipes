@@ -1345,6 +1345,8 @@ export const api = {
     policialOutroId: number;
     dataServicoPolicialOrigem: string;
     dataServicoPolicialOutro: string;
+    turnoServicoPolicialOrigem: 'DIURNO' | 'NOTURNO';
+    turnoServicoPolicialOutro: 'DIURNO' | 'NOTURNO';
   }): Promise<TrocaServico> {
     const data = await request<TrocaServico>('/troca-servico', {
       method: 'POST',
@@ -1361,7 +1363,12 @@ export const api = {
 
   async updateTrocaServicoDatas(
     id: number,
-    payload: { dataServicoA: string; dataServicoB: string },
+    payload: {
+      dataServicoA: string;
+      dataServicoB: string;
+      turnoServicoA?: 'DIURNO' | 'NOTURNO';
+      turnoServicoB?: 'DIURNO' | 'NOTURNO';
+    },
   ): Promise<TrocaServico> {
     const data = await request<TrocaServico>(`/troca-servico/${id}`, {
       method: 'PATCH',

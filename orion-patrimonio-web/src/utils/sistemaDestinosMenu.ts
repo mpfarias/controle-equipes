@@ -1,4 +1,5 @@
 import { getUrlOrionJuridico } from '../constants/orionJuridico';
+import { getUrlOrionMulher } from '../constants/orionMulher';
 import { getUrlOrionQualidade } from '../constants/orionQualidade';
 import { getUrlOrionSAD } from '../constants/orionSAD';
 import { getUrlOrionSuporte } from '../constants/orionSuporte';
@@ -56,6 +57,13 @@ export function listaMenuOutrosSistemas(usuario: Usuario): MenuOutroSistemaItem[
     const u = getUrlOrionJuridico();
     if (u) {
       out.push({ id: SISTEMA_ID_JURIDICO, label: 'Órion Jurídico', url: u });
+    }
+  }
+
+  if (explicit.has('ORION_MULHER')) {
+    const u = getUrlOrionMulher();
+    if (u) {
+      out.push({ id: 'ORION_MULHER', label: 'Órion Mulher', url: u });
     }
   }
 

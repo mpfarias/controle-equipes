@@ -26,6 +26,7 @@
     "remove:niveis": "ts-node scripts/remove-niveis-gestor-consultas.ts",
     "verificar:contagem": "ts-node scripts/verificar-contagem-policiais.ts",
     "find:duplicatas": "ts-node scripts/find-duplicate-matriculas.ts",
+    "backfill:troca-turnos": "ts-node scripts/backfill-troca-servico-turnos.ts",
     "remove:funcoes-lowercase": "ts-node scripts/remove-funcoes-lowercase.ts",
     "update:matricula": "node update-matricula.js",
     "fix:nivel": "node fix-nivel-migration.js",

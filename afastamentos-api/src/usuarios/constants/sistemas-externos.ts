@@ -5,6 +5,8 @@ export const SISTEMAS_EXTERNOS_IDS = [
   'ORION_QUALIDADE',
   'ORION_JURIDICO',
   'ORION_PATRIMONIO',
+  // Órion Mulher — violência doméstica (relatórios, documentos); front em evolução.
+  'ORION_MULHER',
 ] as const;
 
 export type SistemaExternoId = (typeof SISTEMAS_EXTERNOS_IDS)[number];

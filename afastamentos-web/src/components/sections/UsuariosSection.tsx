@@ -61,6 +61,7 @@ import {
   Inventory2,
   Hub,
   SupportAgent,
+  Woman,
 } from '@mui/icons-material';
 
 const SISTEMA_ICON: Record<string, React.ReactNode> = {
@@ -70,6 +71,7 @@ const SISTEMA_ICON: Record<string, React.ReactNode> = {
   OPERACOES: <Hub sx={{ fontSize: 22 }} />,
   ORION_QUALIDADE: <FactCheck sx={{ fontSize: 22 }} />,
   ORION_JURIDICO: <Gavel sx={{ fontSize: 22 }} />,
+  ORION_MULHER: <Woman sx={{ fontSize: 22 }} />,
 };
 
 

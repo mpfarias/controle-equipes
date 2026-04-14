@@ -321,6 +321,9 @@ export interface EscalaGeradaResumo {
   linhasCount: number;
 }
 
+/** Turno 12×24 da troca (revert automático após o fim desse turno em Brasília). */
+export type TrocaServicoTurno = 'DIURNO' | 'NOTURNO';
+
 export interface TrocaServico {
   id: number;
   policialAId: number;
@@ -329,6 +332,8 @@ export interface TrocaServico {
   equipeOrigemB: string | null;
   dataServicoA: string;
   dataServicoB: string;
+  turnoServicoA: TrocaServicoTurno;
+  turnoServicoB: TrocaServicoTurno;
   restauradoA: boolean;
   restauradoB: boolean;
   status: string;
@@ -343,6 +348,9 @@ export interface TrocaServicoAtivaListaItem {
   status?: 'ATIVA' | 'CONCLUIDA';
   dataServicoA: string;
   dataServicoB: string;
+  /** Ausente em respostas antigas; trate como NOTURNO. */
+  turnoServicoA?: TrocaServicoTurno;
+  turnoServicoB?: TrocaServicoTurno;
   restauradoA: boolean;
   restauradoB: boolean;
   equipeOrigemA: string | null;

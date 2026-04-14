@@ -28,6 +28,7 @@ import {
   SupportAgent,
   Visibility,
   VisibilityOff,
+  Woman,
 } from '@mui/icons-material';
 import { LoginPatrimonioView } from './auth/LoginPatrimonioView';
 import { ImageCropper } from './components/common/ImageCropper';
@@ -53,6 +54,8 @@ function iconeMenuOutroSistema(id: string) {
       return Gavel;
     case 'ORION_SUPORTE':
       return SupportAgent;
+    case 'ORION_MULHER':
+      return Woman;
     default:
       return Description;
   }

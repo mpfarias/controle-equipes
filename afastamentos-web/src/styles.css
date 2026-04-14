@@ -1,6 +1,9 @@
 /* ===== Design System - Sistema Órion ===== */
 
 :root {
+  /* Controles nativos (select, date, month) respeitam tema escuro no Chrome/Edge/Windows */
+  color-scheme: dark;
+
   /* Brand */
   --sentinela-blue: #0F2A44;
   --sentinela-navy: #081B2C;
@@ -1400,6 +1403,33 @@ button.secondary:hover {
   outline: none;
   border-color: var(--accent-muted);
   box-shadow: 0 0 0 3px rgba(107, 155, 196, 0.2);
+}
+
+/* Selects nativos da lista: fundo/texto alinhados ao dark (evita campo branco no Windows) */
+select.search-input {
+  background-color: var(--card-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  appearance: auto;
+}
+
+select.search-input option,
+select.search-input optgroup {
+  background-color: var(--card-bg);
+  color: var(--text-primary);
+}
+
+/* Campos de data/mês: ícone do calendário visível no fundo escuro */
+input[type='date'].search-input,
+input[type='month'].search-input {
+  color-scheme: dark;
+}
+
+input[type='date'].search-input::-webkit-calendar-picker-indicator,
+input[type='month'].search-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.72;
+  cursor: pointer;
 }
 
 .password-input-wrapper {
