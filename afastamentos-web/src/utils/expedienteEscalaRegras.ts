@@ -10,8 +10,19 @@ import type { BlocoEscalaId } from './escalaBlocos';
  * - SVG: bloco separado / outra tela (fora do escopo aqui).
  */
 
-/** true = semanas ISO pares trabalha Manoel; ímpares = Edilson. Inverta se a escala real for o contrário. */
-export const EXPEDIENTE_ALT_MANOEL_SEMANA_PAR = true;
+/**
+ * Alternância do padrão a cada **duas semanas ISO** (ex.: sem. 15 e 16 = mesmo padrão; 17 e 18 = invertido),
+ * para que terças consecutivas como 07/04 e 14/04 não invertam o par Manoel/Edilson no meio da quinzena.
+ *
+ * `true` = Manoel em seg/qua/sex e Edilson em ter/qui.
+ * `false` = Manoel em ter/qui e Edilson em seg/qua/sex.
+ *
+ * Referência: 07/04 e 14/04/2026 (terças nas sem. 15 e 16) — Manoel em ter/qui.
+ */
+export function manoelTemPadraoSegundaQuartaSexta(dataRef: Date): boolean {
+  const w = getISOWeekLocal(dataRef);
+  return Math.floor((w - 1) / 2) % 2 === 0;
+}
 
 /** true = semanas ISO pares trabalha Valdivino; ímpares = Francisco (12×36 em alternância). */
 export const EXPEDIENTE_12X36_VALDIVINO_SEMANA_PAR = true;
@@ -92,19 +103,24 @@ export function resolverHorarioExpedientePolicial(
   const nome = policial.nome;
   const org = horarioOrgaoExpedienteLabel(dataRef);
 
-  // --- 1) Alternância semanal: Manoel / Edilson (seg–qui 07–19, sex 07–13) ---
+  // --- 1) 12×36 (Manoel / Edilson): seg/qua/sex vs ter/qui; alternância quinzenal. Sempre 07h–19h nos dias de serviço.
+  const horarioManoelEdilson = '07h às 19h';
   if (contemNome(nome, 'MANOEL PEREIRA DOS SANTOS')) {
-    const on = semanaPar(dataRef) === EXPEDIENTE_ALT_MANOEL_SEMANA_PAR;
-    if (!on) return null;
-    if (dow === 5) return '07h às 13h';
-    if (dow >= 1 && dow <= 4) return '07h às 19h';
+    const manoelMws = manoelTemPadraoSegundaQuartaSexta(dataRef);
+    if (manoelMws) {
+      if (dow === 1 || dow === 3 || dow === 5) return horarioManoelEdilson;
+      return null;
+    }
+    if (dow === 2 || dow === 4) return horarioManoelEdilson;
     return null;
   }
   if (contemNome(nome, 'EDILSON PEREIRA DE ALMEIDA')) {
-    const on = semanaPar(dataRef) !== EXPEDIENTE_ALT_MANOEL_SEMANA_PAR;
-    if (!on) return null;
-    if (dow === 5) return '07h às 13h';
-    if (dow >= 1 && dow <= 4) return '07h às 19h';
+    const manoelMws = manoelTemPadraoSegundaQuartaSexta(dataRef);
+    if (manoelMws) {
+      if (dow === 2 || dow === 4) return horarioManoelEdilson;
+      return null;
+    }
+    if (dow === 1 || dow === 3 || dow === 5) return horarioManoelEdilson;
     return null;
   }
 
@@ -163,13 +179,6 @@ export function resolverHorarioExpedientePolicial(
     return null;
   }
 
-  // --- 2g) Luiz Henrique: seg–qui 14–20; sex 07–13 ---
-  if (contemNome(nome, 'LUIZ HENRIQUE TORRES CARDOSO')) {
-    if (dow === 5) return '07h às 13h';
-    if (dow >= 1 && dow <= 4) return '14h às 20h';
-    return null;
-  }
-
   // --- CMT / SubCmt UPM: horário do órgão em todos os dias úteis ---
   if (ctx.indiceFuncaoEscala === 0 || ctx.indiceFuncaoEscala === 1) {
     return org;
@@ -220,8 +229,7 @@ export function blocoExpedienteParaPolicial(
     contemNome(nome, 'CELIO GIL DA SILVA ESPIG') ||
     contemNome(nome, 'IGOR ARTUR DE OLIVEIRA GUIMARAES') ||
     contemNome(nome, 'VALDIVINO BARBOSA GRACIANO') ||
-    contemNome(nome, 'FRANCISCO JOSE FERNANDES DE ARAUJO') ||
-    contemNome(nome, 'LUIZ HENRIQUE TORRES CARDOSO')
+    contemNome(nome, 'FRANCISCO JOSE FERNANDES DE ARAUJO')
   ) {
     return 'EXP_DIFERENCIADO';
   }
@@ -234,4 +242,5 @@ export function blocoExpedienteParaPolicial(
 /** Texto curto para o resumo da escala (expediente). */
 export const EXPEDIENTE_ESCALA_RESUMO_REGRAS =
   'Expediente — 13h às 19h (segunda a quinta) e sexta 07h às 13h, salvo exceções no bloco horários diferenciados. ' +
+  'Manoel/Edilson: 12×36 em blocos de 2 semanas ISO (seg/qua/sex vs ter/qui, alternando a cada quinzena). ' +
   'CMT/SubCmt no topo da lista do expediente. Ajustes: expedienteEscalaRegras.ts.';

@@ -49,7 +49,7 @@ function horarioCabecalhoBlocoImpressao(blocoId: BlocoEscalaId, dataIso: string)
       return '—';
     case 'EXP_ALT_SEMANAL_07':
       if (!dataRef || !exp) return '—';
-      return dataRef.getDay() === 5 ? '07h às 13h' : '07h às 19h';
+      return '07h às 19h';
     case 'EXP_07_13':
       return '07h às 13h';
     case 'EQUIPE_DIURNA_07':
