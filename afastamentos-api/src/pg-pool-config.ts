@@ -56,17 +56,12 @@ function readRelaxSslEnv(): boolean {
  * - `DATABASE_PG_TLS_INSECURE=true` (alias mais curto para o mesmo efeito)
  */
 export function buildPgPoolConfig(connectionString: string): PoolConfig {
-  const relaxSsl = readRelaxSslEnv();
-  if (!relaxSsl) {
-    return { connectionString };
-  }
   return {
-    connectionString: connectionStringWithoutSslQueryParams(connectionString),
+    connectionString,
     ssl: { rejectUnauthorized: false },
   };
 }
 
-/** Indica se a verificação TLS do certificado do Postgres está relaxada. */
 export function isPgTlsRelaxed(): boolean {
-  return readRelaxSslEnv();
+  return true;
 }

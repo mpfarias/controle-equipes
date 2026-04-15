@@ -306,7 +306,7 @@ export function ChamadasXlsxLeitorSection() {
                       <Fragment key={campo}>
                         <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{tituloCurto}</TableCell>
                         {campo === 'atendente' ? (
-                          <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Equipe (SAD)</TableCell>
+                          <TableCell sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Equipe SAD)</TableCell>
                         ) : null}
                       </Fragment>
                     ))}
