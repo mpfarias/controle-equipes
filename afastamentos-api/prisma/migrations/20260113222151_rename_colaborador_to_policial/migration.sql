@@ -34,6 +34,8 @@ BEGIN
     ALTER TABLE "Policial" RENAME CONSTRAINT "Colaborador_funcaoId_fkey" TO "Policial_funcaoId_fkey";
   END IF;
 
-  ALTER TABLE "Afastamento" ADD CONSTRAINT "Afastamento_policialId_fkey"
-    FOREIGN KEY ("policialId") REFERENCES "Policial"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Afastamento_policialId_fkey') THEN
+    ALTER TABLE "Afastamento" ADD CONSTRAINT "Afastamento_policialId_fkey"
+      FOREIGN KEY ("policialId") REFERENCES "Policial"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
 END $$;

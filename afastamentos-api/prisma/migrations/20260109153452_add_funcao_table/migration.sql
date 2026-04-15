@@ -1,8 +1,8 @@
 -- AlterTable
-ALTER TABLE "Usuario" ADD COLUMN     "funcaoId" INTEGER;
+ALTER TABLE "Usuario" ADD COLUMN IF NOT EXISTS "funcaoId" INTEGER;
 
 -- CreateTable
-CREATE TABLE "Funcao" (
+CREATE TABLE IF NOT EXISTS "Funcao" (
     "id" SERIAL NOT NULL,
     "nome" TEXT NOT NULL,
     "descricao" TEXT,
@@ -13,7 +13,12 @@ CREATE TABLE "Funcao" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Funcao_nome_key" ON "Funcao"("nome");
+CREATE UNIQUE INDEX IF NOT EXISTS "Funcao_nome_key" ON "Funcao"("nome");
 
 -- AddForeignKey
-ALTER TABLE "Usuario" ADD CONSTRAINT "Usuario_funcaoId_fkey" FOREIGN KEY ("funcaoId") REFERENCES "Funcao"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Usuario_funcaoId_fkey') THEN
+    ALTER TABLE "Usuario" ADD CONSTRAINT "Usuario_funcaoId_fkey" FOREIGN KEY ("funcaoId") REFERENCES "Funcao"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;

@@ -1,17 +1,28 @@
--- CreateEnum
-CREATE TYPE "AfastamentoStatus" AS ENUM ('ATIVO', 'ENCERRADO');
+-- Enums idempotentes (retentativa / ambientes com tipo já criado)
+DO $$ BEGIN
+    CREATE TYPE "AfastamentoStatus" AS ENUM ('ATIVO', 'ENCERRADO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "PolicialStatus" AS ENUM ('ATIVO', 'DESIGNADO', 'COMISSIONADO', 'PTTC', 'DESATIVADO');
+DO $$ BEGIN
+    CREATE TYPE "PolicialStatus" AS ENUM ('ATIVO', 'DESIGNADO', 'COMISSIONADO', 'PTTC', 'DESATIVADO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "UsuarioStatus" AS ENUM ('ATIVO', 'DESATIVADO');
+DO $$ BEGIN
+    CREATE TYPE "UsuarioStatus" AS ENUM ('ATIVO', 'DESATIVADO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "Equipe" AS ENUM ('A', 'B', 'C', 'D', 'E', 'SEM_EQUIPE');
+DO $$ BEGIN
+    CREATE TYPE "Equipe" AS ENUM ('A', 'B', 'C', 'D', 'E', 'SEM_EQUIPE');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "AuditAction" AS ENUM ('CREATE', 'UPDATE', 'DELETE');
+DO $$ BEGIN
+    CREATE TYPE "AuditAction" AS ENUM ('CREATE', 'UPDATE', 'DELETE');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- CreateTable
 CREATE TABLE "Colaborador" (
@@ -91,5 +102,10 @@ CREATE UNIQUE INDEX "Colaborador_matricula_key" ON "Colaborador"("matricula");
 -- CreateIndex
 CREATE UNIQUE INDEX "Usuario_matricula_key" ON "Usuario"("matricula");
 
--- AddForeignKey
-ALTER TABLE "Afastamento" ADD CONSTRAINT "Afastamento_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "Colaborador"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (idempotente para retentativa manual)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Afastamento_colaboradorId_fkey') THEN
+    ALTER TABLE "Afastamento" ADD CONSTRAINT "Afastamento_colaboradorId_fkey" FOREIGN KEY ("colaboradorId") REFERENCES "Colaborador"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

@@ -1,11 +1,14 @@
--- CreateEnum
-CREATE TYPE "ErrorReportStatus" AS ENUM ('ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO');
+DO $$ BEGIN
+    CREATE TYPE "ErrorReportStatus" AS ENUM ('ABERTO', 'EM_ANALISE', 'RESOLVIDO', 'FECHADO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateEnum
-CREATE TYPE "ErrorReportCategoria" AS ENUM ('ERRO_SISTEMA', 'DUVIDA', 'MELHORIA', 'OUTRO');
+DO $$ BEGIN
+    CREATE TYPE "ErrorReportCategoria" AS ENUM ('ERRO_SISTEMA', 'DUVIDA', 'MELHORIA', 'OUTRO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateTable
-CREATE TABLE "errorReport" (
+CREATE TABLE IF NOT EXISTS "errorReport" (
     "id" SERIAL NOT NULL,
     "usuarioId" INTEGER NOT NULL,
     "titulo" TEXT NOT NULL,
@@ -19,11 +22,13 @@ CREATE TABLE "errorReport" (
     CONSTRAINT "errorReport_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "errorReport_usuarioId_idx" ON "errorReport"("usuarioId");
+CREATE INDEX IF NOT EXISTS "errorReport_usuarioId_idx" ON "errorReport"("usuarioId");
 
--- CreateIndex
-CREATE INDEX "errorReport_status_idx" ON "errorReport"("status");
+CREATE INDEX IF NOT EXISTS "errorReport_status_idx" ON "errorReport"("status");
 
--- AddForeignKey
-ALTER TABLE "errorReport" ADD CONSTRAINT "errorReport_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "Usuario"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'errorReport_usuarioId_fkey') THEN
+    ALTER TABLE "errorReport" ADD CONSTRAINT "errorReport_usuarioId_fkey" FOREIGN KEY ("usuarioId") REFERENCES "Usuario"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;

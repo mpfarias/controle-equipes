@@ -1,5 +1,4 @@
--- CreateTable
-CREATE TABLE "RestricaoAfastamento" (
+CREATE TABLE IF NOT EXISTS "RestricaoAfastamento" (
     "id" SERIAL NOT NULL,
     "nome" TEXT NOT NULL,
     "descricao" TEXT,

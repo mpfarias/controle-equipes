@@ -1,8 +1,9 @@
--- CreateEnum
-CREATE TYPE "QualidadeRegistroStatus" AS ENUM ('ABERTO', 'EM_TRATAMENTO', 'ENCERRADO');
+DO $$ BEGIN
+    CREATE TYPE "QualidadeRegistroStatus" AS ENUM ('ABERTO', 'EM_TRATAMENTO', 'ENCERRADO');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
--- CreateTable
-CREATE TABLE "qualidade_registro" (
+CREATE TABLE IF NOT EXISTS "qualidade_registro" (
     "id" SERIAL NOT NULL,
     "titulo" TEXT NOT NULL,
     "descricao" TEXT,
@@ -17,8 +18,13 @@ CREATE TABLE "qualidade_registro" (
     CONSTRAINT "qualidade_registro_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "qualidade_registro_criadoPorId_idx" ON "qualidade_registro"("criadoPorId");
+CREATE INDEX IF NOT EXISTS "qualidade_registro_criadoPorId_idx" ON "qualidade_registro"("criadoPorId");
 
-CREATE INDEX "qualidade_registro_status_idx" ON "qualidade_registro"("status");
+CREATE INDEX IF NOT EXISTS "qualidade_registro_status_idx" ON "qualidade_registro"("status");
 
-ALTER TABLE "qualidade_registro" ADD CONSTRAINT "qualidade_registro_criadoPorId_fkey" FOREIGN KEY ("criadoPorId") REFERENCES "Usuario"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'qualidade_registro_criadoPorId_fkey') THEN
+    ALTER TABLE "qualidade_registro" ADD CONSTRAINT "qualidade_registro_criadoPorId_fkey" FOREIGN KEY ("criadoPorId") REFERENCES "Usuario"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;

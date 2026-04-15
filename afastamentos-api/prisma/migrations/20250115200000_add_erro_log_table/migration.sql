@@ -1,5 +1,4 @@
--- CreateTable
-CREATE TABLE "ErroLog" (
+CREATE TABLE IF NOT EXISTS "ErroLog" (
     "id" SERIAL NOT NULL,
     "mensagem" TEXT NOT NULL,
     "stack" TEXT,
@@ -18,8 +17,6 @@ CREATE TABLE "ErroLog" (
     CONSTRAINT "ErroLog_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "ErroLog_createdAt_idx" ON "ErroLog"("createdAt");
+CREATE INDEX IF NOT EXISTS "ErroLog_createdAt_idx" ON "ErroLog"("createdAt");
 
--- CreateIndex
-CREATE INDEX "ErroLog_statusCode_idx" ON "ErroLog"("statusCode");
+CREATE INDEX IF NOT EXISTS "ErroLog_statusCode_idx" ON "ErroLog"("statusCode");

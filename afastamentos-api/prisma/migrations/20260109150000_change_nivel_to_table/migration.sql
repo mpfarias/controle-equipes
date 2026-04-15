@@ -1,3 +1,16 @@
+-- Upgrade raro: enum "UsuarioNivel" legado impede criar a tabela com o mesmo nome
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typname = 'UsuarioNivel' AND t.typtype = 'e'
+  ) THEN
+    ALTER TABLE "Usuario" DROP COLUMN IF EXISTS "nivel";
+    DROP TYPE "UsuarioNivel" CASCADE;
+  END IF;
+END $$;
+
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "UsuarioNivel" (
     "id" SERIAL NOT NULL,
@@ -20,11 +33,11 @@ INSERT INTO "UsuarioNivel" ("nome", "descricao", "createdAt", "updatedAt") VALUE
 ON CONFLICT ("nome") DO NOTHING;
 
 -- Drop enum column if exists (from previous migration)
-DO $$ 
+DO $$
 BEGIN
     IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'Usuario' AND column_name = 'nivel'
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'Usuario' AND column_name = 'nivel'
         AND data_type = 'USER-DEFINED'
     ) THEN
         ALTER TABLE "Usuario" DROP COLUMN IF EXISTS "nivel";
@@ -34,18 +47,27 @@ END $$;
 -- Add nivelId column
 ALTER TABLE "Usuario" ADD COLUMN IF NOT EXISTS "nivelId" INTEGER;
 
--- AddForeignKey
-ALTER TABLE "Usuario" ADD CONSTRAINT "Usuario_nivelId_fkey" FOREIGN KEY ("nivelId") REFERENCES "UsuarioNivel"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- AddForeignKey (idempotente)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Usuario_nivelId_fkey') THEN
+    ALTER TABLE "Usuario" ADD CONSTRAINT "Usuario_nivelId_fkey" FOREIGN KEY ("nivelId") REFERENCES "UsuarioNivel"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 -- Migrate existing data if any (set default to CONSULTAS level)
-UPDATE "Usuario" 
+UPDATE "Usuario"
 SET "nivelId" = (SELECT "id" FROM "UsuarioNivel" WHERE "nome" = 'CONSULTAS' LIMIT 1)
 WHERE "nivelId" IS NULL;
 
--- Drop enum type if exists
-DO $$ 
+-- Remove apenas o enum legado "UsuarioNivel" (typtype = e). Nunca DROP do tipo composto (c) da tabela homônima.
+DO $$
 BEGIN
-    DROP TYPE IF EXISTS "UsuarioNivel" CASCADE;
-EXCEPTION
-    WHEN others THEN NULL;
+  IF EXISTS (
+    SELECT 1 FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typname = 'UsuarioNivel' AND t.typtype = 'e'
+  ) THEN
+    DROP TYPE "UsuarioNivel" CASCADE;
+  END IF;
 END $$;

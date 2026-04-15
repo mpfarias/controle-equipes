@@ -1,5 +1,4 @@
--- CreateTable
-CREATE TABLE "RestricaoMedica" (
+CREATE TABLE IF NOT EXISTS "RestricaoMedica" (
     "id" SERIAL NOT NULL,
     "nome" TEXT NOT NULL,
     "descricao" TEXT,
@@ -9,10 +8,9 @@ CREATE TABLE "RestricaoMedica" (
     CONSTRAINT "RestricaoMedica_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "RestricaoMedica_nome_key" ON "RestricaoMedica"("nome");
+CREATE UNIQUE INDEX IF NOT EXISTS "RestricaoMedica_nome_key" ON "RestricaoMedica"("nome");
 
--- Inserir registros iniciais
 INSERT INTO "RestricaoMedica" ("nome", "createdAt", "updatedAt") VALUES
 ('Restrição médica', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
-('Porte de arma suspenso', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+('Porte de arma suspenso', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT ("nome") DO NOTHING;

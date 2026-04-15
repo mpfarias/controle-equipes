@@ -1,5 +1,4 @@
--- CreateTable
-CREATE TABLE "AcessoLog" (
+CREATE TABLE IF NOT EXISTS "AcessoLog" (
     "id" SERIAL NOT NULL,
     "userId" INTEGER,
     "userName" TEXT,
@@ -15,8 +14,6 @@ CREATE TABLE "AcessoLog" (
     CONSTRAINT "AcessoLog_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "AcessoLog_dataEntrada_idx" ON "AcessoLog"("dataEntrada");
+CREATE INDEX IF NOT EXISTS "AcessoLog_dataEntrada_idx" ON "AcessoLog"("dataEntrada");
 
--- CreateIndex
-CREATE INDEX "AcessoLog_userId_idx" ON "AcessoLog"("userId");
+CREATE INDEX IF NOT EXISTS "AcessoLog_userId_idx" ON "AcessoLog"("userId");

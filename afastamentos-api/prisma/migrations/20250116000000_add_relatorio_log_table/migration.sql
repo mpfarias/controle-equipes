@@ -1,5 +1,4 @@
--- CreateTable
-CREATE TABLE "RelatorioLog" (
+CREATE TABLE IF NOT EXISTS "RelatorioLog" (
     "id" SERIAL NOT NULL,
     "userId" INTEGER,
     "userName" TEXT,
