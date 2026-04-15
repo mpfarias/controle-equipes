@@ -18,8 +18,24 @@ INSERT INTO "TipoRestricaoAfastamento" ("nome", "descricao", "createdAt", "updat
 ('Outro', 'Outros períodos especiais', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT ("nome") DO NOTHING;
 
-ALTER TABLE "RestricaoAfastamento" ADD COLUMN IF NOT EXISTS "tipoRestricaoId" INTEGER;
-ALTER TABLE "RestricaoAfastamento" ADD COLUMN IF NOT EXISTS "ano" INTEGER;
+DO $$
+BEGIN
+  IF to_regclass('public."RestricaoAfastamento"') IS NULL THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'RestricaoAfastamento' AND column_name = 'tipoRestricaoId'
+  ) THEN
+    ALTER TABLE "RestricaoAfastamento" ADD COLUMN "tipoRestricaoId" INTEGER;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'RestricaoAfastamento' AND column_name = 'ano'
+  ) THEN
+    ALTER TABLE "RestricaoAfastamento" ADD COLUMN "ano" INTEGER;
+  END IF;
+END $$;
 
 DO $$
 DECLARE

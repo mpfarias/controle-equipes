@@ -44,8 +44,19 @@ BEGIN
     END IF;
 END $$;
 
--- Add nivelId column
-ALTER TABLE "Usuario" ADD COLUMN IF NOT EXISTS "nivelId" INTEGER;
+-- Add nivelId column (sem ADD COLUMN IF NOT EXISTS: PG < 9.6)
+DO $$
+BEGIN
+  IF to_regclass('public."Usuario"') IS NULL THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'Usuario' AND column_name = 'nivelId'
+  ) THEN
+    ALTER TABLE "Usuario" ADD COLUMN "nivelId" INTEGER;
+  END IF;
+END $$;
 
 -- AddForeignKey (idempotente)
 DO $$

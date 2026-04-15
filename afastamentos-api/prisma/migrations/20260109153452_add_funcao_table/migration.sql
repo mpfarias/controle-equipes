@@ -1,5 +1,15 @@
--- AlterTable
-ALTER TABLE "Usuario" ADD COLUMN IF NOT EXISTS "funcaoId" INTEGER;
+DO $$
+BEGIN
+  IF to_regclass('public."Usuario"') IS NULL THEN
+    RETURN;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'Usuario' AND column_name = 'funcaoId'
+  ) THEN
+    ALTER TABLE "Usuario" ADD COLUMN "funcaoId" INTEGER;
+  END IF;
+END $$;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "Funcao" (
