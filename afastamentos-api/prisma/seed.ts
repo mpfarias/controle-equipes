@@ -10,7 +10,14 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL não está definida. Verifique o arquivo .env');
 }
 
-const pool = new Pool(buildPgPoolConfig(databaseUrl));
+const poolConfig = buildPgPoolConfig(databaseUrl);
+if (!poolConfig.ssl) {
+  console.warn(
+    '⚠️  Postgres TLS: modo estrito (padrão). Se falhar com "self-signed certificate", defina no pod/secret: DATABASE_SSL_REJECT_UNAUTHORIZED=false ou DATABASE_PG_TLS_INSECURE=true\n',
+  );
+}
+
+const pool = new Pool(poolConfig);
 const prisma = new PrismaClient({
   adapter: new PrismaPg(pool),
 });

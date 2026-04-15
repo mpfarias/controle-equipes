@@ -1,26 +1,49 @@
 import type { PoolConfig } from 'pg';
 
+const SSL_QUERY_KEYS = new Set([
+  'sslmode',
+  'ssl',
+  'sslrootcert',
+  'sslcert',
+  'sslkey',
+  'uselibpqcompat',
+]);
+
 /**
- * Remove parâmetros de SSL da query string. Em versões recentes do driver
- * `pg`, `sslmode=require` (e similares) na URL é interpretado como
- * `verify-full`, o que conflita com `rejectUnauthorized: false` e ainda
- * gera "self-signed certificate in certificate chain".
+ * Remove parâmetros de SSL da query string (sem depender de `new URL`,
+ * que quebra com alguns caracteres em senhas). Em versões recentes do
+ * `pg`, `sslmode=require` na URL vira comportamento tipo `verify-full` e
+ * conflita com `rejectUnauthorized: false`.
  */
 function connectionStringWithoutSslQueryParams(connectionString: string): string {
-  try {
-    const u = new URL(connectionString);
-    u.searchParams.delete('sslmode');
-    u.searchParams.delete('ssl');
-    u.searchParams.delete('sslrootcert');
-    u.searchParams.delete('sslcert');
-    u.searchParams.delete('sslkey');
-    u.searchParams.delete('uselibpqcompat');
-    const qs = u.searchParams.toString();
-    u.search = qs ? `?${qs}` : '';
-    return u.toString();
-  } catch {
+  const qIndex = connectionString.indexOf('?');
+  if (qIndex === -1) {
     return connectionString;
   }
+  const base = connectionString.slice(0, qIndex);
+  const query = connectionString.slice(qIndex + 1);
+  const kept = query
+    .split('&')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((pair) => {
+      const key = pair.split('=')[0]?.toLowerCase();
+      return key && !SSL_QUERY_KEYS.has(key);
+    })
+    .join('&');
+  return kept ? `${base}?${kept}` : base;
+}
+
+function readRelaxSslEnv(): boolean {
+  const reject = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED;
+  if (reject === '0' || reject?.toLowerCase() === 'false') {
+    return true;
+  }
+  const insecure = process.env.DATABASE_PG_TLS_INSECURE;
+  if (insecure === '1' || insecure?.toLowerCase() === 'true') {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -28,12 +51,12 @@ function connectionStringWithoutSslQueryParams(connectionString: string): string
  * autoassinado ou CA interna). Use com cuidado: desativar a verificação
  * expõe a conexão a MITM se a rede não for confiável.
  *
- * Defina `DATABASE_SSL_REJECT_UNAUTHORIZED=false` no ambiente quando o
- * servidor usar certificado que o Node não confia por padrão.
+ * Ative com **uma** das opções:
+ * - `DATABASE_SSL_REJECT_UNAUTHORIZED=false`
+ * - `DATABASE_PG_TLS_INSECURE=true` (alias mais curto para o mesmo efeito)
  */
 export function buildPgPoolConfig(connectionString: string): PoolConfig {
-  const raw = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED;
-  const relaxSsl = raw === '0' || raw?.toLowerCase() === 'false';
+  const relaxSsl = readRelaxSslEnv();
   if (!relaxSsl) {
     return { connectionString };
   }
@@ -41,4 +64,9 @@ export function buildPgPoolConfig(connectionString: string): PoolConfig {
     connectionString: connectionStringWithoutSslQueryParams(connectionString),
     ssl: { rejectUnauthorized: false },
   };
+}
+
+/** Indica se a verificação TLS do certificado do Postgres está relaxada. */
+export function isPgTlsRelaxed(): boolean {
+  return readRelaxSslEnv();
 }
