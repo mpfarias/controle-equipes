@@ -1,4 +1,4 @@
-﻿-- AlterTable
+-- AlterTable
 ALTER TABLE "Colaborador" ADD COLUMN IF NOT EXISTS "funcaoId" INTEGER;
 
 -- AddForeignKey
