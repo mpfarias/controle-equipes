@@ -283,8 +283,8 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
           >
             <span className="management-card-title">Ver trocas de serviço</span>
             <span className="management-card-description">
-              Lista trocas ativas: alterar datas (quando ainda não houve retorno parcial) ou cancelar e restaurar
-              equipes de origem.
+              Lista trocas ativas: alterar datas (quando ainda não houve encerramento parcial do turno) ou cancelar o
+              registro da troca.
             </span>
           </button>
           <div className={`management-panel ${mostrarTrocas ? 'management-panel--open' : ''}`}>
@@ -360,11 +360,12 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 {row.policialA.nome}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" display="block">
-                                {formatMatricula(row.policialA.matricula)} · equipe atual{' '}
+                                {formatMatricula(row.policialA.matricula)} · Equipe (cadastro):{' '}
                                 {formatEquipeLabel(row.policialA.equipe)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" display="block">
-                                Origem: {formatEquipeLabel(row.equipeOrigemA)}
+                                Plantão trocado na equipe do parceiro:{' '}
+                                {formatEquipeLabel(row.equipeOrigemB)}
                               </Typography>
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 150 }} align="center">
@@ -385,11 +386,12 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 {row.policialB.nome}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" display="block">
-                                {formatMatricula(row.policialB.matricula)} · equipe atual{' '}
+                                {formatMatricula(row.policialB.matricula)} · Equipe (cadastro):{' '}
                                 {formatEquipeLabel(row.policialB.equipe)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" display="block">
-                                Origem: {formatEquipeLabel(row.equipeOrigemB)}
+                                Plantão trocado na equipe do parceiro:{' '}
+                                {formatEquipeLabel(row.equipeOrigemA)}
                               </Typography>
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 150 }} align="center">
@@ -585,8 +587,9 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
             {editError && <Alert severity="error">{editError}</Alert>}
             {editRow && (
               <Typography variant="body2" color="text.secondary">
-                Ajuste data e horário (turno 12×24) para cada policial. O cadastro volta à equipe de origem após o fim do
-                turno informado (diurno: 19h do dia; noturno: 07h do dia seguinte, Brasília).
+                Ajuste data e horário (turno 12×24) para cada policial. O cadastro de equipe não muda; após o fim do turno
+                informado (diurno: 19h do dia; noturno: 07h do dia seguinte, Brasília), o lado correspondente da troca é
+                encerrado no registro.
               </Typography>
             )}
             <Typography variant="subtitle2" sx={{ mt: 0.5 }}>
@@ -713,9 +716,10 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
             </Alert>
           )}
           <Typography variant="body2">
-            Os policiais voltarão às equipes de origem desta troca (A:{' '}
+            O registro desta troca será cancelado. O cadastro de equipe dos policiais não é alterado pela troca de serviço;
+            as equipes de origem registradas na troca são A:{' '}
             {cancelRow ? formatEquipeLabel(cancelRow.equipeOrigemA) : '—'}, B:{' '}
-            {cancelRow ? formatEquipeLabel(cancelRow.equipeOrigemB) : '—'}). Deseja continuar?
+            {cancelRow ? formatEquipeLabel(cancelRow.equipeOrigemB) : '—'}. Deseja continuar?
           </Typography>
         </DialogContent>
         <DialogActions>

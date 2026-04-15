@@ -12,7 +12,7 @@ export class CreateTrocaServicoDto {
   @Min(1)
   policialOutroId!: number;
 
-  /** Dia em que o policial de origem cumpre serviço na equipe do outro (após a troca, já escalado na equipe trocada). */
+  /** Dia em que o policial de origem cumpre o plantão na equipe do parceiro (troca operacional; cadastro de equipe não muda). */
   @IsDateString()
   dataServicoPolicialOrigem!: string;
 
@@ -20,7 +20,7 @@ export class CreateTrocaServicoDto {
   @IsDateString()
   dataServicoPolicialOutro!: string;
 
-  /** Turno 12×24 em que o policial de origem cumpre o serviço trocado nessa data (revert após o fim do turno em Brasília). */
+  /** Turno 12×24 em que o policial de origem cumpre o serviço trocado nessa data (fim do turno em Brasília encerra o lado na troca). */
   @IsIn(['DIURNO', 'NOTURNO'])
   turnoServicoPolicialOrigem!: 'DIURNO' | 'NOTURNO';
 

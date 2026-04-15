@@ -275,10 +275,9 @@ function turnoServicoTroca(
 
 /**
  * Alinha **Gerar escala** operacional com **Troca de serviço**:
- * - Base: `policial.equipe` vs `equipeDia` / `equipeNoite` do dia (cadastro já invertido pela troca).
- * - Troca ATIVA (não concluída): em cada data/turno cadastrados, o **calendário 12×24** do turno é validado na API
- *   com a equipe de **origem do parceiro** (A no dia de A usa `equipeOrigemB`; B no dia de B usa `equipeOrigemA`).
- *   Inclusão/exclusão aqui segue o mesmo critério para alinhar com o cadastro da troca.
+ * - Base: `policial.equipe` (cadastro permanente) vs `equipeDia` / `equipeNoite` do dia.
+ * - Troca ATIVA (não concluída): nas datas/turnos do registro de troca, o plantão segue a **equipe de origem do parceiro**
+ *   (A no dia de A usa `equipeOrigemB`; B no dia de B usa `equipeOrigemA`), sem alterar o cadastro do policial.
  */
 function aplicarTrocasServicoOperacional(
   p: Policial,

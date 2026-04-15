@@ -150,7 +150,7 @@ export class TrocaServicoService {
 
   /**
    * Se o policial já está em troca ATIVA (lado ainda não restaurado), devolve a equipe de origem gravada
-   * na troca mais antiga — para novas trocas não confundirem equipe temporária no cadastro com a permanente.
+   * na troca mais antiga — útil quando houver encadeamento de trocas antes do encerramento dos turnos.
    */
   private async equipeOrigemRealSeEmTrocaAtiva(policialId: number): Promise<string | null> {
     const t = await this.prisma.trocaServico.findFirst({
@@ -185,8 +185,8 @@ export class TrocaServicoService {
   }
 
   /**
-   * Restaura a equipe de origem após o fim do turno gravado (diurno: 19:00 do dia; noturno: 07:00 do dia seguinte, SP).
-   * Idempotente; pode ser chamada a cada carregamento da lista.
+   * Marca cada lado da troca como encerrado após o fim do turno gravado (diurno: 19:00 do dia; noturno: 07:00 do dia seguinte, SP).
+   * Não altera `Policial.equipe` (a troca é só operacional/registro). Idempotente; pode ser chamada a cada carregamento da lista.
    */
   async processarRevertesPendentes(): Promise<{ policiaisRestaurados: number }> {
     const ativas = await this.prisma.trocaServico.findMany({
@@ -201,18 +201,10 @@ export class TrocaServicoService {
       let restauradoB = t.restauradoB;
 
       if (!restauradoA && this.passouFimJanelaServico(ymdA, t.turnoServicoA)) {
-        await this.prisma.policial.update({
-          where: { id: t.policialAId },
-          data: { equipe: t.equipeOrigemA },
-        });
         restauradoA = true;
         policiaisRestaurados += 1;
       }
       if (!restauradoB && this.passouFimJanelaServico(ymdB, t.turnoServicoB)) {
-        await this.prisma.policial.update({
-          where: { id: t.policialBId },
-          data: { equipe: t.equipeOrigemB },
-        });
         restauradoB = true;
         policiaisRestaurados += 1;
       }
@@ -334,11 +326,8 @@ export class TrocaServicoService {
 
     const actor = await this.audit.resolveActor(actorUserId);
 
-    const antesA = { id: a.id, equipe: a.equipe };
-    const antesB = { id: b.id, equipe: b.equipe };
-
     const troca = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.trocaServico.create({
+      return tx.trocaServico.create({
         data: {
           policialAId: a.id,
           policialBId: b.id,
@@ -352,38 +341,8 @@ export class TrocaServicoService {
           createdByName: actor?.nome ?? null,
         },
       });
-
-      await tx.policial.update({
-        where: { id: a.id },
-        data: { equipe: curB },
-      });
-      await tx.policial.update({
-        where: { id: b.id },
-        data: { equipe: curA },
-      });
-
-      return created;
     });
 
-    const depoisA = await this.prisma.policial.findUnique({ where: { id: a.id } });
-    const depoisB = await this.prisma.policial.findUnique({ where: { id: b.id } });
-
-    await this.audit.record({
-      entity: 'Policial',
-      entityId: a.id,
-      action: AuditAction.UPDATE,
-      actor,
-      before: antesA,
-      after: { id: a.id, equipe: depoisA?.equipe },
-    });
-    await this.audit.record({
-      entity: 'Policial',
-      entityId: b.id,
-      action: AuditAction.UPDATE,
-      actor,
-      before: antesB,
-      after: { id: b.id, equipe: depoisB?.equipe },
-    });
     await this.audit.record({
       entity: 'TrocaServico',
       entityId: troca.id,
@@ -396,7 +355,7 @@ export class TrocaServicoService {
   }
 
   /**
-   * Trocas em andamento e concluídas (ex.: cadastro retroativo), para consulta na tela “Ver trocas”.
+   * Trocas em andamento e concluídas, para consulta na tela “Ver trocas”.
    * Não inclui canceladas.
    */
   async listarAtivas() {
@@ -437,7 +396,7 @@ export class TrocaServicoService {
     }
     if (troca.restauradoA || troca.restauradoB) {
       throw new BadRequestException(
-        'Não é possível alterar as datas após retorno parcial à equipe de origem. Cancele a troca se necessário.',
+        'Não é possível alterar as datas após encerramento parcial de um lado da troca (fim do turno). Cancele a troca se necessário.',
       );
     }
 
@@ -541,10 +500,6 @@ export class TrocaServicoService {
 
     const troca = await this.prisma.trocaServico.findUnique({
       where: { id },
-      include: {
-        policialA: { select: { id: true, equipe: true } },
-        policialB: { select: { id: true, equipe: true } },
-      },
     });
     if (!troca) {
       throw new NotFoundException('Troca não encontrada.');
@@ -554,18 +509,8 @@ export class TrocaServicoService {
     }
 
     const actor = await this.audit.resolveActor(actorUserId);
-    const antesA = { id: troca.policialA.id, equipe: troca.policialA.equipe };
-    const antesB = { id: troca.policialB.id, equipe: troca.policialB.equipe };
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.policial.update({
-        where: { id: troca.policialAId },
-        data: { equipe: troca.equipeOrigemA },
-      });
-      await tx.policial.update({
-        where: { id: troca.policialBId },
-        data: { equipe: troca.equipeOrigemB },
-      });
       await tx.trocaServico.update({
         where: { id },
         data: {
@@ -576,25 +521,6 @@ export class TrocaServicoService {
       });
     });
 
-    const depoisA = await this.prisma.policial.findUnique({ where: { id: troca.policialAId } });
-    const depoisB = await this.prisma.policial.findUnique({ where: { id: troca.policialBId } });
-
-    await this.audit.record({
-      entity: 'Policial',
-      entityId: troca.policialAId,
-      action: AuditAction.UPDATE,
-      actor,
-      before: antesA,
-      after: { id: troca.policialAId, equipe: depoisA?.equipe },
-    });
-    await this.audit.record({
-      entity: 'Policial',
-      entityId: troca.policialBId,
-      action: AuditAction.UPDATE,
-      actor,
-      before: antesB,
-      after: { id: troca.policialBId, equipe: depoisB?.equipe },
-    });
     await this.audit.record({
       entity: 'TrocaServico',
       entityId: id,

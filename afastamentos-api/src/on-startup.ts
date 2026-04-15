@@ -4,6 +4,7 @@ import * as dotenv from 'dotenv';
 import { config } from 'dotenv';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { buildPgPoolConfig } from './pg-pool-config.js';
 
 // Carregar variáveis de ambiente explicitamente
 config();
@@ -16,7 +17,7 @@ if (!databaseUrl) {
 }
 
 // No Prisma 7, para conexão direta ao PostgreSQL, usamos PrismaPg adapter
-const pool = new Pool({ connectionString: databaseUrl });
+const pool = new Pool(buildPgPoolConfig(databaseUrl));
 const adapter = new PrismaPg(pool);
 
 const prisma = new PrismaClient({

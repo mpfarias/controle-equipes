@@ -10,7 +10,7 @@ import type { Usuario } from '@prisma/client';
 export class TrocaServicoController {
   constructor(private readonly trocaServicoService: TrocaServicoService) {}
 
-  /** Qualquer usuário autenticado: aplica retornos à equipe de origem após as datas da troca. */
+  /** Qualquer usuário autenticado: encerra lados da troca após o fim dos turnos (não altera equipe no cadastro do policial). */
   @Post('processar-revertes')
   processarRevertes() {
     return this.trocaServicoService.processarRevertesPendentes();

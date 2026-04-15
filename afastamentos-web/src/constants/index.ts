@@ -49,7 +49,7 @@ export type TabKey =
   | 'escalas-gerar'
   /** Consultar / imprimir escalas salvas (aba Visualizar). */
   | 'escalas-consultar'
-  /** Permissão granular (ex.: ver trocas em Escalas – Consultar); troca no cadastro é no Efetivo. */
+  /** Permissão granular (ex.: ver trocas em Escalas – Consultar); registrar troca é no Efetivo. */
   | 'troca-servico'
   | 'sistema'
   | 'afastamentos-mes'

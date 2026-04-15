@@ -1404,7 +1404,7 @@ export function MostrarEquipeSection({
       await api.processarRevertesTrocaServico();
       fecharModalTroca();
       setSuccess(
-        'Troca de serviço registrada. As equipes foram invertidas imediatamente; após o fim do turno informado para cada data (diurno: até 19h; noturno: até 07h do dia seguinte, horário de Brasília), cada policial volta automaticamente à equipe de origem.',
+        'Troca de serviço registrada. O cadastro de equipe dos policiais não é alterado; a troca vale só para as datas e turnos informados. Após o fim de cada turno (diurno: até 19h; noturno: até 07h do dia seguinte, horário de Brasília), o registro da troca encerra cada lado automaticamente.',
       );
       void carregarPoliciais(paginaAtual, itensPorPagina);
       onChanged?.();
@@ -3064,10 +3064,10 @@ export function MostrarEquipeSection({
             <Typography variant="body2" color="text.secondary">
               <strong>Troca de serviço é sempre entre dois policiais de equipes diferentes</strong> — não há troca com quem
               é da mesma equipe. Policiais elegíveis: escala 12×24 (cinco equipes), motorista de dia (24×72), ou Designado
-              / PTTC / Comissionado. As equipes são invertidas na hora até as datas abaixo; depois cada um retorna à equipe
-              original. Informe também o **horário (turno)** de cada data: isso define quando o cadastro volta à equipe de
-              origem e deve bater com a escala 12×24 (equipe do parceiro no turno diurno ou noturno daquele dia). Cada
-              data deve ser um dia em que **a equipe do próprio policial ou a do parceiro** esteja de serviço na escala
+              / PTTC / Comissionado. A troca é só operacional: o cadastro de equipe e as escalas geradas a partir do efetivo
+              não mudam. Informe o **turno** de cada data (diurno ou noturno): isso define quando o lado correspondente da
+              troca é encerrado no registro e deve bater com a escala 12×24 (equipe do parceiro naquele turno daquele dia).
+              Cada data deve ser um dia em que **a equipe do próprio policial ou a do parceiro** esteja de serviço na escala
               12×24. Motoristas de dia: use sempre turno diurno (07h–19h). Parâmetros em Gestão de escalas e Calendário.
             </Typography>
 
@@ -3135,7 +3135,7 @@ export function MostrarEquipeSection({
                     {trocaPolicialOrigem.nome}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Equipe atual: {formatEquipeLabel(trocaPolicialOrigem.equipe)}
+                    Equipe (cadastro): {formatEquipeLabel(trocaPolicialOrigem.equipe)}
                   </Typography>
                   <Button
                     size="small"
