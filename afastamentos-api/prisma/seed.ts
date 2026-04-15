@@ -3,7 +3,7 @@ import { PrismaClient, UsuarioStatus } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcryptjs';
-import { buildPgPoolConfig } from '../src/pg-pool-config.js';
+import { buildPgPoolConfig } from '../src/pg-pool-config';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
