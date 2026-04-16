@@ -2,6 +2,8 @@ import { INestApplication, Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import { buildPgPoolConfig } from './pg-pool-config';
 
 @Injectable()
 export class PrismaService
@@ -10,15 +12,20 @@ export class PrismaService
 {
   constructor(private configService: ConfigService) {
     const databaseUrl = configService.get<string>('DATABASE_URL');
+
     if (!databaseUrl) {
-      throw new Error('DATABASE_URL não está definida nas variáveis de ambiente');
+      throw new Error('DATABASE_URL não está definida');
     }
 
-    const adapter = new PrismaPg({ connectionString: databaseUrl });
+    const pool = new Pool(buildPgPoolConfig(databaseUrl));
+    const adapter = new PrismaPg(pool);
 
     super({
       adapter,
-      log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+      log:
+        process.env.NODE_ENV === 'development'
+          ? ['query', 'error', 'warn']
+          : ['error'],
     });
   }
 

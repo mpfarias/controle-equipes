@@ -2,27 +2,23 @@ import { PrismaClient, UsuarioStatus } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { config } from 'dotenv';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { Pool } from 'pg';
+import { buildPgPoolConfig } from './pg-pool-config';
 
 config();
 
 const databaseUrl = process.env.DATABASE_URL;
+
 if (!databaseUrl) {
   throw new Error('DATABASE_URL não está definida');
 }
 
-const adapter = new PrismaPg({ connectionString: databaseUrl });
+const pool = new Pool(buildPgPoolConfig(databaseUrl));
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 export async function ensureInitialUser() {
   try {
-    const isProduction = process.env.NODE_ENV === 'production';
-    if (isProduction && (!process.env.ADMIN_MATRICULA || !process.env.ADMIN_SENHA)) {
-      throw new Error(
-        'ADMIN_MATRICULA e ADMIN_SENHA devem ser configurados em produção.',
-      );
-    }
-
-    // Garantir que os níveis existam
     const nivelAdmin = await prisma.usuarioNivel.upsert({
       where: { nome: 'ADMINISTRADOR' },
       update: {},
@@ -32,22 +28,15 @@ export async function ensureInitialUser() {
       },
     });
 
-    // Obter credenciais do admin inicial de variáveis de ambiente
     const adminMatricula = process.env.ADMIN_MATRICULA || '1966901';
     const adminSenha = process.env.ADMIN_SENHA || 'admin123';
 
-    // Verificar se já existe um usuário com a matrícula configurada
     const usuarioExistente = await prisma.usuario.findFirst({
-      where: {
-        matricula: adminMatricula,
-      },
+      where: { matricula: adminMatricula },
     });
 
-    if (usuarioExistente) {
-      return; // Usuário já existe, não precisa criar
-    }
+    if (usuarioExistente) return;
 
-    // Criar usuário inicial
     const senhaHash = await bcrypt.hash(adminSenha, 10);
 
     await prisma.usuario.create({
@@ -63,17 +52,9 @@ export async function ensureInitialUser() {
       },
     });
 
-    console.log('✅ Usuário inicial criado automaticamente!');
-    console.log(`   Matrícula: ${adminMatricula}`);
-    console.log('   ⚠️  Altere a senha após o primeiro login!');
-    if (!process.env.ADMIN_SENHA) {
-      console.log('   ⚠️  Configure ADMIN_SENHA no .env para produção!\n');
-    } else {
-      console.log('');
-    }
+    console.log('✅ Usuário inicial criado');
   } catch (error) {
-    // Silenciosamente ignora erros (usuário pode já existir)
-    console.log('ℹ️  Verificação de usuário inicial concluída.\n');
+    console.log('ℹ️ Usuário inicial já existe ou erro ignorado');
   } finally {
     await prisma.$disconnect();
   }
