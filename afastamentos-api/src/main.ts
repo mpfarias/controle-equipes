@@ -68,6 +68,7 @@ async function bootstrap() {
     'http://127.0.0.1:4183',
     'http://127.0.0.1:4184',
     'http://127.0.0.1:4185',
+    'https://afastamentos-web-wjeog.ondigitalocean.app',
   ];
 
   // Adicionar origem customizada se definida em variável de ambiente

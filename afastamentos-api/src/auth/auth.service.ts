@@ -29,17 +29,7 @@ export class AuthService {
 
     const usuario = await this.prisma.usuario.findUnique({
       where: { matricula: matriculaNormalizada },
-      select: {
-        id: true,
-        nome: true,
-        matricula: true,
-        senhaHash: true,
-        status: true,
-        isAdmin: true,
-        nivelId: true,
-        funcaoId: true,
-        sistemasPermitidos: true,
-        nivelRemovidoEm:true,
+      include: {
         nivel: {
           select: {
             id: true,
