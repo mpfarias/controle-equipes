@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import { api } from '../../api';
+import type { FuncaoOption } from '../../types';
 import type { EscalaParsed } from '../../utils/escalaParametros';
 import {
   indiceFuncaoOrdenacaoEscala,
@@ -30,6 +31,7 @@ import { ESCALA_DEFINITIVA_RENDER_MESSAGE, writeEscalaGeradaEditorWindow } from 
 import {
   ESCALA_GERADA_SALVAR_MESSAGE,
   linhasEscalaDraftParaApi,
+  notificarImpressaoEscalaGeradaSalva,
   openEscalaGeradaBlankWindow,
   writeEscalaGeradaLoadingWindow,
   writeEscalaGeradaPrintWindow,
@@ -37,6 +39,7 @@ import {
 import type { EscalaGeradaDraftPayload } from '../../utils/gerarEscalasCalculo';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit } from '../../utils/permissions';
+import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 
 function hojeIsoLocal(): string {
   const d = new Date();
@@ -109,17 +112,24 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
   const [dataEscala, setDataEscala] = useState(hojeIsoLocal);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
+  const [funcoesAtivas, setFuncoesAtivas] = useState<FuncaoOption[]>([]);
   const printWinRef = useRef<Window | null>(null);
 
   const tipos = tiposMarcados(tipoOperacional, tipoExpediente, tipoMotoristas);
+
+  const podeGerarMotoristas = useMemo(() => {
+    return funcoesAtivas.some(
+      (f) => f.escalaMotorista === true || f.nome.toUpperCase().includes('MOTORISTA'),
+    );
+  }, [funcoesAtivas]);
 
   useEffect(() => {
     const carregarFuncoes = async () => {
       try {
         const funcoes = await api.listFuncoes();
         const ativas = funcoes.filter((f) => f.ativo !== false);
+        setFuncoesAtivas(ativas);
         const mot = ativas.find((f) => f.nome.toUpperCase().includes('MOTORISTA DE DIA'));
         if (mot) setFuncaoMotoristaId(mot.id);
       } catch {
@@ -131,12 +141,19 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
 
   const handleSalvarFromPrint = useCallback(async (payload: unknown) => {
     setError(null);
-    setSuccess(null);
+    const winImp = printWinRef.current;
     if (!podeEditar) {
-      setError('Sem permissão para gravar escalas no sistema.');
+      const msg = 'Sem permissão para gravar escalas no sistema.';
+      setError(msg);
+      notificarImpressaoEscalaGeradaSalva(winImp, { sucesso: false, mensagem: msg });
       return;
     }
-    if (!payload || typeof payload !== 'object') return;
+    if (!payload || typeof payload !== 'object') {
+      const msg = 'Dados inválidos para salvar a escala.';
+      setError(msg);
+      notificarImpressaoEscalaGeradaSalva(winImp, { sucesso: false, mensagem: msg });
+      return;
+    }
     const p = payload as {
       dataEscala?: string;
       tipoServico?: string;
@@ -144,19 +161,25 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
       linhas?: unknown[];
     };
     if (!p.dataEscala || !p.tipoServico || !Array.isArray(p.linhas)) {
-      setError('Dados inválidos para salvar a escala.');
+      const msg = 'Dados inválidos para salvar a escala.';
+      setError(msg);
+      notificarImpressaoEscalaGeradaSalva(winImp, { sucesso: false, mensagem: msg });
       return;
     }
     try {
+      const impressaoDraft = payload as EscalaGeradaDraftPayload;
       const created = await api.createEscalaGerada({
         dataEscala: p.dataEscala,
         tipoServico: p.tipoServico,
         resumoEquipes: p.resumoEquipes ?? null,
         linhas: linhasEscalaDraftParaApi(p.linhas as LinhaEscalaGeradaDraft[]),
+        impressaoDraft: impressaoDraft as unknown as Record<string, unknown>,
       });
-      setSuccess(`Escala salva com sucesso (registro nº ${created.id}).`);
+      notificarImpressaoEscalaGeradaSalva(winImp, { sucesso: true, registroId: created.id });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Erro ao salvar a escala.');
+      const msg = e instanceof Error ? e.message : 'Erro ao salvar a escala.';
+      setError(msg);
+      notificarImpressaoEscalaGeradaSalva(winImp, { sucesso: false, mensagem: msg });
     }
   }, [podeEditar]);
 
@@ -180,7 +203,6 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
   const handleGerar = async () => {
     setLoading(true);
     setError(null);
-    setSuccess(null);
 
     if (tipos.length === 0) {
       setError('Marque ao menos um tipo de serviço.');
@@ -192,14 +214,6 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
       setLoading(false);
       return;
     }
-    if (tipoMotoristas && funcaoMotoristaId == null) {
-      setError(
-        'Função "Motorista de Dia" não encontrada no cadastro de funções. Cadastre ou ajuste o nome da função.',
-      );
-      setLoading(false);
-      return;
-    }
-
     const win = openEscalaGeradaBlankWindow();
     if (!win) {
       setError(
@@ -227,8 +241,23 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
 
       /** Sempre no momento da geração (evita IDs vazios por corrida com o useEffect ou falha silenciosa no carregamento). */
       const ativasGeracao = funcoes.filter((f) => f.ativo !== false);
+      if (tipoMotoristas && !ativasGeracao.some((f) => f.escalaMotorista || f.nome.toUpperCase().includes('MOTORISTA'))) {
+        setError(
+          'Nenhuma função está marcada para a escala de motoristas. Em Gestão do sistema → Funções, marque «Escala motoristas» na função correspondente (ou use uma função cujo nome contenha «Motorista»).',
+        );
+        setLoading(false);
+        try {
+          win.close();
+        } catch {
+          /* ignore */
+        }
+        printWinRef.current = null;
+        return;
+      }
+
       const idsExpGeracao = new Set<number>();
       for (const f of ativasGeracao) {
+        if (f.escalaExpediente) idsExpGeracao.add(f.id);
         if (nomeFuncaoIndicaExpedienteAdministrativo(f.nome)) idsExpGeracao.add(f.id);
         const idx = indiceFuncaoOrdenacaoEscala(f.nome);
         if (idx === 0 || idx === 1 || idx === 9) idsExpGeracao.add(f.id);
@@ -243,6 +272,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         {
           funcaoMotoristaId,
           funcoesExpedienteIds: [...idsExpGeracao],
+          funcoesCatalogo: ativasGeracao,
           operacionalTurnos:
             tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined,
           trocasServicoAtivas,
@@ -270,7 +300,8 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
     loading ||
     !dataEscala ||
     tipos.length === 0 ||
-    (tipoOperacional && !operacionalDiurno && !operacionalNoturno);
+    (tipoOperacional && !operacionalDiurno && !operacionalNoturno) ||
+    (tipoMotoristas && !podeGerarMotoristas);
 
   const controlesDesabilitados = !podeEditar;
 
@@ -286,7 +317,8 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         Marque os tipos de serviço e a data; em seguida abre-se uma <strong>nova aba</strong> para revisar a escala
         (cabeçalho com selects, troca de policial/função). Os horários das linhas são automáticos (regras do sistema).
         Use <strong>Gerar escala definitiva</strong> na aba para obter o documento final (imprimir / salvar).{' '}
-        <strong>Cancelar</strong> na aba de edição fecha sem salvar.
+        <strong>Cancelar</strong> na aba de edição fecha sem salvar. Quem entra em cada tipo (operacional, expediente,
+        motoristas) é definido por função em <strong>Gestão do sistema → Funções</strong> (participação na escala).
       </Typography>
 
       {error && (
@@ -294,12 +326,6 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
           {error}
         </Alert>
       )}
-      {success && (
-        <Alert severity="success" onClose={() => setSuccess(null)}>
-          {success}
-        </Alert>
-      )}
-
       <Paper
         variant="outlined"
         elevation={0}
@@ -354,6 +380,11 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
                   label={labelTipoServicoUm('MOTORISTAS')}
                 />
               </FormGroup>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block', lineHeight: 1.5 }}>
+                <strong>Operacional:</strong> escala das equipes <strong>12×24</strong> (turnos dia/noite).{' '}
+                <strong>Motoristas:</strong> escala de motorista de dia <strong>{ESCALA_MOTORISTA_DIA}</strong> (rodízio
+                próprio, distinto do operacional).
+              </Typography>
             </FormControl>
           </Grid>
 
@@ -452,11 +483,13 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         </Grid>
       </Paper>
 
-      {tipoMotoristas && funcaoMotoristaId == null && (
+      {tipoMotoristas && !podeGerarMotoristas && (
         <Alert severity="warning" sx={{ maxWidth: 800 }}>
-          Sem função &quot;Motorista de Dia&quot; no cadastro — a parte Motoristas da escala pode ficar vazia.
+          Nenhuma função está habilitada para a escala de motoristas. Ajuste em Gestão do sistema → Funções (opção
+          «Escala motoristas») ou cadastre uma função cujo nome indique motorista.
         </Alert>
       )}
+
     </Stack>
   );
 }

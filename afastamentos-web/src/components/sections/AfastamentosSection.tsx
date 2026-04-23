@@ -142,6 +142,11 @@ function tituloIconeDesativarAfastamento(af: Afastamento): string {
   return 'Desativar afastamento';
 }
 
+/** ATIVO e ENCERRADO entram em bloqueios e limites; DESATIVADO (manual) não conta para o sistema. */
+function afastamentoInterfereNasRegrasDoSistema(status: Afastamento['status']): boolean {
+  return status === 'ATIVO' || status === 'ENCERRADO';
+}
+
 const formFieldSx = {
   '& .MuiOutlinedInput-root': {
     backgroundColor: theme.cardBg,
@@ -237,8 +242,6 @@ export function AfastamentosSection({
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
-  /** Sub-abas da lista na tela "Cadastrar afastamento". */
-  const [abaListaAfastamentos, setAbaListaAfastamentos] = useState<'ativos' | 'encerrados'>('ativos');
   const [dataFimFocada, setDataFimFocada] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
@@ -822,7 +825,7 @@ export function AfastamentosSection({
   ): number => {
     const porExercicio = opts?.porExercicioFerias ?? false;
     const afastamentosDoAno = afastamentos.filter((afastamento) => {
-      if (afastamento.status === 'DESATIVADO') {
+      if (!afastamentoInterfereNasRegrasDoSistema(afastamento.status)) {
         return false;
       }
       if (afastamento.policialId !== policialId || afastamento.motivoId !== motivoId) {
@@ -940,10 +943,10 @@ export function AfastamentosSection({
       return [];
     }
 
-    // Verificar todos os afastamentos ativos que se sobrepõem com o período informado
+    // Afastamentos ativos ou encerrados (gozo já ocorrido) que se sobrepõem ao período; desativado manual não conta.
     // Excluindo o próprio policial que está sendo cadastrado
     const conflitos = afastamentos.filter((afastamento) => {
-      if (afastamento.status !== 'ATIVO') {
+      if (!afastamentoInterfereNasRegrasDoSistema(afastamento.status)) {
         return false;
       }
       // Excluir o próprio policial
@@ -1178,7 +1181,7 @@ export function AfastamentosSection({
     
     const afastamentosDoMesmoPolicial = afastamentos.filter(
       (afastamento) =>
-        afastamento.policialId === policialId && afastamento.status !== 'DESATIVADO',
+        afastamento.policialId === policialId && afastamentoInterfereNasRegrasDoSistema(afastamento.status),
     );
 
     // Verificar se algum afastamento do mesmo policial se sobrepõe com o período informado
@@ -1260,7 +1263,7 @@ export function AfastamentosSection({
             (afastamento) =>
               afastamento.policialId === policialId &&
               afastamento.motivoId === motivoFeriasId &&
-              afastamento.status === 'ATIVO',
+              afastamentoInterfereNasRegrasDoSistema(afastamento.status),
           );
 
         for (const feriasExistente of fériasExistentes) {
@@ -1757,15 +1760,10 @@ export function AfastamentosSection({
         )
       : filtradoPorMotivoOutro;
 
-    // Ordenar por patente e nome do policial
-    const ordenado = sortAfastamentosPorPatenteENome(filtradoFinal);
-    if (abaListaAfastamentos === 'ativos') {
-      return ordenado.filter((a) => a.status === 'ATIVO');
-    }
-    return ordenado.filter((a) => a.status === 'ENCERRADO' || a.status === 'DESATIVADO');
+    // Ordenar por patente e nome do policial (ativos, encerrados e desativados na mesma lista)
+    return sortAfastamentosPorPatenteENome(filtradoFinal);
   }, [
     afastamentos,
-    abaListaAfastamentos,
     motivoFiltro,
     motivoFiltroOutro,
     normalizedSearch,
@@ -1796,7 +1794,7 @@ export function AfastamentosSection({
 
   useEffect(() => {
     setPaginaAtual(1);
-  }, [motivoFiltro, motivoFiltroOutro, searchTerm, selectedMonth, dataInicioFiltro, dataFimFiltro, abaListaAfastamentos]);
+  }, [motivoFiltro, motivoFiltroOutro, searchTerm, selectedMonth, dataInicioFiltro, dataFimFiltro]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -2255,20 +2253,10 @@ export function AfastamentosSection({
       <div>
         <div className="section-header">
           <h3>Lista de afastamentos</h3>
+          <p className="subtitle" style={{ marginTop: 4, marginBottom: 0 }}>
+            Lista única: ativos, encerrados e desativados. Use a coluna Status e os filtros para localizar registros.
+          </p>
         </div>
-        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
-          <Tabs
-            value={abaListaAfastamentos}
-            onChange={(_, v) => {
-              setAbaListaAfastamentos(v);
-              setPaginaAtual(1);
-            }}
-            sx={{ '& .MuiTab-root': { textTransform: 'none', fontWeight: 600 } }}
-          >
-            <Tab label="Ativos" value="ativos" />
-            <Tab label="Encerrados/desativados" value="encerrados" />
-          </Tabs>
-        </Box>
         <div className="list-controls">
           <input
             className="search-input"
@@ -2404,13 +2392,9 @@ export function AfastamentosSection({
           <p className="empty-state">Carregando afastamentos...</p>
         ) : afastamentosFiltrados.length === 0 ? (
           <p className="empty-state">
-            {abaListaAfastamentos === 'ativos'
-              ? dataInicioFiltro || dataFimFiltro || selectedMonth
-                ? 'Nenhum afastamento ativo encontrado no período selecionado.'
-                : 'Nenhum afastamento ativo.'
-              : dataInicioFiltro || dataFimFiltro || selectedMonth
-                ? 'Nenhum afastamento encerrado ou desativado encontrado no período selecionado.'
-                : 'Nenhum afastamento encerrado ou desativado.'}
+            {dataInicioFiltro || dataFimFiltro || selectedMonth
+              ? 'Nenhum afastamento encontrado no período selecionado.'
+              : 'Nenhum afastamento cadastrado.'}
           </p>
         ) : (
           <>

@@ -1,4 +1,4 @@
-import { IsDateString, IsIn, IsInt, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateTrocaServicoDto {
@@ -20,11 +20,13 @@ export class CreateTrocaServicoDto {
   @IsDateString()
   dataServicoPolicialOutro!: string;
 
-  /** Turno 12×24 em que o policial de origem cumpre o serviço trocado nessa data (fim do turno em Brasília encerra o lado na troca). */
+  /** Opcional por compatibilidade: quando ausente, a API define o turno automaticamente pela escala do dia/equipe. */
+  @IsOptional()
   @IsIn(['DIURNO', 'NOTURNO'])
-  turnoServicoPolicialOrigem!: 'DIURNO' | 'NOTURNO';
+  turnoServicoPolicialOrigem?: 'DIURNO' | 'NOTURNO';
 
-  /** Turno 12×24 em que o outro policial cumpre o serviço trocado nessa data. */
+  /** Opcional por compatibilidade: quando ausente, a API define o turno automaticamente pela escala do dia/equipe. */
+  @IsOptional()
   @IsIn(['DIURNO', 'NOTURNO'])
-  turnoServicoPolicialOutro!: 'DIURNO' | 'NOTURNO';
+  turnoServicoPolicialOutro?: 'DIURNO' | 'NOTURNO';
 }

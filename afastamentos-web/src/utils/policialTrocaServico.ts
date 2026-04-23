@@ -1,4 +1,20 @@
-import type { Policial } from '../types';
+import type { Policial, TrocaServicoAtivaListaItem } from '../types';
+
+/** Função cadastrada como motorista de dia (nome contém "MOTORISTA DE DIA"). */
+export function policialEhMotoristaDeDia(p: Policial): boolean {
+  const fn = p.funcao?.nome?.toUpperCase() ?? '';
+  return fn.includes('MOTORISTA DE DIA');
+}
+
+/** Mesma regra que `policialEhMotoristaDeDia`, usando só o nome da função (ex.: item de lista de trocas). */
+export function funcaoNomeEhMotoristaDeDia(funcaoNome: string | null | undefined): boolean {
+  return (funcaoNome ?? '').toUpperCase().includes('MOTORISTA DE DIA');
+}
+
+/** Troca livre motorista ↔ motorista (ambos com função motorista de dia). */
+export function trocaServicoAtivaEhEntreMotoristasDeDia(row: TrocaServicoAtivaListaItem): boolean {
+  return funcaoNomeEhMotoristaDeDia(row.policialA.funcaoNome) && funcaoNomeEhMotoristaDeDia(row.policialB.funcaoNome);
+}
 
 /** Troca de serviço: apenas quem tem equipe operacional (não SEM_EQUIPE) ou função motorista de dia. */
 export function policialElegivelTrocaServico(p: Policial): boolean {

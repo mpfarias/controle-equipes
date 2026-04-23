@@ -23,6 +23,12 @@ type AfastamentoWithPolicialResponse = Omit<AfastamentoWithPolicial, 'policial'>
   policial: Omit<AfastamentoWithPolicial['policial'], 'status'> & { status: string };
 };
 
+/** ATIVO e ENCERRADO entram em bloqueios, limites e sobreposição; DESATIVADO (manual) não. */
+const AFASTAMENTO_STATUS_RELEVANTES: AfastamentoStatus[] = [
+  AfastamentoStatus.ATIVO,
+  AfastamentoStatus.ENCERRADO,
+];
+
 @Injectable()
 export class AfastamentosService {
   constructor(
@@ -240,7 +246,7 @@ export class AfastamentosService {
     const existentes = await this.prisma.afastamento.findMany({
       where: {
         policialId,
-        status: { in: [AfastamentoStatus.ATIVO, AfastamentoStatus.ENCERRADO] },
+        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
         ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
       },
       select: {
@@ -287,7 +293,7 @@ export class AfastamentosService {
           gte: inicioAno,
           lte: fimAno,
         },
-        status: AfastamentoStatus.ATIVO,
+        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
         ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
       },
     });
@@ -320,7 +326,7 @@ export class AfastamentosService {
     const afastamentos = await this.prisma.afastamento.findMany({
       where: {
         policialId,
-        status: AfastamentoStatus.ATIVO,
+        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
         ...(motivoFerias ? { motivoId: { not: motivoFerias.id } } : {}),
         ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
       },
@@ -517,17 +523,18 @@ export class AfastamentosService {
       return; // Se não encontrar o motivo, não valida
     }
 
-    const todasFeriasAtivas = await this.prisma.afastamento.findMany({
+    /** Gozos que ainda valem para regra (ativo ou encerrado ao fim do período); desativado manual não entra. */
+    const feriasRelevantes = await this.prisma.afastamento.findMany({
       where: {
         policialId,
         motivoId: motivoFerias.id,
-        status: AfastamentoStatus.ATIVO,
+        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
         ...(excluirAfastamentoId && { id: { not: excluirAfastamentoId } }),
       },
       orderBy: { dataInicio: 'asc' },
     });
 
-    const feriasDoExercicio = todasFeriasAtivas.filter(
+    const feriasDoExercicio = feriasRelevantes.filter(
       (f) => this.anoExercicioEfetivoFerias(f) === anoCota,
     );
 
@@ -549,7 +556,7 @@ export class AfastamentosService {
     const novoInicioStr = dateToString(novoInicio);
     const novoFimStr = dateToString(novoFim);
 
-    for (const feriasExistente of todasFeriasAtivas) {
+    for (const feriasExistente of feriasRelevantes) {
       if (!feriasExistente.dataFim) continue; // Pular se não tiver data fim
       
       // Normalizar as datas existentes também

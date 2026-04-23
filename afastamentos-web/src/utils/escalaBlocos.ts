@@ -1,7 +1,10 @@
+import { ESCALA_MOTORISTA_DIA } from '../constants/escalaMotoristasDia';
+
 /**
  * Blocos da escala impressa (ordem fixa). SVG: placeholders até tela dedicada.
  */
 export type BlocoEscalaId =
+  | 'ESCALA_EXTRAORDINARIA'
   | 'EXP_ALT_SEMANAL_07'
   | 'EXP_07_13'
   | 'EQUIPE_DIURNA_07'
@@ -16,6 +19,7 @@ export type BlocoEscalaId =
   | 'AFASTADOS';
 
 export const ORDEM_BLOCOS_IMPRESSAO: BlocoEscalaId[] = [
+  'ESCALA_EXTRAORDINARIA',
   'EXP_ALT_SEMANAL_07',
   'EXP_07_13',
   'EQUIPE_DIURNA_07',
@@ -29,10 +33,11 @@ export const ORDEM_BLOCOS_IMPRESSAO: BlocoEscalaId[] = [
 ];
 
 const TITULOS: Record<BlocoEscalaId, string> = {
+  ESCALA_EXTRAORDINARIA: 'Escala extraordinária de serviço',
   EXP_ALT_SEMANAL_07: 'Expediente',
   EXP_07_13: 'Expediente — período da manhã',
   EQUIPE_DIURNA_07: 'Equipe',
-  MOTORISTAS: 'Motoristas',
+  MOTORISTAS: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
   SVG_10_18: 'SVG',
   EXP_13_19_ORG: 'Expediente',
   EXP_13_19_SEG_SEX: 'Expediente',
@@ -54,6 +59,16 @@ export function normalizarBlocoEscalaImpressao(id: BlocoEscalaId | string | unde
 
 export function tituloBlocoEscala(id: BlocoEscalaId): string {
   return TITULOS[id] ?? id;
+}
+
+/** Cabeçalho «HORÁRIO» na escala extraordinária: início do período informado na linha (antes de «às»). */
+export function rotuloHorarioApartirDeServico(horarioServicoLinha: string): string {
+  const limpo = horarioServicoLinha.replace(/^\[[^\]]+\]\s*/u, '').trim();
+  if (!limpo) return 'A partir de —';
+  const lower = limpo.toLowerCase();
+  const idx = lower.indexOf(' às ');
+  const inicio = idx === -1 ? limpo : limpo.slice(0, idx).trim();
+  return `A partir de ${inicio}`;
 }
 
 /** Extrai a letra/código da equipe a partir do texto gerado (ex.: "Equipe E (serviço diurno…)" → "E"). */

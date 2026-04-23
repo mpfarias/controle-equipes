@@ -25,6 +25,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 
 export type TipoGraficoDashboard = 'bar' | 'pie' | 'line';
 
@@ -334,7 +335,7 @@ export function DashboardGraficosPanel(props: DashboardGraficosPanelProps) {
     }
     if (!usuarioEhCpmulher && motoristasData) {
       rows.push({
-        name: 'Motoristas',
+        name: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
         total: motoristasData.total,
         afastados: motoristasData.afastados,
         disponiveis: motoristasData.disponiveis,
@@ -365,7 +366,7 @@ export function DashboardGraficosPanel(props: DashboardGraficosPanelProps) {
     }
     if (!usuarioEhCpmulher && motoristasData) {
       items.push({
-        titulo: 'Motoristas',
+        titulo: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
         fatias: [
           { name: 'Total', value: motoristasData.total },
           { name: 'Afastados', value: motoristasData.afastados },
@@ -440,7 +441,9 @@ export function DashboardGraficosPanel(props: DashboardGraficosPanelProps) {
           </SecaoGrafico>
 
           {linhasOperacional.length > 0 && (
-            <SecaoGrafico titulo="Expediente, Motoristas e COPOM Mulher (total, afastados, disponíveis)">
+            <SecaoGrafico
+              titulo={`Expediente, motoristas (${ESCALA_MOTORISTA_DIA}) e COPOM Mulher (total, afastados, disponíveis)`}
+            >
               {tipoGrafico === 'bar' && <ChartOperacionalBarras rows={linhasOperacional} />}
               {tipoGrafico === 'line' && <ChartOperacionalLinhas rows={linhasOperacional} />}
               {tipoGrafico === 'pie' && <MiniPies items={piesOperacional} />}

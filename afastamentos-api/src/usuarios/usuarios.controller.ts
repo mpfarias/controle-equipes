@@ -103,7 +103,22 @@ export class UsuariosController {
 
   @Post('funcoes')
   createFuncao(
-    @Body() body: { nome: string; descricao?: string | null },
+    @Body()
+    body: {
+      nome: string;
+      descricao?: string | null;
+      vinculoEquipe?: 'OBRIGATORIA' | 'OPCIONAL' | 'SEM_EQUIPE';
+      escalaOperacional?: boolean;
+      escalaMotorista?: boolean;
+      escalaExpediente?: boolean;
+      expedienteHorarioPreset?:
+        | 'AUTO'
+        | 'ORGAO_DIAS_UTEIS'
+        | 'SEG_SEX_07_19'
+        | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
+        | 'JORNADA_24X72';
+      equipeReferencia?: string | null;
+    },
     @CurrentUser() user: Usuario,
   ) {
     return this.usuariosService.createFuncao(body, user.id);
@@ -112,7 +127,22 @@ export class UsuariosController {
   @Patch('funcoes/:id')
   updateFuncao(
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: { nome?: string; descricao?: string | null },
+    @Body()
+    body: {
+      nome?: string;
+      descricao?: string | null;
+      vinculoEquipe?: 'OBRIGATORIA' | 'OPCIONAL' | 'SEM_EQUIPE';
+      escalaOperacional?: boolean;
+      escalaMotorista?: boolean;
+      escalaExpediente?: boolean;
+      expedienteHorarioPreset?:
+        | 'AUTO'
+        | 'ORGAO_DIAS_UTEIS'
+        | 'SEG_SEX_07_19'
+        | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
+        | 'JORNADA_24X72';
+      equipeReferencia?: string | null;
+    },
     @CurrentUser() user: Usuario,
   ) {
     return this.usuariosService.updateFuncao(id, body, user.id);

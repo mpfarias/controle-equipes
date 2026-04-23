@@ -70,6 +70,19 @@ export class EscalasController {
     return this.escalasService.createEscalaGerada(dto, { id: user.id, nome: user.nome });
   }
 
+  /** Quantas vezes cada policial entrou em escala extraordinária salva (maior → menor). */
+  @Get('quantitativo-extras')
+  @AnyAuthenticated()
+  listQuantitativoExtrasPoliciais() {
+    return this.escalasService.listQuantitativoExtrasPoliciais();
+  }
+
+  @Delete('quantitativo-extras/:policialId')
+  @Roles('ADMINISTRADOR', 'SAD', 'COMANDO')
+  deleteContagemEscalaExtraPolicial(@Param('policialId', ParseIntPipe) policialId: number) {
+    return this.escalasService.deleteContagemEscalaExtraPolicial(policialId);
+  }
+
   @Get('geradas')
   @AnyAuthenticated()
   listEscalaGeradas(@Query('take') take?: string, @Query('skip') skip?: string) {

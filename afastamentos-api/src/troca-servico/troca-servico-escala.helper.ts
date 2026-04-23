@@ -94,13 +94,13 @@ export function validarPolicialDeServicoNoDia(
     if (em == null) {
       return {
         ok: false,
-        motivo: `Não foi possível determinar a escala de motoristas (equipes A/B/C/D do ciclo de motoristas) para ${ymd}. Verifique data de início e sequência de motoristas nos parâmetros da escala.`,
+        motivo: `Não foi possível determinar a escala 24×72 (motorista de dia; equipes A–D) para ${ymd}. Verifique data de início e sequência de motoristas nos parâmetros da escala.`,
       };
     }
     if (eq !== em) {
       return {
         ok: false,
-        motivo: `Na data ${ymd}, na escala de motoristas o serviço é da equipe ${em}; a equipe cadastrada do policial é ${eq || '—'}.`,
+        motivo: `Na data ${ymd}, na escala 24×72 (motorista de dia) o serviço é da equipe ${em}; a equipe cadastrada do policial é ${eq || '—'}.`,
       };
     }
     return { ok: true };
@@ -132,7 +132,7 @@ export function validarPolicialDeServicoNoDia(
   return {
     ok: false,
     motivo:
-      'Não foi possível validar o dia de serviço: é necessário equipe operacional (exceto SEM_EQUIPE) para a escala 12×24 das equipes, ou função de motorista de dia para a escala 24×72 de motoristas, ou status DESIGNADO, PTTC ou COMISSIONADO.',
+      'Não foi possível validar o dia de serviço: é necessário equipe operacional (exceto SEM_EQUIPE) para a escala 12×24 das equipes, ou função de motorista de dia para a escala 24×72 (motorista de dia), ou status DESIGNADO, PTTC ou COMISSIONADO.',
   };
 }
 

@@ -27,7 +27,8 @@ import {
   Select,
   MenuItem,
 } from '@mui/material';
-import { Block, Edit } from '@mui/icons-material';
+import type { SxProps, Theme } from '@mui/material/styles';
+import { Block, DeleteOutline, Edit, OpenInNew, Refresh } from '@mui/icons-material';
 import { api } from '../../api';
 import type {
   EscalaGerada,
@@ -40,7 +41,9 @@ import { formatEquipeLabel } from '../../constants';
 import { formatDate, formatMatricula } from '../../utils/dateUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canDesativar, canExcluir, canView, podeGerenciarTrocaServicoElevado } from '../../utils/permissions';
+import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import { labelTipoServico, type EscalaGeradaDraftPayload } from '../../utils/gerarEscalasCalculo';
+import { trocaServicoAtivaEhEntreMotoristasDeDia } from '../../utils/policialTrocaServico';
 import {
   openEscalaGeradaBlankWindow,
   writeEscalaGeradaLoadingWindow,
@@ -52,12 +55,70 @@ function ymdFromApi(value: string): string {
   return m ? m[1]! : value.slice(0, 10);
 }
 
-function labelTurnoTroca(t: TrocaServicoTurno | undefined): string {
+function mesAtualIso(): string {
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return m;
+}
+
+function anoAtualIso(): string {
+  return String(new Date().getFullYear());
+}
+
+/** Valor do select «Mês» no ranking: agrega todo o ano escolhido. */
+const RANKING_MES_TODOS = 'TODOS';
+
+function labelTurnoTroca(t: TrocaServicoTurno | undefined, row: TrocaServicoAtivaListaItem): string {
+  if (trocaServicoAtivaEhEntreMotoristasDeDia(row)) {
+    if (t === 'NOTURNO') return `Registro «noturno» (não aplicável — escala ${ESCALA_MOTORISTA_DIA})`;
+    return `${ESCALA_MOTORISTA_DIA} — motorista de dia (07h às 07h)`;
+  }
   if (t === 'NOTURNO') return 'Noturno (19h–07h)';
   return 'Diurno (07h–19h)';
 }
 
+function isDraftSnapshotSalvo(v: unknown): v is EscalaGeradaDraftPayload {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return typeof o.dataEscala === 'string' && typeof o.tipoServico === 'string' && Array.isArray(o.linhas);
+}
+
+/** Cores dos ícones da lista de escalas: legíveis no tema claro e no escuro (evita primary «apagado» no dark). */
+function sxEscalaGeradaIcon(role: 'abrir' | 'desativar' | 'excluir' | 'atualizar'): SxProps<Theme> {
+  return (theme: Theme) => {
+    const dark = theme.palette.mode === 'dark';
+    const hover = { backgroundColor: theme.palette.action.hover };
+    switch (role) {
+      case 'abrir':
+      case 'atualizar':
+        return {
+          color: dark ? theme.palette.primary.light : theme.palette.primary.dark,
+          '&:hover': hover,
+        };
+      case 'desativar':
+        return {
+          color: dark ? theme.palette.warning.light : theme.palette.warning.dark,
+          '&:hover': hover,
+        };
+      case 'excluir':
+        return {
+          color: dark ? theme.palette.error.light : theme.palette.error.dark,
+          '&:hover': hover,
+        };
+      default:
+        return {};
+    }
+  };
+}
+
 function escalaGeradaToDraft(eg: EscalaGerada): EscalaGeradaDraftPayload {
+  if (isDraftSnapshotSalvo(eg.impressaoDraft)) {
+    const d = eg.impressaoDraft;
+    return {
+      ...d,
+      resumoEquipes: typeof d.resumoEquipes === 'string' ? d.resumoEquipes : (eg.resumoEquipes ?? ''),
+    };
+  }
   return {
     dataEscala: ymdFromApi(eg.dataEscala),
     tipoServico: eg.tipoServico,
@@ -82,12 +143,16 @@ interface VisualizarEscalasTabProps {
 
 export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEscalasTabProps) {
   const [mostrarTrocas, setMostrarTrocas] = useState(false);
+  const [mostrarRankingTrocas, setMostrarRankingTrocas] = useState(false);
   const [loadingTrocas, setLoadingTrocas] = useState(false);
   const [errorTrocas, setErrorTrocas] = useState<string | null>(null);
   const [itensTrocas, setItensTrocas] = useState<TrocaServicoAtivaListaItem[]>([]);
   const [trocasTab, setTrocasTab] = useState<'andamento' | 'efetivadas'>('andamento');
+  const [rankingMesRef, setRankingMesRef] = useState<string>(mesAtualIso());
+  const [rankingAnoRef, setRankingAnoRef] = useState<string>(anoAtualIso());
 
   const [mostrarEscalasGeradas, setMostrarEscalasGeradas] = useState(false);
+  const [mostrarEscalasExtrasGeradas, setMostrarEscalasExtrasGeradas] = useState(false);
   const [loadingEscalas, setLoadingEscalas] = useState(false);
   const [errorEscalas, setErrorEscalas] = useState<string | null>(null);
   const [itensEscalas, setItensEscalas] = useState<EscalaGeradaResumo[]>([]);
@@ -139,6 +204,69 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
     return itensTrocas.filter((r) => !r.restauradoA || !r.restauradoB);
   }, [itensTrocas, trocasTab]);
 
+  const anosRankingOptions = useMemo(() => {
+    const anos = new Set<string>([anoAtualIso()]);
+    for (const t of itensTrocas) {
+      anos.add(ymdFromApi(t.dataServicoA).slice(0, 4));
+      anos.add(ymdFromApi(t.dataServicoB).slice(0, 4));
+    }
+    return Array.from(anos).sort((a, b) => Number(b) - Number(a));
+  }, [itensTrocas]);
+
+  const rankingTrocasServico = useMemo(() => {
+    const acc = new Map<
+      number,
+      { policialId: number; nome: string; matricula: string; programadas: number; efetivadas: number }
+    >();
+    const contabilizar = (
+      p: { id: number; nome: string; matricula: string },
+      tipo: 'programada' | 'efetivada',
+    ) => {
+      const atual = acc.get(p.id) ?? {
+        policialId: p.id,
+        nome: p.nome,
+        matricula: p.matricula,
+        programadas: 0,
+        efetivadas: 0,
+      };
+      if (tipo === 'efetivada') atual.efetivadas += 1;
+      else atual.programadas += 1;
+      acc.set(p.id, atual);
+    };
+
+    for (const t of itensTrocas) {
+      const efetivada = t.restauradoA && t.restauradoB;
+      const ymdA = ymdFromApi(t.dataServicoA);
+      const ymdB = ymdFromApi(t.dataServicoB);
+      const anoA = ymdA.slice(0, 4);
+      const anoB = ymdB.slice(0, 4);
+      const mesA = ymdA.slice(5, 7);
+      const mesB = ymdB.slice(5, 7);
+      const mesOk = (mes: string) => rankingMesRef === RANKING_MES_TODOS || mes === rankingMesRef;
+      if (anoA === rankingAnoRef && mesOk(mesA)) {
+        contabilizar(t.policialA, efetivada ? 'efetivada' : 'programada');
+      }
+      if (anoB === rankingAnoRef && mesOk(mesB)) {
+        contabilizar(t.policialB, efetivada ? 'efetivada' : 'programada');
+      }
+    }
+
+    return Array.from(acc.values())
+      .map((r) => ({ ...r, total: r.programadas + r.efetivadas }))
+      .filter((r) => r.total > 0)
+      .sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        if (b.efetivadas !== a.efetivadas) return b.efetivadas - a.efetivadas;
+        if (b.programadas !== a.programadas) return b.programadas - a.programadas;
+        return a.nome.localeCompare(b.nome, 'pt-BR');
+      });
+  }, [itensTrocas, rankingAnoRef, rankingMesRef]);
+
+  const itensEscalasExtras = useMemo(
+    () => itensEscalas.filter((r) => String(r.tipoServico).split(',').includes('EXTRAORDINARIA')),
+    [itensEscalas],
+  );
+
   const carregarEscalasGeradas = useCallback(async () => {
     setLoadingEscalas(true);
     setErrorEscalas(null);
@@ -154,25 +282,32 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
   }, []);
 
   useEffect(() => {
-    if (mostrarTrocas) {
+    if (mostrarTrocas || mostrarRankingTrocas) {
       void carregarTrocas();
     }
-  }, [mostrarTrocas, carregarTrocas]);
+  }, [mostrarTrocas, mostrarRankingTrocas, carregarTrocas]);
 
   useEffect(() => {
-    if (mostrarEscalasGeradas) {
+    if (mostrarEscalasGeradas || mostrarEscalasExtrasGeradas) {
       void carregarEscalasGeradas();
     }
-  }, [mostrarEscalasGeradas, carregarEscalasGeradas]);
+  }, [mostrarEscalasGeradas, mostrarEscalasExtrasGeradas, carregarEscalasGeradas]);
 
   const abrirEdicao = (row: TrocaServicoAtivaListaItem) => {
     setEditError(null);
     setEditRow(row);
     setEditDataA(ymdFromApi(row.dataServicoA));
     setEditDataB(ymdFromApi(row.dataServicoB));
-    setEditTurnoA(row.turnoServicoA ?? 'NOTURNO');
-    setEditTurnoB(row.turnoServicoB ?? 'NOTURNO');
+    const motor = trocaServicoAtivaEhEntreMotoristasDeDia(row);
+    setEditTurnoA(motor ? 'DIURNO' : row.turnoServicoA ?? 'NOTURNO');
+    setEditTurnoB(motor ? 'DIURNO' : row.turnoServicoB ?? 'NOTURNO');
   };
+
+  useEffect(() => {
+    if (!editRow || !trocaServicoAtivaEhEntreMotoristasDeDia(editRow)) return;
+    setEditTurnoA('DIURNO');
+    setEditTurnoB('DIURNO');
+  }, [editRow]);
 
   const salvarEdicao = async () => {
     if (!editRow) return;
@@ -272,8 +407,9 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
         {podeVerTrocas ? ' e consultar trocas de serviço ou' : ' e'} consultar escalas já salvas.
       </p>
 
-      <div className="management-grid">
+      <div className="management-grid visualizar-escalas-panels">
         {podeVerTrocas ? (
+        <>
         <div className="management-item">
           <button
             type="button"
@@ -324,10 +460,10 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                           border: '1px solid var(--border-soft)',
                           borderRadius: 1,
                           maxWidth: '100%',
-                          overflowX: 'auto',
+                          overflow: 'hidden',
                         }}
                       >
-                        <Table size="small" stickyHeader sx={{ minWidth: 920 }}>
+                        <Table size="small" stickyHeader sx={{ width: '100%', tableLayout: 'auto' }}>
                           <TableHead>
                             <TableRow>
                               <TableCell>Policial A</TableCell>
@@ -373,7 +509,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 {formatDate(row.dataServicoA)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" component="span" display="block">
-                                {labelTurnoTroca(row.turnoServicoA)}
+                                {labelTurnoTroca(row.turnoServicoA, row)}
                               </Typography>
                             </TableCell>
                             <TableCell>
@@ -399,7 +535,7 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                                 {formatDate(row.dataServicoB)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" component="span" display="block">
-                                {labelTurnoTroca(row.turnoServicoB)}
+                                {labelTurnoTroca(row.turnoServicoB, row)}
                               </Typography>
                             </TableCell>
                             <TableCell sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>
@@ -476,6 +612,127 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
             </div>
           </div>
         </div>
+        <div className="management-item">
+          <button
+            type="button"
+            className="management-card"
+            onClick={() => setMostrarRankingTrocas((v) => !v)}
+            aria-expanded={mostrarRankingTrocas}
+          >
+            <span className="management-card-title">Ranking de trocas de serviço</span>
+            <span className="management-card-description">
+              Lista policiais com contagem de trocas programadas (não efetivadas) e trocas efetivadas. Em «Mês»,
+              escolha «Todos» para ver o total do ano selecionado.
+            </span>
+          </button>
+          <div className={`management-panel ${mostrarRankingTrocas ? 'management-panel--open' : ''}`}>
+            <div className="management-panel__content">
+              <Stack spacing={2}>
+                {errorTrocas && (
+                  <Alert severity="error" onClose={() => setErrorTrocas(null)}>
+                    {errorTrocas}
+                  </Alert>
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                  {loadingTrocas && <CircularProgress size={22} />}
+                  <Typography variant="body2" color="text.secondary">
+                    Filtros do ranking:
+                  </Typography>
+                  <FormControl size="small" sx={{ minWidth: 170 }}>
+                    <InputLabel id="ranking-mes-ref-label">Mês</InputLabel>
+                    <Select
+                      labelId="ranking-mes-ref-label"
+                      label="Mês"
+                      value={rankingMesRef}
+                      onChange={(e) => setRankingMesRef(e.target.value)}
+                    >
+                      <MenuItem value={RANKING_MES_TODOS}>Todos</MenuItem>
+                      <MenuItem value="01">Janeiro</MenuItem>
+                      <MenuItem value="02">Fevereiro</MenuItem>
+                      <MenuItem value="03">Março</MenuItem>
+                      <MenuItem value="04">Abril</MenuItem>
+                      <MenuItem value="05">Maio</MenuItem>
+                      <MenuItem value="06">Junho</MenuItem>
+                      <MenuItem value="07">Julho</MenuItem>
+                      <MenuItem value="08">Agosto</MenuItem>
+                      <MenuItem value="09">Setembro</MenuItem>
+                      <MenuItem value="10">Outubro</MenuItem>
+                      <MenuItem value="11">Novembro</MenuItem>
+                      <MenuItem value="12">Dezembro</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <FormControl size="small" sx={{ minWidth: 120 }}>
+                    <InputLabel id="ranking-ano-ref-label">Ano</InputLabel>
+                    <Select
+                      labelId="ranking-ano-ref-label"
+                      label="Ano"
+                      value={rankingAnoRef}
+                      onChange={(e) => setRankingAnoRef(e.target.value)}
+                    >
+                      {anosRankingOptions.map((ano) => (
+                        <MenuItem key={ano} value={ano}>
+                          {ano}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
+
+                {!loadingTrocas && rankingTrocasServico.length === 0 && !errorTrocas && (
+                  <Typography variant="body2" color="text.secondary">
+                    Nenhum policial com registro de troca de serviço.
+                  </Typography>
+                )}
+
+                {rankingTrocasServico.length > 0 && (
+                  <TableContainer
+                    sx={{
+                      border: '1px solid var(--border-soft)',
+                      borderRadius: 1,
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    <Table size="small" stickyHeader sx={{ width: '100%', tableLayout: 'auto' }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Policial</TableCell>
+                          <TableCell align="center" sx={{ whiteSpace: 'nowrap', minWidth: 220 }}>
+                            Trocas programadas (não efetivadas)
+                          </TableCell>
+                          <TableCell align="center" sx={{ whiteSpace: 'nowrap', minWidth: 180 }}>
+                            Trocas efetivadas
+                          </TableCell>
+                          <TableCell align="center" sx={{ whiteSpace: 'nowrap', minWidth: 120 }}>
+                            Total
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {rankingTrocasServico.map((r) => (
+                          <TableRow key={r.policialId} hover>
+                            <TableCell>
+                              <Typography variant="body2" fontWeight={600} noWrap title={r.nome}>
+                                {r.nome}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {formatMatricula(r.matricula)}
+                              </Typography>
+                            </TableCell>
+                            <TableCell align="center">{r.programadas}</TableCell>
+                            <TableCell align="center">{r.efetivadas}</TableCell>
+                            <TableCell align="center" sx={{ fontWeight: 700 }}>{r.total}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Stack>
+            </div>
+          </div>
+        </div>
+        </>
         ) : null}
 
         <div className="management-item">
@@ -504,16 +761,20 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                     {errorEscalas}
                   </Alert>
                 )}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => void carregarEscalasGeradas()}
-                    disabled={loadingEscalas}
-                  >
-                    Atualizar lista
-                  </Button>
-                  {loadingEscalas && <CircularProgress size={22} />}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap' }}>
+                  <Tooltip title="Atualizar lista">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => void carregarEscalasGeradas()}
+                        disabled={loadingEscalas}
+                        aria-label="Atualizar lista de escalas geradas"
+                        sx={sxEscalaGeradaIcon('atualizar')}
+                      >
+                        {loadingEscalas ? <CircularProgress size={20} color="inherit" /> : <Refresh fontSize="small" />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                 </Box>
 
                 {!loadingEscalas && itensEscalas.length === 0 && !errorEscalas && (
@@ -523,56 +784,249 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                 )}
 
                 {itensEscalas.length > 0 && (
-                  <TableContainer
-                    sx={{ border: '1px solid var(--border-soft)', borderRadius: 1, maxWidth: '100%' }}
-                  >
-                    <Table size="small" stickyHeader>
+                  <Box sx={{ width: '100%', minWidth: 0, maxWidth: '100%' }}>
+                    <TableContainer
+                      sx={{
+                        border: '1px solid var(--border-soft)',
+                        borderRadius: 1,
+                        width: '100%',
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Table size="small" stickyHeader sx={{ width: '100%', tableLayout: 'auto' }}>
                       <TableHead>
                         <TableRow>
-                          <TableCell>Data da escala</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>Data da escala</TableCell>
                           <TableCell>Tipo de serviço</TableCell>
-                          <TableCell>Resumo</TableCell>
-                          <TableCell align="right">Linhas</TableCell>
-                          <TableCell>Salva em</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>Salva em</TableCell>
                           <TableCell>Por</TableCell>
-                          <TableCell align="right">Ações</TableCell>
+                          <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                            Ações
+                          </TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
                         {itensEscalas.map((row) => (
                           <TableRow key={row.id} hover>
                             <TableCell>{formatDate(row.dataEscala)}</TableCell>
-                            <TableCell>{labelTipoServico(row.tipoServico)}</TableCell>
-                            <TableCell sx={{ maxWidth: 280 }}>
-                              <Typography variant="body2" noWrap title={row.resumoEquipes ?? undefined}>
-                                {row.resumoEquipes?.trim() ? row.resumoEquipes : '—'}
-                              </Typography>
+                            <TableCell sx={{ maxWidth: 360 }}>
+                              <Tooltip title={labelTipoServico(row.tipoServico)} placement="top-start">
+                                <Typography variant="body2" noWrap component="span" display="block">
+                                  {labelTipoServico(row.tipoServico)}
+                                </Typography>
+                              </Tooltip>
                             </TableCell>
-                            <TableCell align="right">{row.linhasCount}</TableCell>
                             <TableCell>{formatDate(row.createdAt)}</TableCell>
-                            <TableCell>{row.createdByName ?? '—'}</TableCell>
-                            <TableCell align="right">
-                              <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap">
-                                <Button size="small" variant="contained" onClick={() => abrirEscalaGeradaImpressao(row.id)}>
-                                  Abrir
-                                </Button>
+                            <TableCell sx={{ maxWidth: 220 }}>
+                              <Tooltip title={row.createdByName ?? '—'} placement="top-start">
+                                <Typography variant="body2" noWrap component="span" display="block">
+                                  {row.createdByName ?? '—'}
+                                </Typography>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  flexDirection: 'row',
+                                  flexWrap: 'nowrap',
+                                  justifyContent: 'flex-end',
+                                  alignItems: 'center',
+                                  gap: 0.25,
+                                }}
+                              >
+                                <Tooltip title="Abrir / imprimir">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => abrirEscalaGeradaImpressao(row.id)}
+                                    aria-label={`Abrir escala do dia ${row.dataEscala}`}
+                                    sx={sxEscalaGeradaIcon('abrir')}
+                                  >
+                                    <OpenInNew fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
                                 {podeDesativarEscala && (
-                                  <Button size="small" color="warning" variant="outlined" onClick={() => setDesativarEscala(row)}>
-                                    Desativar
-                                  </Button>
+                                  <Tooltip title="Desativar">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setDesativarEscala(row)}
+                                      aria-label={`Desativar escala ${row.id}`}
+                                      sx={sxEscalaGeradaIcon('desativar')}
+                                    >
+                                      <Block fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
                                 )}
                                 {podeExcluirEscala && (
-                                  <Button size="small" color="error" variant="outlined" onClick={() => setExcluirEscala(row)}>
-                                    Excluir
-                                  </Button>
+                                  <Tooltip title="Excluir definitivamente">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setExcluirEscala(row)}
+                                      aria-label={`Excluir escala ${row.id}`}
+                                      sx={sxEscalaGeradaIcon('excluir')}
+                                    >
+                                      <DeleteOutline fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
                                 )}
-                              </Stack>
+                              </Box>
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </TableContainer>
+                  </Box>
+                )}
+              </Stack>
+            </div>
+          </div>
+        </div>
+
+        <div className="management-item">
+          <button
+            type="button"
+            className="management-card"
+            onClick={() => setMostrarEscalasExtrasGeradas((v) => !v)}
+            aria-expanded={mostrarEscalasExtrasGeradas}
+          >
+            <span className="management-card-title">Ver escalas extras geradas</span>
+            <span className="management-card-description">
+              Lista apenas escalas extraordinárias já salvas. Abra para visualizar/imprimir; permissões de desativar e
+              excluir seguem as mesmas da consulta geral.
+            </span>
+          </button>
+          <div className={`management-panel ${mostrarEscalasExtrasGeradas ? 'management-panel--open' : ''}`}>
+            <div className="management-panel__content">
+              <Stack spacing={2}>
+                {abrirEscalaError && (
+                  <Alert severity="warning" onClose={() => setAbrirEscalaError(null)}>
+                    {abrirEscalaError}
+                  </Alert>
+                )}
+                {errorEscalas && (
+                  <Alert severity="error" onClose={() => setErrorEscalas(null)}>
+                    {errorEscalas}
+                  </Alert>
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap' }}>
+                  <Tooltip title="Atualizar lista">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => void carregarEscalasGeradas()}
+                        disabled={loadingEscalas}
+                        aria-label="Atualizar lista de escalas extras geradas"
+                        sx={sxEscalaGeradaIcon('atualizar')}
+                      >
+                        {loadingEscalas ? <CircularProgress size={20} color="inherit" /> : <Refresh fontSize="small" />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Box>
+
+                {!loadingEscalas && itensEscalasExtras.length === 0 && !errorEscalas && (
+                  <Typography variant="body2" color="text.secondary">
+                    Nenhuma escala extraordinária salva no momento.
+                  </Typography>
+                )}
+
+                {itensEscalasExtras.length > 0 && (
+                  <Box sx={{ width: '100%', minWidth: 0, maxWidth: '100%' }}>
+                    <TableContainer
+                      sx={{
+                        border: '1px solid var(--border-soft)',
+                        borderRadius: 1,
+                        width: '100%',
+                        maxWidth: '100%',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Table size="small" stickyHeader sx={{ width: '100%', tableLayout: 'auto' }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>Data da escala</TableCell>
+                          <TableCell>Tipo de serviço</TableCell>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>Salva em</TableCell>
+                          <TableCell>Por</TableCell>
+                          <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                            Ações
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {itensEscalasExtras.map((row) => (
+                          <TableRow key={row.id} hover>
+                            <TableCell>{formatDate(row.dataEscala)}</TableCell>
+                            <TableCell sx={{ maxWidth: 360 }}>
+                              <Tooltip title={labelTipoServico(row.tipoServico)} placement="top-start">
+                                <Typography variant="body2" noWrap component="span" display="block">
+                                  {labelTipoServico(row.tipoServico)}
+                                </Typography>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell>{formatDate(row.createdAt)}</TableCell>
+                            <TableCell sx={{ maxWidth: 220 }}>
+                              <Tooltip title={row.createdByName ?? '—'} placement="top-start">
+                                <Typography variant="body2" noWrap component="span" display="block">
+                                  {row.createdByName ?? '—'}
+                                </Typography>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell align="right" sx={{ whiteSpace: 'nowrap', verticalAlign: 'middle' }}>
+                              <Box
+                                sx={{
+                                  display: 'flex',
+                                  flexDirection: 'row',
+                                  flexWrap: 'nowrap',
+                                  justifyContent: 'flex-end',
+                                  alignItems: 'center',
+                                  gap: 0.25,
+                                }}
+                              >
+                                <Tooltip title="Abrir / imprimir">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => abrirEscalaGeradaImpressao(row.id)}
+                                    aria-label={`Abrir escala extra do dia ${row.dataEscala}`}
+                                    sx={sxEscalaGeradaIcon('abrir')}
+                                  >
+                                    <OpenInNew fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                {podeDesativarEscala && (
+                                  <Tooltip title="Desativar">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setDesativarEscala(row)}
+                                      aria-label={`Desativar escala extra ${row.id}`}
+                                      sx={sxEscalaGeradaIcon('desativar')}
+                                    >
+                                      <Block fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                                {podeExcluirEscala && (
+                                  <Tooltip title="Excluir definitivamente">
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => setExcluirEscala(row)}
+                                      aria-label={`Excluir escala extra ${row.id}`}
+                                      sx={sxEscalaGeradaIcon('excluir')}
+                                    >
+                                      <DeleteOutline fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                  </Box>
                 )}
               </Stack>
             </div>
@@ -587,9 +1041,19 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
             {editError && <Alert severity="error">{editError}</Alert>}
             {editRow && (
               <Typography variant="body2" color="text.secondary">
-                Ajuste data e horário (turno 12×24) para cada policial. O cadastro de equipe não muda; após o fim do turno
-                informado (diurno: 19h do dia; noturno: 07h do dia seguinte, Brasília), o lado correspondente da troca é
-                encerrado no registro.
+                {trocaServicoAtivaEhEntreMotoristasDeDia(editRow) ? (
+                  <>
+                    Troca entre <strong>motoristas de dia</strong> (escala <strong>{ESCALA_MOTORISTA_DIA}</strong>): a
+                    cobertura do dia civil é <strong>07h às 07h</strong>. O cadastro de equipe não muda; o encerramento
+                    automático do registro segue o marco técnico às <strong>19h</strong> do dia de cada serviço (Brasília).
+                  </>
+                ) : (
+                  <>
+                    Ajuste data e horário (turno 12×24) para cada policial. O cadastro de equipe não muda; após o fim do
+                    turno informado (diurno: 19h do dia; noturno: 07h do dia seguinte, Brasília), o lado correspondente da
+                    troca é encerrado no registro.
+                  </>
+                )}
               </Typography>
             )}
             <Typography variant="subtitle2" sx={{ mt: 0.5 }}>
@@ -605,15 +1069,31 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
               size="small"
             />
             <FormControl fullWidth size="small">
-              <InputLabel id="edit-troca-turno-a">Turno do serviço</InputLabel>
+              <InputLabel id="edit-troca-turno-a">
+                {editRow && trocaServicoAtivaEhEntreMotoristasDeDia(editRow)
+                  ? `Cobertura na troca (${ESCALA_MOTORISTA_DIA})`
+                  : 'Turno do serviço'}
+              </InputLabel>
               <Select
                 labelId="edit-troca-turno-a"
-                label="Turno do serviço"
+                label={
+                  editRow && trocaServicoAtivaEhEntreMotoristasDeDia(editRow)
+                    ? `Cobertura na troca (${ESCALA_MOTORISTA_DIA})`
+                    : 'Turno do serviço'
+                }
                 value={editTurnoA}
                 onChange={(e) => setEditTurnoA(e.target.value as TrocaServicoTurno)}
               >
-                <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
-                <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+                {editRow && trocaServicoAtivaEhEntreMotoristasDeDia(editRow) ? (
+                  <MenuItem value="DIURNO">
+                    {ESCALA_MOTORISTA_DIA} — motorista de dia (07h às 07h)
+                  </MenuItem>
+                ) : (
+                  <>
+                    <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
+                    <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+                  </>
+                )}
               </Select>
             </FormControl>
             <Typography variant="subtitle2" sx={{ mt: 1 }}>
@@ -629,15 +1109,31 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
               size="small"
             />
             <FormControl fullWidth size="small">
-              <InputLabel id="edit-troca-turno-b">Turno do serviço</InputLabel>
+              <InputLabel id="edit-troca-turno-b">
+                {editRow && trocaServicoAtivaEhEntreMotoristasDeDia(editRow)
+                  ? `Cobertura na troca (${ESCALA_MOTORISTA_DIA})`
+                  : 'Turno do serviço'}
+              </InputLabel>
               <Select
                 labelId="edit-troca-turno-b"
-                label="Turno do serviço"
+                label={
+                  editRow && trocaServicoAtivaEhEntreMotoristasDeDia(editRow)
+                    ? `Cobertura na troca (${ESCALA_MOTORISTA_DIA})`
+                    : 'Turno do serviço'
+                }
                 value={editTurnoB}
                 onChange={(e) => setEditTurnoB(e.target.value as TrocaServicoTurno)}
               >
-                <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
-                <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+                {editRow && trocaServicoAtivaEhEntreMotoristasDeDia(editRow) ? (
+                  <MenuItem value="DIURNO">
+                    {ESCALA_MOTORISTA_DIA} — motorista de dia (07h às 07h)
+                  </MenuItem>
+                ) : (
+                  <>
+                    <MenuItem value="DIURNO">Diurno (07h–19h)</MenuItem>
+                    <MenuItem value="NOTURNO">Noturno (19h–07h)</MenuItem>
+                  </>
+                )}
               </Select>
             </FormControl>
           </Stack>

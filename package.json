@@ -1,14 +1,14 @@
 {
   "name": "controle-equipes",
   "version": "1.0.0",
-  "description": "Órion SAD + Suporte + Qualidade + Patrimônio + Mulher (esqueleto :5185). Dev: API :3002, SAD :5173, Suporte :5180, Qualidade :5182, Jurídico :5183, Patrimônio :5184, Mulher :5185. start:full já inclui a API — não rode start:api ao mesmo tempo. Se a API já estiver rodando, use start:full:without-api.",
+  "description": "Órion SAD + Suporte + Qualidade + Patrimônio + Mulher (esqueleto :5185). Dev: API :3002, SAD :5173, Suporte :5180, Qualidade :5182, Jurídico :5183, Patrimônio :5184, Mulher :5185. start:full já inclui a API — não rode start:api ao mesmo tempo. Se a API já estiver rodando, use start:full:without-api. Antes de start:dev, a API libera automaticamente a porta (PORT ou 3002); antes de dev do SAD, libera 5173 (ou SAD_DEV_PORT).",
   "private": true,
   "scripts": {
     "setup": "node setup.js",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres",
-    "start:api": "cd afastamentos-api && npm run start:dev",
+    "start:api": "cd afastamentos-api && npm run free:port && npm run start:dev",
     "start:web": "cd afastamentos-web && npm run dev",
     "start:orion-suporte": "cd orion-suporte-web && npm run dev",
     "start:orion-qualidade": "cd orion-qualidade-web && npm run dev",

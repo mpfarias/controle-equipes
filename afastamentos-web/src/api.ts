@@ -34,6 +34,7 @@ import type {
   EscalaInformacao,
   EscalaGerada,
   EscalaGeradaResumo,
+  QuantitativoExtraPolicialItem,
   TrocaServico,
   TrocaServicoAtivaListaItem,
   ErrorReport,
@@ -330,7 +331,16 @@ export const api = {
     return data;
   },
 
-  async createFuncao(payload: { nome: string; descricao?: string | null }): Promise<FuncaoOption> {
+  async createFuncao(payload: {
+    nome: string;
+    descricao?: string | null;
+    vinculoEquipe?: FuncaoOption['vinculoEquipe'];
+    escalaOperacional?: boolean;
+    escalaMotorista?: boolean;
+    escalaExpediente?: boolean;
+    expedienteHorarioPreset?: FuncaoOption['expedienteHorarioPreset'];
+    equipeReferencia?: string | null;
+  }): Promise<FuncaoOption> {
     const data = await request<FuncaoOption>('/usuarios/funcoes', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -341,7 +351,16 @@ export const api = {
 
   async updateFuncao(
     id: number,
-    payload: { nome?: string; descricao?: string | null },
+    payload: {
+      nome?: string;
+      descricao?: string | null;
+      vinculoEquipe?: FuncaoOption['vinculoEquipe'];
+      escalaOperacional?: boolean;
+      escalaMotorista?: boolean;
+      escalaExpediente?: boolean;
+      expedienteHorarioPreset?: FuncaoOption['expedienteHorarioPreset'];
+      equipeReferencia?: string | null;
+    },
   ): Promise<FuncaoOption> {
     const data = await request<FuncaoOption>(`/usuarios/funcoes/${id}`, {
       method: 'PATCH',
@@ -1287,6 +1306,8 @@ export const api = {
     dataEscala: string;
     tipoServico: string;
     resumoEquipes?: string | null;
+    /** Objeto igual ao da janela definitiva (opcional; recomendado para visualização fiel). */
+    impressaoDraft?: Record<string, unknown>;
     linhas: Array<{
       lista: 'DISPONIVEL' | 'AFASTADO';
       policialId: number;
@@ -1312,6 +1333,17 @@ export const api = {
     if (params?.skip != null) q.set('skip', String(params.skip));
     const suffix = q.toString() ? `?${q.toString()}` : '';
     return request<EscalaGeradaResumo[]>(`/escalas/geradas${suffix}`);
+  },
+
+  async listQuantitativoExtrasPoliciais(): Promise<QuantitativoExtraPolicialItem[]> {
+    return request<QuantitativoExtraPolicialItem[]>('/escalas/quantitativo-extras');
+  },
+
+  async deleteQuantitativoExtraPolicial(policialId: number): Promise<void> {
+    await request(`/escalas/quantitativo-extras/${policialId}`, {
+      method: 'DELETE',
+    });
+    clearCache();
   },
 
   async getEscalaGerada(id: number): Promise<EscalaGerada> {
@@ -1345,8 +1377,6 @@ export const api = {
     policialOutroId: number;
     dataServicoPolicialOrigem: string;
     dataServicoPolicialOutro: string;
-    turnoServicoPolicialOrigem: 'DIURNO' | 'NOTURNO';
-    turnoServicoPolicialOutro: 'DIURNO' | 'NOTURNO';
   }): Promise<TrocaServico> {
     const data = await request<TrocaServico>('/troca-servico', {
       method: 'POST',

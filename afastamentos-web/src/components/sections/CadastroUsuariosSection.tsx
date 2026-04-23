@@ -6,12 +6,17 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
+  Grid,
   IconButton,
   InputAdornment,
+  InputLabel,
   List,
   ListItem,
   ListItemText,
+  MenuItem,
   Paper,
+  Select,
   Tab,
   Tabs,
   TextField,
@@ -22,7 +27,18 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import BlockIcon from '@mui/icons-material/Block';
 import SearchIcon from '@mui/icons-material/Search';
-import type { EquipeOption, FuncaoOption, PerguntaSegurancaOption, Usuario, MotivoAfastamentoOption, TipoRestricaoAfastamento, StatusPolicialOption, RestricaoMedica } from '../../types';
+import type {
+  EquipeOption,
+  FuncaoExpedienteHorarioPreset,
+  FuncaoOption,
+  FuncaoVinculoEquipe,
+  PerguntaSegurancaOption,
+  Usuario,
+  MotivoAfastamentoOption,
+  TipoRestricaoAfastamento,
+  StatusPolicialOption,
+  RestricaoMedica,
+} from '../../types';
 import { api } from '../../api';
 import { formatNome } from '../../utils/dateUtils';
 import { handleKeyDownNormalized } from '../../utils/inputUtils';
@@ -36,6 +52,28 @@ interface CadastroUsuariosSectionProps {
 
 type TipoRemocao = 'equipe' | 'funcao' | 'pergunta' | 'motivo' | 'restricao' | 'restricao-servico' | 'status';
 
+type HorarioTrabalhoFuncaoUI = 'EQUIPES_12X36_12X72' | 'SEG_SEX_12X36' | 'EXPEDIENTE_PADRAO' | 'JORNADA_24X72';
+
+const HORARIO_TRABALHO_FUNCAO_LABEL: Record<HorarioTrabalhoFuncaoUI, string> = {
+  EQUIPES_12X36_12X72: 'Equipes (12x36, 12x72)',
+  SEG_SEX_12X36: '12x36, de seg a sex',
+  EXPEDIENTE_PADRAO: 'Expediente (seg a qui: 13 às 19, sex: 07 às 13)',
+  JORNADA_24X72: '24x72',
+};
+
+function mapPresetParaHorarioUI(v?: FuncaoExpedienteHorarioPreset): HorarioTrabalhoFuncaoUI {
+  if (v === 'AUTO') return 'EQUIPES_12X36_12X72';
+  if (v === 'SEG_SEX_07_19' || v === 'SEG_SEX_12X36_SEMANA_ALTERNADA') return 'SEG_SEX_12X36';
+  if (v === 'JORNADA_24X72') return 'JORNADA_24X72';
+  return 'EXPEDIENTE_PADRAO';
+}
+
+function mapHorarioUIParaPreset(v: HorarioTrabalhoFuncaoUI): FuncaoExpedienteHorarioPreset {
+  if (v === 'SEG_SEX_12X36') return 'SEG_SEX_07_19';
+  if (v === 'JORNADA_24X72') return 'JORNADA_24X72';
+  return 'ORGAO_DIAS_UTEIS';
+}
+
 export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsuariosSectionProps) {
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
@@ -45,7 +83,17 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
   const [restricoesServico, setRestricoesServico] = useState<RestricaoMedica[]>([]);
   const [status, setStatus] = useState<StatusPolicialOption[]>([]);
   const [novoEquipe, setNovoEquipe] = useState({ nome: '', descricao: '' });
-  const [novaFuncao, setNovaFuncao] = useState({ nome: '', descricao: '' });
+  const [novaFuncao, setNovaFuncao] = useState<{
+    nome: string;
+    descricao: string;
+    vinculoEquipe: FuncaoVinculoEquipe;
+    horarioTrabalho: HorarioTrabalhoFuncaoUI;
+  }>({
+    nome: '',
+    descricao: '',
+    vinculoEquipe: 'OPCIONAL',
+    horarioTrabalho: 'EQUIPES_12X36_12X72',
+  });
   const [novaPergunta, setNovaPergunta] = useState('');
   const [novoMotivo, setNovoMotivo] = useState({ nome: '', descricao: '' });
   const [novaRestricao, setNovaRestricao] = useState({ nome: '', descricao: '' });
@@ -66,7 +114,17 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
   const [edicaoTipo, setEdicaoTipo] = useState<TipoRemocao>('equipe');
   const [edicaoId, setEdicaoId] = useState<number | null>(null);
   const [edicaoEquipe, setEdicaoEquipe] = useState({ nome: '', descricao: '' });
-  const [edicaoFuncao, setEdicaoFuncao] = useState({ nome: '', descricao: '' });
+  const [edicaoFuncao, setEdicaoFuncao] = useState<{
+    nome: string;
+    descricao: string;
+    vinculoEquipe: FuncaoVinculoEquipe;
+    horarioTrabalho: HorarioTrabalhoFuncaoUI;
+  }>({
+    nome: '',
+    descricao: '',
+    vinculoEquipe: 'OBRIGATORIA',
+    horarioTrabalho: 'EQUIPES_12X36_12X72',
+  });
   const [edicaoPergunta, setEdicaoPergunta] = useState('');
   const [edicaoMotivo, setEdicaoMotivo] = useState({ nome: '', descricao: '' });
   const [edicaoRestricao, setEdicaoRestricao] = useState({ nome: '', descricao: '' });
@@ -335,11 +393,37 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
       return;
     }
     try {
+      const horarioEquipes = novaFuncao.horarioTrabalho === 'EQUIPES_12X36_12X72';
+      const payload = horarioEquipes
+        ? {
+            nome: novaFuncao.nome.trim(),
+            descricao: novaFuncao.descricao.trim() || null,
+            vinculoEquipe: 'OBRIGATORIA' as FuncaoVinculoEquipe,
+            equipeReferencia: null,
+            escalaOperacional: true,
+            escalaMotorista: true,
+            escalaExpediente: false,
+            expedienteHorarioPreset: 'AUTO' as FuncaoExpedienteHorarioPreset,
+          }
+        : {
+            nome: novaFuncao.nome.trim(),
+            descricao: novaFuncao.descricao.trim() || null,
+            vinculoEquipe: 'SEM_EQUIPE' as FuncaoVinculoEquipe,
+            equipeReferencia: null,
+            escalaOperacional: false,
+            escalaMotorista: false,
+            escalaExpediente: true,
+            expedienteHorarioPreset: mapHorarioUIParaPreset(novaFuncao.horarioTrabalho),
+          };
       await api.createFuncao({
-        nome: novaFuncao.nome.trim(),
-        descricao: novaFuncao.descricao.trim() || null,
+        ...payload,
       });
-      setNovaFuncao({ nome: '', descricao: '' });
+      setNovaFuncao({
+        nome: '',
+        descricao: '',
+        vinculoEquipe: 'OPCIONAL',
+        horarioTrabalho: 'EQUIPES_12X36_12X72',
+      });
       setSuccess('Função criada com sucesso.');
       setError(null);
       await carregarDados();
@@ -455,7 +539,16 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
       }
       if (tipo === 'funcao') {
         const funcao = item as FuncaoOption;
-        setEdicaoFuncao({ nome: funcao.nome, descricao: funcao.descricao ?? '' });
+        const horarioTrabalho =
+          funcao.escalaExpediente === true
+            ? mapPresetParaHorarioUI(funcao.expedienteHorarioPreset)
+            : 'EQUIPES_12X36_12X72';
+        setEdicaoFuncao({
+          nome: funcao.nome,
+          descricao: funcao.descricao ?? '',
+          vinculoEquipe: (funcao.vinculoEquipe ?? 'OBRIGATORIA') as FuncaoVinculoEquipe,
+          horarioTrabalho,
+        });
       }
       if (tipo === 'pergunta') {
         const pergunta = item as PerguntaSegurancaOption;
@@ -486,7 +579,12 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
     setEdicaoAberta(false);
     setEdicaoId(null);
     setEdicaoEquipe({ nome: '', descricao: '' });
-    setEdicaoFuncao({ nome: '', descricao: '' });
+    setEdicaoFuncao({
+      nome: '',
+      descricao: '',
+      vinculoEquipe: 'OBRIGATORIA',
+      horarioTrabalho: 'EQUIPES_12X36_12X72',
+    });
     setEdicaoPergunta('');
     setEdicaoMotivo({ nome: '', descricao: '' });
     setEdicaoRestricao({ nome: '', descricao: '' });
@@ -515,9 +613,30 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
           setError('Informe o nome da função.');
           return;
         }
+        const horarioEquipes = edicaoFuncao.horarioTrabalho === 'EQUIPES_12X36_12X72';
+        const payload = horarioEquipes
+          ? {
+              nome: edicaoFuncao.nome.trim(),
+              descricao: edicaoFuncao.descricao.trim() || null,
+              vinculoEquipe: 'OBRIGATORIA' as FuncaoVinculoEquipe,
+              equipeReferencia: null,
+              escalaOperacional: true,
+              escalaMotorista: true,
+              escalaExpediente: false,
+              expedienteHorarioPreset: 'AUTO' as FuncaoExpedienteHorarioPreset,
+            }
+          : {
+              nome: edicaoFuncao.nome.trim(),
+              descricao: edicaoFuncao.descricao.trim() || null,
+              vinculoEquipe: 'SEM_EQUIPE' as FuncaoVinculoEquipe,
+              equipeReferencia: null,
+              escalaOperacional: false,
+              escalaMotorista: false,
+              escalaExpediente: true,
+              expedienteHorarioPreset: mapHorarioUIParaPreset(edicaoFuncao.horarioTrabalho),
+            };
         await api.updateFuncao(edicaoId, {
-          nome: edicaoFuncao.nome.trim(),
-          descricao: edicaoFuncao.descricao.trim() || null,
+          ...payload,
         });
         setSuccess(`Função ${edicaoFuncao.nome.trim()} atualizada com sucesso.`);
       }
@@ -759,31 +878,61 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
 
           {abaAtiva === 1 && (
             <>
-              <Box display="grid" gap={2} gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))">
-                <TextField
-                  label="Nome"
-                  value={novaFuncao.nome}
-                  onChange={(event) => {
-                    const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
-                    setNovaFuncao((prev) => ({ ...prev, nome: normalized }));
-                  }}
-                  size="small"
-                />
-                <TextField
-                  label="Descrição"
-                  value={novaFuncao.descricao}
-                  onChange={(event) => {
-                    const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
-                    setNovaFuncao((prev) => ({ ...prev, descricao: normalized }));
-                  }}
-                  size="small"
-                />
-                <Box display="flex" alignItems="center">
-                  <Button variant="contained" onClick={() => void criarFuncao()}>
-                    Adicionar função
-                  </Button>
-                </Box>
-              </Box>
+              <Grid container columnSpacing={2} rowSpacing={1.5} alignItems="flex-start">
+                <Grid size={{ xs: 12, md: 3 }}>
+                  <TextField
+                    label="Nome"
+                    value={novaFuncao.nome}
+                    onChange={(event) => {
+                      const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+                      setNovaFuncao((prev) => ({ ...prev, nome: normalized }));
+                    }}
+                    size="small"
+                    fullWidth
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 3 }}>
+                  <TextField
+                    label="Descrição"
+                    value={novaFuncao.descricao}
+                    onChange={(event) => {
+                      const normalized = event.target.value.toLowerCase().charAt(0).toUpperCase() + event.target.value.toLowerCase().slice(1);
+                      setNovaFuncao((prev) => ({ ...prev, descricao: normalized }));
+                    }}
+                    size="small"
+                    fullWidth
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="nova-funcao-horario-label">Horário de trabalho</InputLabel>
+                    <Select
+                      labelId="nova-funcao-horario-label"
+                      label="Horário de trabalho"
+                      value={novaFuncao.horarioTrabalho}
+                      onChange={(e) =>
+                        setNovaFuncao((prev) => ({
+                          ...prev,
+                          horarioTrabalho: e.target.value as HorarioTrabalhoFuncaoUI,
+                        }))
+                      }
+                    >
+                      {(Object.keys(HORARIO_TRABALHO_FUNCAO_LABEL) as HorarioTrabalhoFuncaoUI[]).map((k) => (
+                        <MenuItem key={k} value={k}>
+                          {HORARIO_TRABALHO_FUNCAO_LABEL[k]}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, md: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', pt: '2px' }}>
+                    <Button variant="contained" onClick={() => void criarFuncao()} fullWidth sx={{ minHeight: 40 }}>
+                      Adicionar função
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
               <List dense>
                 {funcoesFiltradas.map((funcao) => (
                   <ListItem
@@ -834,6 +983,16 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
                       primary={formatNome(funcao.nome)}
                       secondary={
                         [
+                          `Horário: ${
+                            funcao.escalaExpediente === true
+                              ? funcao.expedienteHorarioPreset === 'JORNADA_24X72'
+                                ? HORARIO_TRABALHO_FUNCAO_LABEL.JORNADA_24X72
+                                : funcao.expedienteHorarioPreset === 'SEG_SEX_07_19' ||
+                                    funcao.expedienteHorarioPreset === 'SEG_SEX_12X36_SEMANA_ALTERNADA'
+                                  ? HORARIO_TRABALHO_FUNCAO_LABEL.SEG_SEX_12X36
+                                  : HORARIO_TRABALHO_FUNCAO_LABEL.EXPEDIENTE_PADRAO
+                              : HORARIO_TRABALHO_FUNCAO_LABEL.EQUIPES_12X36_12X72
+                          }`,
                           funcao.descricao || '',
                           funcao.ativo === false ? 'Desativada' : '',
                         ]
@@ -1274,6 +1433,9 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
                   setEdicaoFuncao((prev) => ({ ...prev, nome: normalized }));
                 }}
                 size="small"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
+                sx={{ mt: 1.5 }}
               />
               <TextField
                 label="Descrição"
@@ -1283,7 +1445,29 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
                   setEdicaoFuncao((prev) => ({ ...prev, descricao: normalized }));
                 }}
                 size="small"
+                fullWidth
+                InputLabelProps={{ shrink: true }}
               />
+              <FormControl size="small" fullWidth>
+                <InputLabel id="edicao-funcao-horario-label">Horário de trabalho</InputLabel>
+                <Select
+                  labelId="edicao-funcao-horario-label"
+                  label="Horário de trabalho"
+                  value={edicaoFuncao.horarioTrabalho}
+                  onChange={(e) =>
+                    setEdicaoFuncao((prev) => ({
+                      ...prev,
+                      horarioTrabalho: e.target.value as HorarioTrabalhoFuncaoUI,
+                    }))
+                  }
+                >
+                  {(Object.keys(HORARIO_TRABALHO_FUNCAO_LABEL) as HorarioTrabalhoFuncaoUI[]).map((k) => (
+                    <MenuItem key={k} value={k}>
+                      {HORARIO_TRABALHO_FUNCAO_LABEL[k]}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </>
           )}
           {edicaoTipo === 'pergunta' && (

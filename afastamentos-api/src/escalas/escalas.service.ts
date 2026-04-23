@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { ESCALA_CHAVE, ESCALA_DEFAULTS } from './escalas.constants';
 import { UpdateEscalaParametrosDto } from './dto/update-escala-parametros.dto';
@@ -10,6 +11,17 @@ import { CreateEscalaGeradaDto } from './dto/create-escala-gerada.dto';
 const EQUIPES_ESCALA_12X24 = new Set(['D', 'E', 'B', 'A', 'C']);
 /** Rodízio 24×72 dos motoristas (aba Motoristas do calendário). */
 const EQUIPES_MOTORISTAS = new Set(['A', 'B', 'C', 'D']);
+
+function normalizarHorarioEscalaGerada(h: string): string {
+  return h.replace(/\s+/g, ' ').trim();
+}
+
+/** Assinatura multiset (policial + horário por linha); mesma data + mesmo tipo + mesma assinatura = duplicata. */
+function assinaturaLinhasEscalaGerada(linhas: { policialId: number; horarioServico: string }[]): string {
+  const partes = linhas.map((l) => `${l.policialId}|${normalizarHorarioEscalaGerada(l.horarioServico)}`);
+  partes.sort();
+  return partes.join('\u0001');
+}
 
 function parseSequencia(raw: string, permitido: Set<string>, label: string): string {
   const partes = raw
@@ -76,7 +88,11 @@ export class EscalasService {
     if (dto.sequenciaMotoristas !== undefined) {
       upserts.push({
         chave: ESCALA_CHAVE.SEQUENCIA_MOTORISTAS,
-        valor: parseSequencia(dto.sequenciaMotoristas, EQUIPES_MOTORISTAS, 'Sequência motoristas'),
+        valor: parseSequencia(
+          dto.sequenciaMotoristas,
+          EQUIPES_MOTORISTAS,
+          'Sequência motoristas (24×72 — motorista de dia)',
+        ),
       });
     }
 
@@ -149,15 +165,37 @@ export class EscalasService {
 
   async createEscalaGerada(dto: CreateEscalaGeradaDto, actor: { id: number; nome: string }) {
     const dataEscala = new Date(`${dto.dataEscala}T12:00:00.000Z`);
-    const ordem = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS'] as const;
+    const ordem = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS', 'EXTRAORDINARIA'] as const;
     const set = new Set(dto.tipoServico.split(',').map((s) => s.trim()).filter(Boolean));
     const tipoServico = ordem.filter((t) => set.has(t)).join(',');
+    const incluiExtraordinaria = set.has('EXTRAORDINARIA');
+    const assinaturaNova = assinaturaLinhasEscalaGerada(
+      dto.linhas.map((l) => ({ policialId: l.policialId, horarioServico: l.horarioServico })),
+    );
     return this.prisma.$transaction(async (tx) => {
-      return tx.escalaGerada.create({
+      const candidatos = await tx.escalaGerada.findMany({
+        where: { ativo: true, dataEscala },
+        include: { linhas: true },
+      });
+      for (const c of candidatos) {
+        if (c.tipoServico !== tipoServico) continue;
+        const assinaturaEx = assinaturaLinhasEscalaGerada(
+          c.linhas.map((l) => ({ policialId: l.policialId, horarioServico: l.horarioServico })),
+        );
+        if (assinaturaEx === assinaturaNova) {
+          throw new BadRequestException(
+            'Já existe escala salva nesta data, com o mesmo tipo de serviço, os mesmos policiais e os mesmos horários. Desative ou exclua o registro anterior, ou altere policiais/horários, antes de salvar novamente.',
+          );
+        }
+      }
+
+      const created = await tx.escalaGerada.create({
         data: {
           dataEscala,
           tipoServico,
           resumoEquipes: dto.resumoEquipes?.trim() || null,
+          impressaoDraft:
+            dto.impressaoDraft != null ? (dto.impressaoDraft as Prisma.InputJsonValue) : undefined,
           createdById: actor.id,
           createdByName: actor.nome,
           linhas: {
@@ -177,7 +215,49 @@ export class EscalasService {
           linhas: { orderBy: [{ nome: 'asc' }] },
         },
       });
+
+      if (incluiExtraordinaria) {
+        const ids = [...new Set(dto.linhas.map((l) => l.policialId))];
+        for (const policialId of ids) {
+          await tx.policialContagemEscalaExtra.upsert({
+            where: { policialId },
+            create: { policialId, vezesEscaladoExtra: 1 },
+            update: { vezesEscaladoExtra: { increment: 1 } },
+          });
+        }
+      }
+
+      return created;
     });
+  }
+
+  /** Policiais que já entraram em pelo menos uma escala extra salva, do maior para o menor número de gravações. */
+  async listQuantitativoExtrasPoliciais() {
+    const rows = await this.prisma.policialContagemEscalaExtra.findMany({
+      where: { vezesEscaladoExtra: { gt: 0 } },
+      orderBy: [{ vezesEscaladoExtra: 'desc' }, { policialId: 'asc' }],
+      include: {
+        policial: { select: { id: true, nome: true, matricula: true, equipe: true } },
+      },
+    });
+    return rows.map((r) => ({
+      policialId: r.policialId,
+      nome: r.policial.nome,
+      matricula: r.policial.matricula,
+      equipe: r.policial.equipe,
+      vezesEscaladoExtra: r.vezesEscaladoExtra,
+    }));
+  }
+
+  /** Remove o registro de contagem do policial (some da lista; novas gravações voltam a contar do zero). */
+  async deleteContagemEscalaExtraPolicial(policialId: number) {
+    const existente = await this.prisma.policialContagemEscalaExtra.findUnique({
+      where: { policialId },
+    });
+    if (!existente) {
+      throw new NotFoundException(`Não há contagem de escala extra para o policial ${policialId}.`);
+    }
+    await this.prisma.policialContagemEscalaExtra.delete({ where: { policialId } });
   }
 
   async getEscalaGeradaById(id: number) {
@@ -208,11 +288,35 @@ export class EscalasService {
   }
 
   async deleteEscalaGerada(id: number) {
-    const existente = await this.prisma.escalaGerada.findUnique({ where: { id } });
-    if (!existente) {
-      throw new NotFoundException(`Escala gerada ${id} não encontrada.`);
-    }
-    await this.prisma.escalaGerada.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      const existente = await tx.escalaGerada.findUnique({
+        where: { id },
+        include: { linhas: true },
+      });
+      if (!existente) {
+        throw new NotFoundException(`Escala gerada ${id} não encontrada.`);
+      }
+      const incluiExtraordinaria = existente.tipoServico
+        .split(',')
+        .map((s) => s.trim())
+        .includes('EXTRAORDINARIA');
+      if (incluiExtraordinaria) {
+        const ids = [...new Set(existente.linhas.map((l) => l.policialId))];
+        for (const policialId of ids) {
+          const cnt = await tx.policialContagemEscalaExtra.findUnique({ where: { policialId } });
+          if (!cnt) continue;
+          if (cnt.vezesEscaladoExtra <= 1) {
+            await tx.policialContagemEscalaExtra.delete({ where: { policialId } });
+          } else {
+            await tx.policialContagemEscalaExtra.update({
+              where: { policialId },
+              data: { vezesEscaladoExtra: { decrement: 1 } },
+            });
+          }
+        }
+      }
+      await tx.escalaGerada.delete({ where: { id } });
+    });
   }
 
   /** Lista metadados das escalas salvas (sem linhas), mais recentes primeiro. */

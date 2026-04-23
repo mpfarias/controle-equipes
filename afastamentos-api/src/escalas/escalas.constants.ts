@@ -1,3 +1,4 @@
+/** Chaves e valores padrão: equipes 12×24; motoristas de dia 24×72 (rodízio próprio). */
 export const ESCALA_CHAVE = {
   DATA_INICIO_EQUIPES: 'data_inicio_equipes',
   DATA_INICIO_MOTORISTAS: 'data_inicio_motoristas',

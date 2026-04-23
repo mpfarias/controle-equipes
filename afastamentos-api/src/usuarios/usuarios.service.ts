@@ -6,7 +6,14 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { AuditAction, PermissaoAcao, Prisma, UsuarioStatus } from '@prisma/client';
+import {
+  AuditAction,
+  FuncaoExpedienteHorarioPreset,
+  FuncaoVinculoEquipe,
+  PermissaoAcao,
+  Prisma,
+  UsuarioStatus,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
@@ -79,6 +86,22 @@ export class UsuariosService {
 
   private sanitizeEquipeNome(nome: string): string {
     return nome.trim().toUpperCase();
+  }
+
+  private coerceExpedientePreset(v: unknown): FuncaoExpedienteHorarioPreset | undefined {
+    if (v === undefined) return undefined;
+    const s = typeof v === 'string' ? v.trim() : '';
+    const allowed: FuncaoExpedienteHorarioPreset[] = [
+      'AUTO',
+      'ORGAO_DIAS_UTEIS',
+      'SEG_SEX_07_19',
+      'SEG_SEX_12X36_SEMANA_ALTERNADA',
+      'JORNADA_24X72',
+    ];
+    if (allowed.includes(s as FuncaoExpedienteHorarioPreset)) {
+      return s as FuncaoExpedienteHorarioPreset;
+    }
+    throw new BadRequestException('Preset de horário do expediente inválido.');
   }
 
   /** Normaliza lista de sistemas (únicos, só IDs válidos). */
@@ -558,7 +581,18 @@ export class UsuariosService {
     return deleted;
   }
 
-  async listFuncoes(): Promise<{ id: number; nome: string; descricao: string | null; ativo: boolean }[]> {
+  async listFuncoes(): Promise<{
+    id: number;
+    nome: string;
+    descricao: string | null;
+    ativo: boolean;
+    vinculoEquipe: FuncaoVinculoEquipe;
+    escalaOperacional: boolean;
+    escalaMotorista: boolean;
+    escalaExpediente: boolean;
+    expedienteHorarioPreset: FuncaoExpedienteHorarioPreset;
+    equipeReferencia: string | null;
+  }[]> {
     return this.prisma.funcao.findMany({
       where: { ativo: true },
       select: {
@@ -566,13 +600,28 @@ export class UsuariosService {
         nome: true,
         descricao: true,
         ativo: true,
+        vinculoEquipe: true,
+        escalaOperacional: true,
+        escalaMotorista: true,
+        escalaExpediente: true,
+        expedienteHorarioPreset: true,
+        equipeReferencia: true,
       },
       orderBy: { nome: 'asc' },
     });
   }
 
   async createFuncao(
-    data: { nome: string; descricao?: string | null },
+    data: {
+      nome: string;
+      descricao?: string | null;
+      vinculoEquipe?: FuncaoVinculoEquipe;
+      escalaOperacional?: boolean;
+      escalaMotorista?: boolean;
+      escalaExpediente?: boolean;
+      expedienteHorarioPreset?: FuncaoExpedienteHorarioPreset | string;
+      equipeReferencia?: string | null;
+    },
     responsavelId?: number,
   ) {
     const nome = data.nome.trim().toUpperCase();
@@ -582,11 +631,38 @@ export class UsuariosService {
     if (existente) {
       throw new ConflictException('Já existe uma função com esse nome.');
     }
+    const v =
+      data.vinculoEquipe === 'OBRIGATORIA' ||
+      data.vinculoEquipe === 'OPCIONAL' ||
+      data.vinculoEquipe === 'SEM_EQUIPE'
+        ? data.vinculoEquipe
+        : 'OPCIONAL';
+    let escalaMotorista = data.escalaMotorista === true;
+    let escalaExpediente = data.escalaExpediente === true;
+    let escalaOperacional = data.escalaOperacional !== false;
+    if (escalaMotorista) {
+      escalaOperacional = false;
+    }
+    if (!escalaOperacional && !escalaMotorista && !escalaExpediente) {
+      escalaOperacional = true;
+    }
+    const expedienteHorarioPreset =
+      this.coerceExpedientePreset(data.expedienteHorarioPreset) ?? 'AUTO';
+    const equipeReferencia =
+      data.equipeReferencia && data.equipeReferencia.trim() !== ''
+        ? await this.ensureEquipeAtiva(data.equipeReferencia)
+        : null;
     const actor = await this.audit.resolveActor(responsavelId);
     const created = await this.prisma.funcao.create({
       data: {
         nome,
         descricao: data.descricao?.trim() || null,
+        vinculoEquipe: v,
+        escalaOperacional,
+        escalaMotorista,
+        escalaExpediente,
+        expedienteHorarioPreset,
+        equipeReferencia,
       },
     });
     await this.audit.record({
@@ -601,7 +677,16 @@ export class UsuariosService {
 
   async updateFuncao(
     id: number,
-    data: { nome?: string; descricao?: string | null },
+    data: {
+      nome?: string;
+      descricao?: string | null;
+      vinculoEquipe?: FuncaoVinculoEquipe;
+      escalaOperacional?: boolean;
+      escalaMotorista?: boolean;
+      escalaExpediente?: boolean;
+      expedienteHorarioPreset?: FuncaoExpedienteHorarioPreset | string;
+      equipeReferencia?: string | null;
+    },
     responsavelId?: number,
   ) {
     const before = await this.prisma.funcao.findUnique({ where: { id } });
@@ -616,12 +701,49 @@ export class UsuariosService {
       }
     }
     const actor = await this.audit.resolveActor(responsavelId);
+    const patchVinculo =
+      data.vinculoEquipe === 'OBRIGATORIA' ||
+      data.vinculoEquipe === 'OPCIONAL' ||
+      data.vinculoEquipe === 'SEM_EQUIPE'
+        ? { vinculoEquipe: data.vinculoEquipe }
+        : {};
+    let escalaOperacional =
+      data.escalaOperacional !== undefined ? data.escalaOperacional : before.escalaOperacional;
+    let escalaMotorista =
+      data.escalaMotorista !== undefined ? data.escalaMotorista : before.escalaMotorista;
+    let escalaExpediente =
+      data.escalaExpediente !== undefined ? data.escalaExpediente : before.escalaExpediente;
+    if (escalaMotorista) {
+      escalaOperacional = false;
+    }
+    if (!escalaOperacional && !escalaMotorista && !escalaExpediente) {
+      escalaOperacional = true;
+    }
+    const presetPatch =
+      data.expedienteHorarioPreset !== undefined
+        ? { expedienteHorarioPreset: this.coerceExpedientePreset(data.expedienteHorarioPreset) }
+        : {};
+    const equipeReferenciaPatch =
+      data.equipeReferencia !== undefined
+        ? {
+            equipeReferencia:
+              data.equipeReferencia && data.equipeReferencia.trim() !== ''
+                ? await this.ensureEquipeAtiva(data.equipeReferencia)
+                : null,
+          }
+        : {};
     const updated = await this.prisma.funcao.update({
       where: { id },
       data: {
         nome,
         descricao:
           data.descricao === undefined ? before.descricao : data.descricao?.trim() || null,
+        ...patchVinculo,
+        escalaOperacional,
+        escalaMotorista,
+        escalaExpediente,
+        ...presetPatch,
+        ...equipeReferenciaPatch,
       },
     });
     await this.audit.record({

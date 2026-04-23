@@ -195,12 +195,15 @@ body {
 }
 
 .app-container {
-  max-width: 1400px;
+  /* Mesma largura útil do Dashboard em todas as telas (sem container mais estreito nas outras abas). */
+  max-width: 1800px;
   margin: 0 auto;
   padding: 32px 24px 48px;
   display: flex;
   flex-direction: column;
   gap: 24px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 /* Fluxo de login: mesma coluna para título, card e rodapé + equilíbrio vertical */
@@ -232,10 +235,6 @@ body {
     justify-content: flex-start;
     padding-bottom: 8px;
   }
-}
-
-.app-container-dashboard {
-  max-width: 1800px;
 }
 
 header {
@@ -965,6 +964,13 @@ button:disabled {
   border: 1px solid var(--border-soft);
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.15);
+}
+
+/* Visualizar Escalas: tabelas largas (resumo / tipo de serviço) — usa toda a largura útil do cartão. */
+.visualizar-escalas-panels .management-panel__content {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
 }
 
 .management-panel__actions {

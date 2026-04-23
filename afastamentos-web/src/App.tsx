@@ -945,7 +945,7 @@ export default function App() {
   }
 
   return (
-    <div className={`app-container ${activeTab === 'dashboard' ? 'app-container-dashboard' : ''}`}>
+    <div className="app-container">
       <header>
         <div>
           <h1>

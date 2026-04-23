@@ -90,4 +90,10 @@ export class CreatePolicialDto {
   @IsNotEmpty({ message: 'A função é obrigatória.' })
   @IsInt()
   funcaoId: number;
+
+  /** Semana ISO par vs ímpar no expediente 12×36 (função com preset correspondente). */
+  @IsOptional()
+  @ValidateIf((o) => o.expediente12x36Fase != null)
+  @IsIn(['PAR', 'IMPAR'])
+  expediente12x36Fase?: 'PAR' | 'IMPAR' | null;
 }

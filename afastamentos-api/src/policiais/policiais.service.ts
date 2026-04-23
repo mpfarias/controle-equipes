@@ -562,8 +562,17 @@ export class PoliciaisService {
     }
 
     const statusId = await this.resolveStatusId(data.status ?? 'ATIVO');
+    const funcaoCriacao = await this.prisma.funcao.findUnique({
+      where: { id: data.funcaoId },
+      select: { equipeReferencia: true, vinculoEquipe: true },
+    });
     const equipeValue = data.equipe !== undefined ? data.equipe : (actor?.equipe ?? null);
-    const equipe = equipeValue ? await this.ensureEquipeAtiva(equipeValue) : null;
+    let equipe = equipeValue ? await this.ensureEquipeAtiva(equipeValue) : null;
+    if (funcaoCriacao?.equipeReferencia) {
+      equipe = funcaoCriacao.equipeReferencia;
+    } else if (funcaoCriacao?.vinculoEquipe === 'SEM_EQUIPE') {
+      equipe = null;
+    }
 
     const cpfDigits = this.sanitizeCpf(data.cpf);
     if (cpfDigits && !this.validarCpf(cpfDigits)) {
@@ -588,6 +597,10 @@ export class PoliciaisService {
         status: { connect: { id: statusId } },
         equipe,
         funcao: { connect: { id: data.funcaoId } },
+        expediente12x36Fase:
+          data.expediente12x36Fase === 'PAR' || data.expediente12x36Fase === 'IMPAR'
+            ? data.expediente12x36Fase
+            : undefined,
         createdById: actor?.id ?? null,
         createdByName: actor?.nome ?? null,
         updatedById: actor?.id ?? null,
@@ -878,7 +891,7 @@ export class PoliciaisService {
     return base;
   }
 
-  /** Anos de cota (exercício) que já têm afastamento de Férias **ativo** para o policial. */
+  /** Anos de cota (exercício) com gozo de Férias ainda válido para regra (ativo ou encerrado; desativado manual não conta). */
   private async getAnosExercicioComAfastamentoFeriasAtivo(policialId: number): Promise<Set<number>> {
     const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
       where: { nome: 'Férias' },
@@ -889,7 +902,7 @@ export class PoliciaisService {
       where: {
         policialId,
         motivoId: motivoFerias.id,
-        status: AfastamentoStatus.ATIVO,
+        status: { in: [AfastamentoStatus.ATIVO, AfastamentoStatus.ENCERRADO] },
       },
       select: { anoExercicioFerias: true, dataInicio: true },
     });
@@ -936,7 +949,7 @@ export class PoliciaisService {
     const anosComGozo = await this.getAnosExercicioComAfastamentoFeriasAtivo(policialId);
     if (anosComGozo.has(anoExercicio)) {
       throw new BadRequestException(
-        `Não é possível excluir a previsão do exercício de ${anoExercicio}: já existe afastamento de férias ativo vinculado a esse período.`,
+        `Não é possível excluir a previsão do exercício de ${anoExercicio}: já existe afastamento de férias (ativo ou encerrado) vinculado a esse período.`,
       );
     }
 
@@ -1318,6 +1331,10 @@ export class PoliciaisService {
       );
     }
 
+    if (data.expediente12x36Fase !== undefined) {
+      updateData.expediente12x36Fase = data.expediente12x36Fase;
+    }
+
     if (data.funcaoId !== undefined) {
       if (data.funcaoId === null || data.funcaoId === 0) {
         throw new BadRequestException('A função é obrigatória. Informe uma função válida.');
@@ -1327,15 +1344,18 @@ export class PoliciaisService {
       // deve ter o registro de equipe zerado no banco, independentemente da equipe anterior.
       const funcao = await this.prisma.funcao.findUnique({
         where: { id: data.funcaoId },
-        select: { nome: true },
+        select: { nome: true, vinculoEquipe: true, equipeReferencia: true },
       });
       if (funcao) {
+        if (funcao.equipeReferencia) {
+          updateData.equipe = funcao.equipeReferencia;
+        }
         const nomeUpper = funcao.nome.toUpperCase();
-        if (
+        const semEquipePorNome =
           nomeUpper.includes('EXPEDIENTE ADM') ||
           nomeUpper.includes('CMT UPM') ||
-          nomeUpper.includes('SUBCMT UPM')
-        ) {
+          nomeUpper.includes('SUBCMT UPM');
+        if (funcao.vinculoEquipe === 'SEM_EQUIPE' || semEquipePorNome) {
           updateData.equipe = null;
         }
       }

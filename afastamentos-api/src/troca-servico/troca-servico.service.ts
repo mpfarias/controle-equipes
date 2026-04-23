@@ -77,43 +77,22 @@ export class TrocaServicoService {
     return this.agoraSaoPauloYmdHm() >= limite;
   }
 
-  private turnoDtoParaEnum(v: 'DIURNO' | 'NOTURNO'): TrocaServicoTurno {
-    return v === 'DIURNO' ? TrocaServicoTurno.DIURNO : TrocaServicoTurno.NOTURNO;
-  }
-
-  private resolverTurnoUpdate(
-    dtoVal: 'DIURNO' | 'NOTURNO' | undefined,
-    atual: TrocaServicoTurno,
-  ): TrocaServicoTurno {
-    if (dtoVal === 'DIURNO') return TrocaServicoTurno.DIURNO;
-    if (dtoVal === 'NOTURNO') return TrocaServicoTurno.NOTURNO;
-    return atual;
-  }
-
-  /**
-   * Garante que o turno escolhido corresponde à equipe de origem do parceiro na escala 12×24 naquela data.
-   * Motoristas de dia: apenas diurno.
-   */
-  private assertTurnoServicoCompativel(
+  /** Resolve automaticamente o turno do serviço trocado para a data/equipe parceira. */
+  private inferirTurnoServicoAutomatico(
     ymd: string,
-    turno: TrocaServicoTurno,
     equipeParceiroOrigem: string | null,
     policialQueCumpreServico: { funcao: { nome: string } | null },
     parametros: TrocaServicoEscalaParametros,
-  ): void {
+  ): TrocaServicoTurno {
     const fn = policialQueCumpreServico.funcao?.nome?.toUpperCase() ?? '';
     if (fn.includes('MOTORISTA DE DIA')) {
-      if (turno !== TrocaServicoTurno.DIURNO) {
-        throw new BadRequestException(
-          'Para motorista de dia, o horário do serviço trocado deve ser diurno (07h–19h).',
-        );
-      }
-      return;
+      return TrocaServicoTurno.DIURNO;
     }
 
     const ep = (equipeParceiroOrigem ?? '').trim();
     if (!ep || ep === 'SEM_EQUIPE') {
-      return;
+      // Quando não há equipe operacional parceira fixa, mantém padrão diurno.
+      return TrocaServicoTurno.DIURNO;
     }
 
     const op = calcularEquipesOperacionalDia(ymd, parametros);
@@ -122,15 +101,11 @@ export class TrocaServicoService {
         `Não foi possível validar o turno na escala 12×24 para ${ymd}. Verifique os parâmetros da escala.`,
       );
     }
-    const esperada =
-      turno === TrocaServicoTurno.DIURNO ? op.equipeDia : op.equipeNoite;
-    if (ep !== esperada) {
-      const turnoLabel =
-        turno === TrocaServicoTurno.DIURNO ? '07h–19h (diurno)' : '19h–07h (noturno)';
-      throw new BadRequestException(
-        `Turno informado (${turnoLabel}) não coincide com a escala do dia ${ymd}: nesse turno a equipe de serviço é ${esperada}; a equipe de origem do parceiro da troca é ${ep}. Ajuste a data, o turno ou o cadastro.`,
-      );
-    }
+    if (ep === op.equipeDia) return TrocaServicoTurno.DIURNO;
+    if (ep === op.equipeNoite) return TrocaServicoTurno.NOTURNO;
+    throw new BadRequestException(
+      `Não foi possível inferir turno para ${ymd}: na escala 12×24 o serviço é ${op.equipeDia} (dia) e ${op.equipeNoite} (noite), mas a equipe de origem do parceiro da troca é ${ep}. Ajuste as datas para um dia em que a equipe parceira esteja de serviço.`,
+    );
   }
 
   private dateToYmd(d: Date): string {
@@ -167,6 +142,11 @@ export class TrocaServicoService {
     if (t.policialAId === policialId && !t.restauradoA) return t.equipeOrigemA ?? null;
     if (t.policialBId === policialId && !t.restauradoB) return t.equipeOrigemB ?? null;
     return null;
+  }
+
+  private policialEhMotoristaDeDia(p: { funcao: { nome: string } | null }): boolean {
+    const fn = p.funcao?.nome?.toUpperCase() ?? '';
+    return fn.includes('MOTORISTA DE DIA');
   }
 
   /** Equipe operacional (não SEM_EQUIPE), motorista de dia, DESIGNADO, PTTC ou COMISSIONADO. */
@@ -276,7 +256,9 @@ export class TrocaServicoService {
 
     const curA = a.equipe ?? null;
     const curB = b.equipe ?? null;
-    if (curA === curB) {
+    const trocaLivreEntreMotoristas =
+      this.policialEhMotoristaDeDia(a) && this.policialEhMotoristaDeDia(b);
+    if (!trocaLivreEntreMotoristas && curA === curB) {
       throw new BadRequestException(
         'Troca de serviço é sempre com policial de outra equipe. Não é permitido trocar com quem é da mesma equipe (inclui ambos sem equipe ou ambos SEM_EQUIPE).',
       );
@@ -296,33 +278,33 @@ export class TrocaServicoService {
     const dataServicoB = this.parseDateOnly(dsOutro);
 
     const parametros = await this.escalas.getParametros();
-    const vA = validarPolicialDeServicoNoDiaEmContextoTroca(
-      { equipe: a.equipe, funcao: a.funcao, status: a.status },
-      dsOrigem,
-      parametros,
-      curB,
-    );
-    if (!vA.ok) {
-      throw new BadRequestException(
-        `Data de serviço do policial de origem: ${vA.motivo}`,
+    if (!trocaLivreEntreMotoristas) {
+      const vA = validarPolicialDeServicoNoDiaEmContextoTroca(
+        { equipe: a.equipe, funcao: a.funcao, status: a.status },
+        dsOrigem,
+        parametros,
+        curB,
       );
-    }
-    const vB = validarPolicialDeServicoNoDiaEmContextoTroca(
-      { equipe: b.equipe, funcao: b.funcao, status: b.status },
-      dsOutro,
-      parametros,
-      curA,
-    );
-    if (!vB.ok) {
-      throw new BadRequestException(
-        `Data de serviço do outro policial: ${vB.motivo}`,
+      if (!vA.ok) {
+        throw new BadRequestException(
+          `Data de serviço do policial de origem: ${vA.motivo}`,
+        );
+      }
+      const vB = validarPolicialDeServicoNoDiaEmContextoTroca(
+        { equipe: b.equipe, funcao: b.funcao, status: b.status },
+        dsOutro,
+        parametros,
+        curA,
       );
+      if (!vB.ok) {
+        throw new BadRequestException(
+          `Data de serviço do outro policial: ${vB.motivo}`,
+        );
+      }
     }
 
-    const turnoA = this.turnoDtoParaEnum(dto.turnoServicoPolicialOrigem);
-    const turnoB = this.turnoDtoParaEnum(dto.turnoServicoPolicialOutro);
-    this.assertTurnoServicoCompativel(dsOrigem, turnoA, equipeOrigemGravarB, a, parametros);
-    this.assertTurnoServicoCompativel(dsOutro, turnoB, equipeOrigemGravarA, b, parametros);
+    const turnoA = this.inferirTurnoServicoAutomatico(dsOrigem, equipeOrigemGravarB, a, parametros);
+    const turnoB = this.inferirTurnoServicoAutomatico(dsOutro, equipeOrigemGravarA, b, parametros);
 
     const actor = await this.audit.resolveActor(actorUserId);
 
@@ -364,8 +346,24 @@ export class TrocaServicoService {
       where: { status: { in: ['ATIVA', 'CONCLUIDA'] } },
       orderBy: { id: 'desc' },
       include: {
-        policialA: { select: { id: true, nome: true, matricula: true, equipe: true } },
-        policialB: { select: { id: true, nome: true, matricula: true, equipe: true } },
+        policialA: {
+          select: {
+            id: true,
+            nome: true,
+            matricula: true,
+            equipe: true,
+            funcao: { select: { nome: true } },
+          },
+        },
+        policialB: {
+          select: {
+            id: true,
+            nome: true,
+            matricula: true,
+            equipe: true,
+            funcao: { select: { nome: true } },
+          },
+        },
       },
     });
     return rows.map((t) => ({
@@ -379,8 +377,20 @@ export class TrocaServicoService {
       equipeOrigemB: t.equipeOrigemB,
       turnoServicoA: t.turnoServicoA,
       turnoServicoB: t.turnoServicoB,
-      policialA: t.policialA,
-      policialB: t.policialB,
+      policialA: {
+        id: t.policialA.id,
+        nome: t.policialA.nome,
+        matricula: t.policialA.matricula,
+        equipe: t.policialA.equipe,
+        funcaoNome: t.policialA.funcao?.nome ?? null,
+      },
+      policialB: {
+        id: t.policialB.id,
+        nome: t.policialB.nome,
+        matricula: t.policialB.matricula,
+        equipe: t.policialB.equipe,
+        funcaoNome: t.policialB.funcao?.nome ?? null,
+      },
     }));
   }
 
@@ -420,40 +430,44 @@ export class TrocaServicoService {
       throw new NotFoundException('Policial vinculado à troca não encontrado.');
     }
 
-    const parametrosUpd = await this.escalas.getParametros();
+    const trocaLivreEntreMotoristas =
+      this.policialEhMotoristaDeDia(polA) && this.policialEhMotoristaDeDia(polB);
+
     const equipeOrigemA = troca.equipeOrigemA ?? polA.equipe;
     const equipeOrigemB = troca.equipeOrigemB ?? polB.equipe;
-    const vUpdA = validarPolicialDeServicoNoDiaEmContextoTroca(
-      {
-        equipe: equipeOrigemA,
-        funcao: polA.funcao,
-        status: polA.status,
-      },
-      dsA,
-      parametrosUpd,
-      equipeOrigemB,
-    );
-    if (!vUpdA.ok) {
-      throw new BadRequestException(`Data de serviço do policial A: ${vUpdA.motivo}`);
-    }
-    const vUpdB = validarPolicialDeServicoNoDiaEmContextoTroca(
-      {
-        equipe: equipeOrigemB,
-        funcao: polB.funcao,
-        status: polB.status,
-      },
-      dsB,
-      parametrosUpd,
-      equipeOrigemA,
-    );
-    if (!vUpdB.ok) {
-      throw new BadRequestException(`Data de serviço do policial B: ${vUpdB.motivo}`);
+
+    const parametrosUpd = await this.escalas.getParametros();
+    if (!trocaLivreEntreMotoristas) {
+      const vUpdA = validarPolicialDeServicoNoDiaEmContextoTroca(
+        {
+          equipe: equipeOrigemA,
+          funcao: polA.funcao,
+          status: polA.status,
+        },
+        dsA,
+        parametrosUpd,
+        equipeOrigemB,
+      );
+      if (!vUpdA.ok) {
+        throw new BadRequestException(`Data de serviço do policial A: ${vUpdA.motivo}`);
+      }
+      const vUpdB = validarPolicialDeServicoNoDiaEmContextoTroca(
+        {
+          equipe: equipeOrigemB,
+          funcao: polB.funcao,
+          status: polB.status,
+        },
+        dsB,
+        parametrosUpd,
+        equipeOrigemA,
+      );
+      if (!vUpdB.ok) {
+        throw new BadRequestException(`Data de serviço do policial B: ${vUpdB.motivo}`);
+      }
     }
 
-    const turnoANovo = this.resolverTurnoUpdate(dto.turnoServicoA, troca.turnoServicoA);
-    const turnoBNovo = this.resolverTurnoUpdate(dto.turnoServicoB, troca.turnoServicoB);
-    this.assertTurnoServicoCompativel(dsA, turnoANovo, equipeOrigemB, polA, parametrosUpd);
-    this.assertTurnoServicoCompativel(dsB, turnoBNovo, equipeOrigemA, polB, parametrosUpd);
+    const turnoANovo = this.inferirTurnoServicoAutomatico(dsA, equipeOrigemB, polA, parametrosUpd);
+    const turnoBNovo = this.inferirTurnoServicoAutomatico(dsB, equipeOrigemA, polB, parametrosUpd);
 
     const actor = await this.audit.resolveActor(actorUserId);
 

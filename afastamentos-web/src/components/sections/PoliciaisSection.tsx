@@ -11,7 +11,16 @@ import type {
   ProcessFileResponse,
   Usuario,
 } from '../../types';
-import { POLICIAL_STATUS_OPTIONS, POLICIAL_STATUS_OPTIONS_FORM, formatEquipeLabel, funcoesParaSelecao } from '../../constants';
+import {
+  POLICIAL_STATUS_OPTIONS,
+  POLICIAL_STATUS_OPTIONS_FORM,
+  formatEquipeLabel,
+  funcaoEquipeObrigatoriaNoFormulario,
+  funcaoOcultaCampoEquipe,
+  funcaoRequerFase12x36Expediente,
+  funcoesParaSelecao,
+  resolveEquipeParaPolicial,
+} from '../../constants';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
@@ -21,6 +30,7 @@ import {
   Box,
   TextField,
   FormControl,
+  InputLabel,
   Select,
   MenuItem,
   Checkbox,
@@ -41,6 +51,41 @@ const formFieldSx = {
     '& input, & textarea': { padding: '10px 12px' },
   },
 };
+
+/** Na importação em lote: não aplicar equipe em massa (motorista continua fora do lote). */
+function policialModalSemColunaEquipe(
+  p: { funcaoId?: number; funcaoNome?: string },
+  funcoes: FuncaoOption[],
+): boolean {
+  if (p.funcaoId) {
+    const f = funcoes.find((x) => x.id === p.funcaoId);
+    if (f) {
+      if (funcaoOcultaCampoEquipe(f)) return true;
+      if (f.nome.toUpperCase().includes('MOTORISTA DE DIA')) return true;
+    }
+  }
+  const u = (p.funcaoNome ?? '').toUpperCase();
+  return (
+    u.includes('EXPEDIENTE') ||
+    u.includes('CMT UPM') ||
+    u.includes('SUBCMT UPM') ||
+    u.includes('MOTORISTA DE DIA')
+  );
+}
+
+function policialModalMetaFuncao(
+  p: { funcaoId?: number; funcaoNome?: string },
+  funcoes: FuncaoOption[],
+): Pick<FuncaoOption, 'nome' | 'vinculoEquipe'> | undefined {
+  if (p.funcaoId) {
+    const f = funcoes.find((x) => x.id === p.funcaoId);
+    if (f) return f;
+  }
+  if (p.funcaoNome?.trim()) {
+    return { nome: p.funcaoNome, vinculoEquipe: undefined };
+  }
+  return undefined;
+}
 
 interface PoliciaisSectionProps {
   currentUser: Usuario;
@@ -66,6 +111,7 @@ export function PoliciaisSection({
     status: 'ATIVO' as PolicialStatus,
     funcaoId: undefined as number | undefined,
     equipe: undefined as Equipe | undefined,
+    expediente12x36Fase: undefined as 'PAR' | 'IMPAR' | undefined,
   };
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
@@ -314,38 +360,8 @@ export function PoliciaisSection({
       setSubmitting(true);
       setError(null);
       
-      // Determinar a equipe: se não tiver função ou se a função permitir equipe, usar a selecionada ou a do usuário
-      let equipeFinal: Equipe | null | undefined = undefined;
-      
-      if (form.funcaoId) {
-        const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
-        if (funcaoSelecionada) {
-          const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-          const naoMostraEquipe = 
-            funcaoUpper.includes('EXPEDIENTE ADM') || 
-            funcaoUpper.includes('CMT UPM') || 
-            funcaoUpper.includes('SUBCMT UPM');
-          
-          if (!naoMostraEquipe) {
-            // Função permite equipe: usar a selecionada ou a do usuário
-            let equipeTemp: Equipe | null = form.equipe || (currentUser.equipe as Equipe) || null;
-            // MOTORISTA DE DIA não pode ter equipe E
-            if (funcaoUpper.includes('MOTORISTA DE DIA') && equipeTemp === 'E') {
-              equipeTemp = null;
-            }
-            equipeFinal = equipeTemp;
-          } else {
-            // Função não permite equipe
-            equipeFinal = null;
-          }
-        } else {
-          // Função não encontrada, usar a selecionada ou a do usuário
-          equipeFinal = form.equipe || currentUser.equipe || null;
-        }
-      } else {
-        // Sem função selecionada, usar a selecionada ou a do usuário
-        equipeFinal = form.equipe || currentUser.equipe || null;
-      }
+      const funcaoSelecionada = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : undefined;
+      const equipeFinal = resolveEquipeParaPolicial(funcaoSelecionada, form.equipe, currentUser.equipe);
       
       const cpfDigits = cpfToDigits(form.cpf);
       const telefoneDigits = telefoneToDigits(form.telefone);
@@ -366,6 +382,9 @@ export function PoliciaisSection({
         matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
         dataPosse: form.status === 'COMISSIONADO' && form.dataPosse ? form.dataPosse : null,
         equipe: equipeFinal === null ? null : (equipeFinal || undefined),
+        ...(funcaoRequerFase12x36Expediente(funcaoSelecionada) && form.expediente12x36Fase
+          ? { expediente12x36Fase: form.expediente12x36Fase }
+          : {}),
       });
       setSuccess('Policial cadastrado com sucesso.');
 
@@ -447,6 +466,12 @@ export function PoliciaisSection({
       return;
     }
 
+    const funcaoParaEquipe = funcoes.find((f) => f.id === form.funcaoId);
+    if (funcaoEquipeObrigatoriaNoFormulario(funcaoParaEquipe) && !form.equipe) {
+      setError('Selecione uma equipe.');
+      return;
+    }
+
     const cpfDigits = cpfToDigits(form.cpf);
     if (cpfDigits.length > 0 && cpfDigits.length !== 11) {
       setCpfError('CPF deve conter 11 dígitos.');
@@ -509,29 +534,18 @@ export function PoliciaisSection({
 
     // Montar mensagem de confirmação
     const funcaoSelecionada = form.funcaoId ? funcoes.find(f => f.id === form.funcaoId) : null;
+    if (funcaoRequerFase12x36Expediente(funcaoSelecionada ?? undefined) && !form.expediente12x36Fase) {
+      setError('Selecione a fase da semana (par ou ímpar) para esta função no expediente 12×36.');
+      return;
+    }
     const funcaoNome = funcaoSelecionada ? formatNome(funcaoSelecionada.nome) : '—';
     const statusLabel = POLICIAL_STATUS_OPTIONS.find(s => s.value === form.status)?.label || form.status;
 
-    // Determinar equipe final para exibição
-    let equipeFinal: Equipe | null | undefined = undefined;
-    if (form.funcaoId) {
-      const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
-      if (funcaoSelecionada) {
-        const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-        const naoMostraEquipe = 
-          funcaoUpper.includes('EXPEDIENTE ADM') || 
-          funcaoUpper.includes('CMT UPM') || 
-          funcaoUpper.includes('SUBCMT UPM');
-        
-        if (!naoMostraEquipe) {
-          equipeFinal = form.equipe || (currentUser.equipe as Equipe) || null;
-        } else {
-          equipeFinal = null;
-        }
-      }
-    } else {
-      equipeFinal = form.equipe || currentUser.equipe || null;
-    }
+    const equipeFinal = resolveEquipeParaPolicial(
+      funcaoSelecionada ?? undefined,
+      form.equipe,
+      currentUser.equipe,
+    );
     const equipeFinalLabel = equipeFinal ? formatEquipeLabel(equipeFinal) : '—';
 
     const cpfExibir = form.cpf ? form.cpf : '—';
@@ -591,6 +605,17 @@ export function PoliciaisSection({
       return;
     }
 
+    const semEquipeObrigatoria = aSalvar.filter((p) => {
+      const meta = policialModalMetaFuncao(p, funcoes);
+      return meta && funcaoEquipeObrigatoriaNoFormulario(meta as FuncaoOption) && !p.equipe;
+    });
+    if (semEquipeObrigatoria.length > 0) {
+      setError(
+        'Há policial(is) com função que exige equipe sem equipe informada. Preencha a coluna Equipe ou ajuste a função.',
+      );
+      return;
+    }
+
     try {
       setValidacaoModal((prev) => ({ ...prev, loading: true }));
       setError(null);
@@ -639,34 +664,8 @@ export function PoliciaisSection({
       // Reativar o policial
       await api.activatePolicial(reativarModal.policial.id);
       
-      // Determinar a equipe para reativação (mesma lógica do cadastro)
-      let equipeFinalReativar: Equipe | null | undefined = undefined;
-      
-      if (form.funcaoId) {
-        const funcaoSelecionada = funcoes.find(f => f.id === form.funcaoId);
-        if (funcaoSelecionada) {
-          const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-          const naoMostraEquipe = 
-            funcaoUpper.includes('EXPEDIENTE ADM') || 
-            funcaoUpper.includes('CMT UPM') || 
-            funcaoUpper.includes('SUBCMT UPM');
-          
-          if (!naoMostraEquipe) {
-            let equipeTemp: Equipe | null = form.equipe || (currentUser.equipe as Equipe) || null;
-            // MOTORISTA DE DIA não pode ter equipe E
-            if (funcaoUpper.includes('MOTORISTA DE DIA') && equipeTemp === 'E') {
-              equipeTemp = null;
-            }
-            equipeFinalReativar = equipeTemp;
-          } else {
-            equipeFinalReativar = null;
-          }
-        } else {
-          equipeFinalReativar = form.equipe || currentUser.equipe || null;
-        }
-      } else {
-        equipeFinalReativar = form.equipe || currentUser.equipe || null;
-      }
+      const funcaoSelecionada = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : undefined;
+      const equipeFinalReativar = resolveEquipeParaPolicial(funcaoSelecionada, form.equipe, currentUser.equipe);
       
       // Atualizar os dados do policial reativado com os novos dados do formulário
       await api.updatePolicial(reativarModal.policial.id, {
@@ -989,19 +988,17 @@ export function PoliciaisSection({
                   if (novoFuncaoId) validateFuncao(novoFuncaoId);
                   else setFuncaoError(null);
                   if (funcaoSelecionada) {
-                    const funcaoUpper = funcaoSelecionada.nome.toUpperCase();
-                    const naoMostraEquipe =
-                      funcaoUpper.includes('EXPEDIENTE ADM') ||
-                      funcaoUpper.includes('CMT UPM') ||
-                      funcaoUpper.includes('SUBCMT UPM');
-                    const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
+                    const isMotoristaDia = funcaoSelecionada.nome.toUpperCase().includes('MOTORISTA DE DIA');
+                    const oculta = funcaoOcultaCampoEquipe(funcaoSelecionada);
+                    const manterFase = funcaoRequerFase12x36Expediente(funcaoSelecionada);
                     setForm((prev) => ({
                       ...prev,
                       funcaoId: novoFuncaoId,
-                      equipe: naoMostraEquipe ? undefined : isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe,
+                      equipe: oculta ? undefined : isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe,
+                      expediente12x36Fase: manterFase ? prev.expediente12x36Fase : undefined,
                     }));
                   } else {
-                    setForm((prev) => ({ ...prev, funcaoId: novoFuncaoId }));
+                    setForm((prev) => ({ ...prev, funcaoId: novoFuncaoId, expediente12x36Fase: undefined }));
                   }
                 }}
                 MenuProps={{ sx: { zIndex: 1500 } }}
@@ -1050,13 +1047,8 @@ export function PoliciaisSection({
 
           {(() => {
             const funcaoSelecionada = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : null;
-            const mostrarEquipe = funcaoSelecionada
-              ? !(
-                  funcaoSelecionada.nome.toUpperCase().includes('EXPEDIENTE ADM') ||
-                  funcaoSelecionada.nome.toUpperCase().includes('CMT UPM') ||
-                  funcaoSelecionada.nome.toUpperCase().includes('SUBCMT UPM')
-                )
-              : false;
+            const mostrarEquipe = funcaoSelecionada ? !funcaoOcultaCampoEquipe(funcaoSelecionada) : false;
+            const equipeObrigatoria = funcaoSelecionada ? funcaoEquipeObrigatoriaNoFormulario(funcaoSelecionada) : false;
             const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') ?? false;
             const equipesDisponiveis = (() => {
               let list =
@@ -1073,13 +1065,21 @@ export function PoliciaisSection({
                 <Typography component="label" htmlFor="equipe-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
                   Equipe
                 </Typography>
-                <FormControl fullWidth required size="small" variant="outlined" sx={{ ...formFieldSx, maxWidth: { md: 400 } }}>
+                <FormControl
+                  fullWidth
+                  required={equipeObrigatoria}
+                  size="small"
+                  variant="outlined"
+                  sx={{ ...formFieldSx, maxWidth: { md: 400 } }}
+                >
                   <Select
                     id="equipe-select"
                     value={form.equipe ?? ''}
                     displayEmpty
                     renderValue={(v) => {
-                      if (!v) return 'Selecione uma equipe';
+                      if (!v) {
+                        return equipeObrigatoria ? 'Selecione uma equipe' : 'Sem equipe (opcional)';
+                      }
                       return formatNome(v);
                     }}
                     onChange={(e) =>
@@ -1098,6 +1098,47 @@ export function PoliciaisSection({
                         {formatNome(option.nome)}
                       </MenuItem>
                     ))}
+                  </Select>
+                </FormControl>
+              </Box>
+            );
+          })()}
+          {(() => {
+            const funcaoSel = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : undefined;
+            if (!funcaoRequerFase12x36Expediente(funcaoSel)) return null;
+            return (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, gridColumn: { md: '1 / -1' } }}>
+                <FormControl
+                  fullWidth
+                  required
+                  size="small"
+                  variant="outlined"
+                  sx={{ ...formFieldSx, maxWidth: { md: 400 } }}
+                >
+                  <InputLabel id="cad-policial-fase-12x36-label">Fase 12×36 (semana ISO)</InputLabel>
+                  <Select
+                    labelId="cad-policial-fase-12x36-label"
+                    label="Fase 12×36 (semana ISO)"
+                    value={form.expediente12x36Fase ?? ''}
+                    displayEmpty
+                    renderValue={(v) => {
+                      if (!v) return 'Selecione par ou ímpar';
+                      return v === 'PAR' ? 'Semanas pares' : 'Semanas ímpares';
+                    }}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setForm((prev) => ({
+                        ...prev,
+                        expediente12x36Fase: v === 'PAR' || v === 'IMPAR' ? v : undefined,
+                      }));
+                    }}
+                    MenuProps={{ sx: { zIndex: 1500 } }}
+                  >
+                    <MenuItem value="">
+                      <em>Selecione par ou ímpar</em>
+                    </MenuItem>
+                    <MenuItem value="PAR">Semanas pares</MenuItem>
+                    <MenuItem value="IMPAR">Semanas ímpares</MenuItem>
                   </Select>
                 </FormControl>
               </Box>
@@ -1156,20 +1197,13 @@ export function PoliciaisSection({
                         if (equipeSelecionada) {
                           // Atualizar todos os policiais que têm equipe disponível
                           const novosPoliciais = validacaoModal.policiais.map((policial) => {
-                            const funcaoUpper = policial.funcaoNome?.toUpperCase() || '';
-                            const naoMostraEquipe = 
-                              funcaoUpper.includes('EXPEDIENTE') || 
-                              funcaoUpper.includes('CMT UPM') || 
-                              funcaoUpper.includes('SUBCMT UPM') ||
-                              funcaoUpper.includes('MOTORISTA DE DIA');
-                            
-                            if (!naoMostraEquipe) {
-                              return {
-                                ...policial,
-                                equipe: equipeSelecionada,
-                              };
+                            if (policialModalSemColunaEquipe(policial, funcoes)) {
+                              return policial;
                             }
-                            return policial;
+                            return {
+                              ...policial,
+                              equipe: equipeSelecionada,
+                            };
                           });
                           
                           setValidacaoModal((prev) => ({
@@ -1209,12 +1243,13 @@ export function PoliciaisSection({
                 <tbody>
                   {validacaoModal.policiais.map((policial, idx) => {
                     const jaCadastrado = policial.jaCadastrado === true;
-                    const funcaoUpper = policial.funcaoNome?.toUpperCase() || '';
-                    const naoMostraEquipe =
-                      funcaoUpper.includes('EXPEDIENTE') ||
-                      funcaoUpper.includes('CMT UPM') ||
-                      funcaoUpper.includes('SUBCMT UPM');
-                    const isMotoristaDia = funcaoUpper.includes('MOTORISTA DE DIA');
+                    const meta = policialModalMetaFuncao(policial, funcoes);
+                    const naoMostraEquipe = meta ? funcaoOcultaCampoEquipe(meta as FuncaoOption) : false;
+                    const fLinha = policial.funcaoId ? funcoes.find((f) => f.id === policial.funcaoId) : undefined;
+                    const isMotoristaDia =
+                      !!(fLinha?.nome && fLinha.nome.toUpperCase().includes('MOTORISTA DE DIA')) ||
+                      !!(policial.funcaoNome && policial.funcaoNome.toUpperCase().includes('MOTORISTA DE DIA'));
+                    const equipeObrigLinha = meta ? funcaoEquipeObrigatoriaNoFormulario(meta as FuncaoOption) : false;
                     return (
                       <tr key={idx}>
                         <td>{formatMatricula(policial.matricula)}</td>
@@ -1231,14 +1266,19 @@ export function PoliciaisSection({
                                 onChange={(event) => {
                                   const novosPoliciais = [...validacaoModal.policiais];
                                   const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
-                                  const funcaoSelecionada = funcoes.find(f => f.id === novoFuncaoId);
-                                  const funcaoUpperNew = funcaoSelecionada?.nome.toUpperCase() || '';
-                                  const isMD = funcaoUpperNew.includes('MOTORISTA DE DIA');
+                                  const funcaoSelecionada = funcoes.find((f) => f.id === novoFuncaoId);
+                                  const isMD =
+                                    funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') ?? false;
+                                  const ocultaEq = funcaoSelecionada ? funcaoOcultaCampoEquipe(funcaoSelecionada) : false;
                                   novosPoliciais[idx] = {
                                     ...novosPoliciais[idx],
                                     funcaoId: novoFuncaoId,
                                     funcaoNome: funcaoSelecionada?.nome || novosPoliciais[idx].funcaoNome,
-                                    equipe: isMD && novosPoliciais[idx].equipe === 'E' ? undefined : novosPoliciais[idx].equipe,
+                                    equipe: ocultaEq
+                                      ? undefined
+                                      : isMD && novosPoliciais[idx].equipe === 'E'
+                                        ? undefined
+                                        : novosPoliciais[idx].equipe,
                                   };
                                   setValidacaoModal((prev) => ({ ...prev, policiais: novosPoliciais }));
                                 }}
@@ -1285,9 +1325,11 @@ export function PoliciaisSection({
                                     setValidacaoModal((prev) => ({ ...prev, policiais: novosPoliciais }));
                                   }}
                                   style={{ width: '100%', padding: '4px' }}
-                                  required
+                                  required={equipeObrigLinha}
                                 >
-                                  <option value="">Selecione uma equipe</option>
+                                  <option value="">
+                                    {equipeObrigLinha ? 'Selecione uma equipe' : 'Sem equipe (opcional)'}
+                                  </option>
                                   {equipesDisponiveisCadastro
                                     .filter((option) => !isMotoristaDia || option.nome !== 'E')
                                     .map((option) => (

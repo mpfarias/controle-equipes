@@ -26,6 +26,7 @@ import { Close as CloseIcon, Print as PrintIcon } from '@mui/icons-material';
 import { api } from '../../api';
 import { useEscalaParametros } from '../../hooks/useEscalaParametros';
 import { formatEquipeLabel } from '../../constants';
+import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import { imprimirListaPoliciaisCalendarioModal } from '../../utils/calendarioModalPrint';
@@ -195,7 +196,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     });
   };
 
-  // Escala 24x72: qual equipe de motoristas (A, B, C ou D) está de serviço em um determinado dia
+  // Escala 24×72 (motorista de dia): qual equipe (A, B, C ou D) está de serviço em um determinado dia
   const getEquipeMotoristasDia = (ano: number, mes: number, dia: number): Equipe | null => {
     const dataAtual = new Date(ano, mes, dia);
     const dataMinima = new Date(2026, 0, 1);
@@ -225,13 +226,13 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     void carregarFuncaoMotorista();
   }, []);
 
-  // Abrir modal com motoristas (função "Motorista de Dia") escalados no dia, pela equipe do dia (24x72)
+  // Abrir modal com motoristas de dia escalados conforme a equipe do dia na escala 24×72
   const handleMotoristasClick = async (dia: number) => {
     setModalOpen(true);
     setLoadingModal(true);
     const dataAtual = new Date(anoSelecionado, mesSelecionado, dia);
     const dataStr = `${String(dia).padStart(2, '0')}/${String(mesSelecionado + 1).padStart(2, '0')}/${anoSelecionado}`;
-    setModalTitle(`Motoristas - ${dataStr}`);
+    setModalTitle(`Motoristas (${ESCALA_MOTORISTA_DIA}) — ${dataStr}`);
 
     try {
       const equipeDia = getEquipeMotoristasDia(anoSelecionado, mesSelecionado, dia);
@@ -260,7 +261,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       const idsAfastados = new Set(afastamentosAtivos.map((af) => af.policialId));
       const motoristasDisponiveis = todosMotoristas.filter((p) => !idsAfastados.has(p.id));
 
-      setModalTitle(`Motoristas - Equipe ${formatEquipeLabel(equipeDia)} - ${dataStr}`);
+      setModalTitle(`Motoristas (${ESCALA_MOTORISTA_DIA}) — Equipe ${formatEquipeLabel(equipeDia)} — ${dataStr}`);
       setPoliciaisModal(sortPorPatenteENome(motoristasDisponiveis));
     } catch (error) {
       console.error('Erro ao carregar motoristas:', error);
@@ -288,7 +289,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
 
       const data = await api.listPoliciaisPaginated(params);
       const todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
-      // Motoristas (função "Motorista de Dia") ficam apenas na escala 24x72; excluir das escalas 12x24/12x72 (Dia/Noite)
+      // Motoristas de dia: apenas na escala 24×72; excluir da escala 12×24 (Dia/Noite das equipes)
       const policiaisEscalaDiaNoite = funcaoMotoristaId
         ? todosPoliciais.filter((p) => p.funcaoId !== funcaoMotoristaId)
         : todosPoliciais;
@@ -333,7 +334,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
         <Tabs value={tabAtiva} onChange={(_, newValue) => setTabAtiva(newValue)}>
           <Tab label="Equipes" />
-          <Tab label="Motoristas" />
+          <Tab label={`Motoristas (${ESCALA_MOTORISTA_DIA})`} />
         </Tabs>
       </Box>
 
@@ -404,7 +405,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
             ))}
           </Grid>
 
-          {/* Dias do mês - Escala 12x24 */}
+          {/* Dias do mês — escala 12×24 (equipes) */}
           <Grid container spacing={0.5}>
             {diasDoMes.map((dia, index) => {
               const equipes = getEquipesDia(dia);
@@ -609,7 +610,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
         </Paper>
         )}
 
-        {/* Calendário - Tab Motoristas (escala 24x72) */}
+        {/* Calendário — aba Motoristas (escala 24×72, motorista de dia) */}
         {tabAtiva === 1 && (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h5" sx={{ mb: 2, textAlign: 'center', fontWeight: 600 }}>
@@ -617,7 +618,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
           </Typography>
           {anoSelecionado < 2026 ? (
             <Typography variant="body2" sx={{ p: 3, textAlign: 'center', color: 'text.secondary' }}>
-              A escala de motoristas (24x72) começa em janeiro de 2026. Selecione 2026 ou um ano posterior.
+              A escala {ESCALA_MOTORISTA_DIA} (motorista de dia) começa em janeiro de 2026. Selecione 2026 ou um ano
+              posterior.
             </Typography>
           ) : (
             <>

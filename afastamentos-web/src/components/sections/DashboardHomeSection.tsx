@@ -34,6 +34,7 @@ import {
 import { Close as CloseIcon, Groups, MilitaryTech, EventBusy, PersonSearch, BeachAccess, WbSunny, DirectionsCar, Diversity1, BusinessCenter } from '@mui/icons-material';
 import { api } from '../../api';
 import { formatEquipeLabel } from '../../constants';
+import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { DashboardGraficosPanel, type TipoGraficoDashboard } from './DashboardGraficosPanel';
@@ -1274,8 +1275,8 @@ export function DashboardHomeSection({
         filters: { equipe: 'E' },
       },
       {
-        title: 'Motoristas',
-        description: '',
+        title: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
+        description: `Escala ${ESCALA_MOTORISTA_DIA} — motorista de dia.`,
         tab: 'equipe' as TabKey,
         color: '#f97316',
         showCount: false,
@@ -1299,8 +1300,8 @@ export function DashboardHomeSection({
     
     // Se for Cpmulher, ocultar os cards "Expediente" e "Motoristas"
     if (usuarioEhCpmulher) {
-      return todosCards.filter(card => 
-        card.title !== 'Expediente' && card.title !== 'Motoristas'
+      return todosCards.filter(
+        (card) => card.title !== 'Expediente' && card.isMotoristas !== true,
       );
     }
     

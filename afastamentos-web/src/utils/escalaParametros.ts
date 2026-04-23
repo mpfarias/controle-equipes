@@ -1,6 +1,6 @@
 import type { EscalaParametros, Equipe } from '../types';
 
-/** Alinhado aos defaults da API (`escalas.constants`). */
+/** Alinhado aos defaults da API (`escalas.constants`): equipes 12×24; motoristas 24×72. */
 export const DEFAULT_ESCALA_API: EscalaParametros = {
   dataInicioEquipes: '2026-01-20',
   dataInicioMotoristas: '2026-01-01',

@@ -41,6 +41,8 @@ model Policial {
   desativadoPorId            Int?
   desativadoPorNome          String?
   desativadoEm               DateTime?
+  contagemEscalaExtra        PolicialContagemEscalaExtra?
+  expediente12x36Fase        PolicialExpediente12x36Fase?
 }
 
 model StatusPolicial {
@@ -125,15 +127,47 @@ model UsuarioNivel {
   updatedAt  DateTime                @updatedAt
 }
 
+enum FuncaoVinculoEquipe {
+  OBRIGATORIA
+  OPCIONAL
+  SEM_EQUIPE
+}
+
+/** Horário no expediente quando `escalaExpediente`; AUTO = regras legadas por nome em `expedienteEscalaRegras`. */
+enum FuncaoExpedienteHorarioPreset {
+  AUTO
+  ORGAO_DIAS_UTEIS
+  SEG_SEX_07_19
+  SEG_SEX_12X36_SEMANA_ALTERNADA
+  JORNADA_24X72
+}
+
+/** Complemento ao preset 12×36 semanal (semana ISO par vs ímpar), por policial. */
+enum PolicialExpediente12x36Fase {
+  PAR
+  IMPAR
+}
+
 model Funcao {
-  id        Int        @id @default(autoincrement())
-  nome      String     @unique
-  descricao String?
-  ativo     Boolean    @default(true)
-  usuarios  Usuario[]
-  policiais Policial[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id             Int                  @id @default(autoincrement())
+  nome           String               @unique
+  descricao      String?
+  ativo          Boolean              @default(true)
+  /** Como a equipe (A–E) se aplica ao policial com esta função. */
+  vinculoEquipe  FuncaoVinculoEquipe  @default(OBRIGATORIA)
+  /** Inclui o policial na geração «Operacional» (12×24), se tiver equipe válida. */
+  escalaOperacional Boolean           @default(true)
+  /** Policial entra na geração «Motoristas» (24×72); exclui do operacional. */
+  escalaMotorista   Boolean           @default(false)
+  /** Policial entra na geração «Expediente» (horários em expedienteEscalaRegras). */
+  escalaExpediente  Boolean           @default(false)
+  expedienteHorarioPreset FuncaoExpedienteHorarioPreset @default(AUTO)
+  /** Quando a função pertence a uma equipe fixa (A, B, C...), todos os policiais da função herdam essa equipe. */
+  equipeReferencia  String?
+  usuarios       Usuario[]
+  policiais      Policial[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 }
 
 model Usuario {
@@ -431,12 +465,14 @@ model EscalaInformacao {
   updatedByName   String?
 }
 
-/** Escala gerada e salva (aba Gerar Escalas). tipoServico: OPERACIONAL | EXPEDIENTE | MOTORISTAS. lista: DISPONIVEL | AFASTADO. */
+/** Escala gerada e salva (aba Gerar Escalas / escala extraordinária). tipoServico: OPERACIONAL | EXPEDIENTE | MOTORISTAS | EXTRAORDINARIA. lista: DISPONIVEL | AFASTADO. */
 model EscalaGerada {
   id              Int                 @id @default(autoincrement())
   dataEscala      DateTime            @db.Date
   tipoServico     String
   resumoEquipes   String?             @db.Text
+  /** Snapshot JSON do payload de impressão definitiva (linhas com bloco, cabeçalhos por bloco, data de geração). */
+  impressaoDraft  Json?
   ativo           Boolean             @default(true)
   createdAt       DateTime            @default(now())
   createdById     Int?
@@ -456,6 +492,17 @@ model EscalaGeradaLinha {
   horarioServico     String
   funcaoNome         String?
   detalheAfastamento String?      @db.Text
+}
+
+/**
+ * Quantas vezes o policial entrou em uma escala extraordinária **salva** (POST /escalas/geradas com EXTRAORDINARIA).
+ * +1 por policial distinto por gravação (mesma escala com o mesmo policial em várias linhas conta uma vez).
+ */
+model PolicialContagemEscalaExtra {
+  policialId         Int      @id
+  policial           Policial @relation(fields: [policialId], references: [id], onDelete: Cascade)
+  vezesEscaladoExtra Int      @default(0)
+  updatedAt          DateTime @updatedAt
 }
 
 enum TrocaServicoStatus {

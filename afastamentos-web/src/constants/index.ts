@@ -1,6 +1,13 @@
 import type { AfastamentoStatus, PolicialStatus } from '../types';
 import type { FuncaoOption } from '../types';
 
+export {
+  funcaoOcultaCampoEquipe,
+  funcaoEquipeObrigatoriaNoFormulario,
+  funcaoRequerFase12x36Expediente,
+  resolveEquipeParaPolicial,
+} from './funcaoVinculoEquipe';
+
 /** Nome da função que não pode mais ser usada; filtrada das listas de seleção. */
 export const FUNCAO_NAO_INFORMADO_NOME = 'NÃO INFORMADO';
 
@@ -20,8 +27,8 @@ export type EfetivoSubTabKey = 'equipe' | 'policiais';
 /** Aba geral "Sistema" - agrupa as telas relacionadas. */
 export type SistemaSubTabKey = 'usuarios' | 'gestao-sistema' | 'relatorios';
 
-/** Subáreas da aba Escalas (Gerar vs Visualizar). */
-export type EscalasSubTabKey = 'gerar' | 'consultar';
+/** Subáreas da aba Escalas (Gerar, escala extra, Visualizar, quantidade de extras). */
+export type EscalasSubTabKey = 'gerar' | 'gerar-extra' | 'consultar' | 'quantitativo-extras';
 
 /** Payload ao abrir «Gerenciar afastamentos» já com policial/motivo (ex.: dashboard). */
 export type PreencherCadastroAfastamentoInput = {
@@ -35,7 +42,7 @@ export type TabChangeOptions = {
   preencherCadastro?: PreencherCadastroAfastamentoInput;
   /** Sub-tab a abrir ao navegar para a aba Afastamentos. */
   subTab?: AfastamentosSubTabKey;
-  /** Sub-tab a abrir ao navegar para a aba Escalas (Gerar / Visualizar). */
+  /** Sub-tab a abrir ao navegar para a aba Escalas (Gerar / escala extra / Visualizar / quantitativo). */
   escalasSubTab?: EscalasSubTabKey;
 };
 

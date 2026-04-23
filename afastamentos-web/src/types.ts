@@ -7,6 +7,9 @@ export type PolicialStatus =
   | 'PTTC'
   | 'DESATIVADO';
 
+/** Tipo de serviço para escala extraordinária (feriados / eventos). */
+export type EscalaExtraordinariaTipoServico = 'CARNAVAL' | 'SETE_DE_SETEMBRO' | 'EVENTO' | 'OUTRO';
+
 export type UsuarioStatus = 'ATIVO' | 'DESATIVADO';
 
 export type Equipe = string;
@@ -190,6 +193,8 @@ export interface Policial {
   desativadoPorId?: number | null;
   desativadoPorNome?: string | null;
   desativadoEm?: string | null;
+  /** Semana ISO par vs ímpar para função com preset `SEG_SEX_12X36_SEMANA_ALTERNADA` no expediente. */
+  expediente12x36Fase?: 'PAR' | 'IMPAR' | null;
 }
 
 export interface CreatePolicialInput {
@@ -204,6 +209,7 @@ export interface CreatePolicialInput {
   matriculaComissionadoGdf?: string | null;
   dataPosse?: string | null;
   equipe?: Equipe | null;
+  expediente12x36Fase?: 'PAR' | 'IMPAR' | null;
 }
 
 export interface Afastamento {
@@ -264,9 +270,13 @@ export interface HorarioSvg {
 
 /** Parâmetros globais da escala (API GET /escalas/parametros). */
 export interface EscalaParametros {
+  /** Início civil da escala 12×24 das cinco equipes operacionais (turnos dia/noite). */
   dataInicioEquipes: string;
+  /** Início civil do rodízio 24×72 do motorista de dia (equipes A–D na sequência). */
   dataInicioMotoristas: string;
+  /** Sequência das equipes na escala 12×24 (ex.: D,E,B,A,C), letras separadas por vírgula. */
   sequenciaEquipes: string;
+  /** Sequência na escala 24×72 do motorista de dia (ex.: A,B,C,D), letras separadas por vírgula. */
   sequenciaMotoristas: string;
 }
 
@@ -302,6 +312,8 @@ export interface EscalaGerada {
   dataEscala: string;
   tipoServico: string;
   resumoEquipes: string | null;
+  /** Presente em registros novos: snapshot do payload da impressão definitiva. */
+  impressaoDraft?: unknown;
   ativo?: boolean;
   createdAt: string;
   createdById: number | null;
@@ -319,6 +331,15 @@ export interface EscalaGeradaResumo {
   createdById: number | null;
   createdByName: string | null;
   linhasCount: number;
+}
+
+/** Item de GET /escalas/quantitativo-extras (contagem após salvar escala extraordinária). */
+export interface QuantitativoExtraPolicialItem {
+  policialId: number;
+  nome: string;
+  matricula: string;
+  equipe: string | null;
+  vezesEscaladoExtra: number;
 }
 
 /** Turno 12×24 da troca (revert automático após o fim desse turno em Brasília). */
@@ -355,8 +376,8 @@ export interface TrocaServicoAtivaListaItem {
   restauradoB: boolean;
   equipeOrigemA: string | null;
   equipeOrigemB: string | null;
-  policialA: { id: number; nome: string; matricula: string; equipe: string | null };
-  policialB: { id: number; nome: string; matricula: string; equipe: string | null };
+  policialA: { id: number; nome: string; matricula: string; equipe: string | null; funcaoNome?: string | null };
+  policialB: { id: number; nome: string; matricula: string; equipe: string | null; funcaoNome?: string | null };
 }
 
 export interface UsuarioNivelOption {
@@ -399,11 +420,32 @@ export interface UsuarioNivelPermissao {
   acao: PermissaoAcao;
 }
 
+/** Regra de equipe no cadastro do policial para esta função. */
+export type FuncaoVinculoEquipe = 'OBRIGATORIA' | 'OPCIONAL' | 'SEM_EQUIPE';
+
+/** Horário no expediente quando a função participa da geração «Expediente». */
+export type FuncaoExpedienteHorarioPreset =
+  | 'AUTO'
+  | 'ORGAO_DIAS_UTEIS'
+  | 'SEG_SEX_07_19'
+  | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
+  | 'JORNADA_24X72';
+
 export interface FuncaoOption {
   id: number;
   nome: string;
   descricao?: string | null;
   ativo?: boolean;
+  vinculoEquipe?: FuncaoVinculoEquipe;
+  /** Geração «Operacional» 12×24 (com equipe). */
+  escalaOperacional?: boolean;
+  /** Geração «Motoristas» 24×72. */
+  escalaMotorista?: boolean;
+  /** Geração «Expediente» (horários em expedienteEscalaRegras). */
+  escalaExpediente?: boolean;
+  expedienteHorarioPreset?: FuncaoExpedienteHorarioPreset;
+  /** Equipe fixa da função quando "faz parte de equipe". */
+  equipeReferencia?: string | null;
 }
 
 export interface PolicialExtraido {

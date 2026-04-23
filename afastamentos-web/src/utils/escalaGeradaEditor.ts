@@ -1,4 +1,5 @@
 import type { Policial, PolicialStatus } from '../types';
+import { ESCALA_MOTORISTA_DIA } from '../constants/escalaMotoristasDia';
 import escalaEditorOrderingInline from './escalaGeradaEditor-ordering-inline.js?raw';
 import { sortPorPatenteENome } from './sortPoliciais';
 import type { EscalaGeradaDraftPayload, LinhaEscalaGeradaDraft } from './gerarEscalasCalculo';
@@ -10,6 +11,7 @@ import {
   ORDEM_BLOCOS_IMPRESSAO,
   ehBlocoSvgPlaceholder,
   normalizarBlocoEscalaImpressao,
+  rotuloHorarioApartirDeServico,
   tituloBlocoEscalaComLinhas,
   type BlocoEscalaId,
 } from './escalaBlocos';
@@ -55,15 +57,18 @@ function horarioPadraoNovoNoBloco(blocoId: BlocoEscalaId | 'AFASTADOS'): string 
   if (blocoId === 'SVG_10_18') return '[SVG] 10h às 18h';
   if (blocoId === 'SVG_15_23') return '[SVG] 15h às 23h';
   if (blocoId === 'SVG_20_04') return '[SVG] 20h às 04h';
-  if (blocoId === 'MOTORISTAS') return '[Motoristas] Conforme escala 24×72';
+  if (blocoId === 'MOTORISTAS')
+    return `[Motoristas] Conforme escala ${ESCALA_MOTORISTA_DIA} (motorista de dia)`;
   if (blocoId === 'EQUIPE_DIURNA_07' || blocoId === 'EQUIPE_NOTURNA_19_07') {
     return '[Operacional] Conforme escala 12×24 das equipes';
   }
   if (blocoId === 'AFASTADOS') return '[Expediente] Afastamento';
+  if (blocoId === 'ESCALA_EXTRAORDINARIA') return '[Escala extraordinária de serviço] Conforme período indicado';
   return '[Expediente] Conforme regras UPM';
 }
 
 function tipoServicoLinhaPorBloco(blocoId: BlocoEscalaId | 'AFASTADOS'): 'OPERACIONAL' | 'EXPEDIENTE' | 'MOTORISTAS' {
+  if (blocoId === 'ESCALA_EXTRAORDINARIA') return 'OPERACIONAL';
   if (blocoId === 'MOTORISTAS') return 'MOTORISTAS';
   if (blocoId === 'EQUIPE_DIURNA_07' || blocoId === 'EQUIPE_NOTURNA_19_07') return 'OPERACIONAL';
   if (blocoId === 'SVG_10_18' || blocoId === 'SVG_15_23' || blocoId === 'SVG_20_04') return 'EXPEDIENTE';
@@ -125,12 +130,33 @@ function montarSelectFuncoes(
   return `<select class="sel-funcao" data-line-key="${escHtml(lineKey)}" name="funcao-${escHtml(lineKey)}" style="max-width:100%;font-size:0.85rem"><option value="">—</option>${opts}</select>`;
 }
 
+function linhaEditorHtmlExtraordinaria(
+  line: LinhaEscalaGeradaDraft,
+  lineKey: string,
+  policiais: PolicialSlim[],
+): string {
+  const emTroca = /\bTROCA DE SERVIÇO\b/iu.test(line.horarioServico);
+  const badgeTroca = emTroca ? ` <span class="badge-troca-servico">Troca de serviço</span>` : '';
+  const af =
+    line.detalheAfastamento && line.lista === 'AFASTADO'
+      ? `<br/><span class="muted">${escHtml(line.detalheAfastamento)}</span>`
+      : '';
+  const matEx = formatarMatriculaExibicao(line.matricula) || '—';
+  return `<tr data-line-key="${escHtml(lineKey)}">
+    <td class="cel-matricula" data-line-key="${escHtml(lineKey)}">${escHtml(matEx)}</td>
+    <td colspan="2">${montarSelectPoliciais(policiais, line.policialId, lineKey)}${badgeTroca}${af}</td>
+    <td class="cel-acoes"><button type="button" class="btn-excluir-linha" data-line-key="${escHtml(lineKey)}">Excluir</button></td>
+  </tr>`;
+}
+
 function linhaEditorHtml(
   line: LinhaEscalaGeradaDraft,
   lineKey: string,
   policiais: PolicialSlim[],
   funcoes: FuncaoOpt[],
 ): string {
+  const emTroca = /\bTROCA DE SERVIÇO\b/iu.test(line.horarioServico);
+  const badgeTroca = emTroca ? ` <span class="badge-troca-servico">Troca de serviço</span>` : '';
   const pol = policiais.find((p) => p.id === line.policialId);
   const fid = pol?.funcaoId ?? null;
   const fnFallback = line.funcaoNome ?? pol?.funcaoNome ?? null;
@@ -141,7 +167,7 @@ function linhaEditorHtml(
   const matEx = formatarMatriculaExibicao(line.matricula) || '—';
   return `<tr data-line-key="${escHtml(lineKey)}">
     <td class="cel-matricula" data-line-key="${escHtml(lineKey)}">${escHtml(matEx)}</td>
-    <td>${montarSelectPoliciais(policiais, line.policialId, lineKey)}${af}</td>
+    <td>${montarSelectPoliciais(policiais, line.policialId, lineKey)}${badgeTroca}${af}</td>
     <td></td><td></td>
     <td>${montarSelectFuncoes(funcoes, fid, lineKey, fnFallback)}</td>
     <td class="cel-acoes"><button type="button" class="btn-excluir-linha" data-line-key="${escHtml(lineKey)}">Excluir</button></td>
@@ -165,6 +191,18 @@ function cabecalhoBlocoEditorHtml(blocoId: string): string {
     <td><select name="tipo-${escHtml(blocoId)}" class="cab-sel">${optionsFromConst(ESCALA_CAB_OPCOES_TIPO, defTipo)}</select></td>
     <td><select name="circ-${escHtml(blocoId)}" class="cab-sel">${optionsFromConst(ESCALA_CAB_OPCOES_CIRCUNSTANCIA, defCirc)}</select></td>
     <td><select name="esp-${escHtml(blocoId)}" class="cab-sel">${optionsFromConst(ESCALA_CAB_OPCOES_ESPECIALIDADE, defEsp)}</select></td>
+  </tr>`;
+}
+
+/** Cabeçalho da escala extraordinária: sem UPM nem Especialidade; circunstância fixa. */
+function cabecalhoBlocoEditorHtmlExtraordinaria(blocoId: string, rotuloHorario: string): string {
+  const defTipo = ESCALA_CAB_OPCOES_TIPO[0];
+  const roAttr = escHtml(rotuloHorario);
+  return `<tr class="cab-valores cab-extraordinaria">
+    <td class="cel-data-geracao"></td>
+    <td>${roAttr}<input type="hidden" name="horario-cab-${escHtml(blocoId)}" value="${roAttr}" /></td>
+    <td><select name="tipo-${escHtml(blocoId)}" class="cab-sel">${optionsFromConst(ESCALA_CAB_OPCOES_TIPO, defTipo)}</select></td>
+    <td>EXTRAORDINÁRIO<input type="hidden" name="circ-${escHtml(blocoId)}" value="EXTRAORDINÁRIO" /><input type="hidden" name="esp-${escHtml(blocoId)}" value="" /></td>
   </tr>`;
 }
 
@@ -214,6 +252,8 @@ export function buildEscalaGeradaEditorHtml(
     .map((f) => `<option value="${f.id}">${escHtml(f.nome)}</option>`)
     .join('');
 
+  const isEx = draft.tipoServico === 'EXTRAORDINARIA';
+
   const secoes: string[] = [];
   for (const blocoId of ORDEM_BLOCOS_IMPRESSAO) {
     const rows = porBloco.get(blocoId) ?? [];
@@ -222,6 +262,42 @@ export function buildEscalaGeradaEditorHtml(
     const titulo = tituloBlocoEscalaComLinhas(blocoId, rows);
     const defaultHorario = rows[0]?.horarioServico ?? horarioPadraoNovoNoBloco(blocoId);
     const tipoLinha = tipoServicoLinhaPorBloco(blocoId);
+
+    if (isEx) {
+      const rotCab = rotuloHorarioApartirDeServico(defaultHorario);
+      const corpoEx = rows
+        .map((line, i) =>
+          linhaEditorHtmlExtraordinaria(line, `${blocoId}-d-${i}-${line.policialId}`, polSlim),
+        )
+        .join('');
+      const btnAdicionarEx = `<tr class="row-add-policial"><td colspan="4" style="padding:10px 8px">
+  <button type="button" class="btn-add-policial" data-bloco-id="${escHtml(blocoId)}">+ Adicionar policial</button>
+</td></tr>`;
+      secoes.push(`<section class="bloco-escala" data-bloco-id="${escHtml(blocoId)}" data-default-horario="${escHtml(defaultHorario)}" data-lista="DISPONIVEL" data-tipo-linha="${escHtml(tipoLinha)}">
+  <h2 class="titulo-bloco">${escHtml(titulo)}</h2>
+  <table class="escala-bloco editor-table editor-table-extraordinaria">
+    <thead>
+      <tr><th>DATA</th><th>HORÁRIO</th><th>TIPO</th><th>CIRCUNSTÂNCIA</th></tr>
+    </thead>
+    <tbody>
+      ${cabecalhoBlocoEditorHtmlExtraordinaria(blocoId, rotCab)}
+      <tr class="subth">
+        <th>MATRÍCULA</th><th colspan="2">POLICIAL</th><th class="subth-acoes">Ações</th>
+      </tr>
+      ${corpoEx}
+      ${btnAdicionarEx}
+      <tr class="obs">
+        <td colspan="4">
+          <strong>OBSERVAÇÕES</strong>
+          <textarea name="obs-${escHtml(blocoId)}" class="obs-field" rows="2" style="width:100%;margin-top:6px;box-sizing:border-box"></textarea>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>`);
+      continue;
+    }
+
     const corpo = rows
       .map((line, i) => linhaEditorHtml(line, `${blocoId}-d-${i}-${line.policialId}`, polSlim, funcoes))
       .join('');
@@ -255,11 +331,42 @@ export function buildEscalaGeradaEditorHtml(
 
   if (afast.length > 0) {
     const defaultHorarioAfast = afast[0]?.horarioServico ?? horarioPadraoNovoNoBloco('AFASTADOS');
-    const corpoAfast = afast
-      .map((line, i) => linhaEditorHtml(line, `AFASTADOS-${i}-${line.policialId}`, polSlim, funcoes))
-      .join('');
 
-    secoes.push(`<section class="bloco-escala" data-bloco-id="AFASTADOS" data-default-horario="${escHtml(defaultHorarioAfast)}" data-lista="AFASTADO" data-tipo-linha="EXPEDIENTE">
+    if (isEx) {
+      const rotCabA = rotuloHorarioApartirDeServico(defaultHorarioAfast);
+      const corpoAfastEx = afast
+        .map((line, i) => linhaEditorHtmlExtraordinaria(line, `AFASTADOS-${i}-${line.policialId}`, polSlim))
+        .join('');
+      secoes.push(`<section class="bloco-escala" data-bloco-id="AFASTADOS" data-default-horario="${escHtml(defaultHorarioAfast)}" data-lista="AFASTADO" data-tipo-linha="EXPEDIENTE">
+  <h2 class="titulo-bloco">${escHtml(tituloBlocoEscalaComLinhas('AFASTADOS', afast))}</h2>
+  <table class="escala-bloco editor-table editor-table-extraordinaria">
+    <thead>
+      <tr><th>DATA</th><th>HORÁRIO</th><th>TIPO</th><th>CIRCUNSTÂNCIA</th></tr>
+    </thead>
+    <tbody>
+      ${cabecalhoBlocoEditorHtmlExtraordinaria('AFASTADOS', rotCabA)}
+      <tr class="subth">
+        <th>MATRÍCULA</th><th colspan="2">POLICIAL</th><th class="subth-acoes">Ações</th>
+      </tr>
+      ${corpoAfastEx}
+      <tr class="row-add-policial"><td colspan="4" style="padding:10px 8px">
+  <button type="button" class="btn-add-policial" data-bloco-id="AFASTADOS">+ Adicionar policial</button>
+</td></tr>
+      <tr class="obs">
+        <td colspan="4">
+          <strong>OBSERVAÇÕES</strong>
+          <textarea name="obs-AFASTADOS" class="obs-field" rows="2" style="width:100%;margin-top:6px;box-sizing:border-box"></textarea>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>`);
+    } else {
+      const corpoAfast = afast
+        .map((line, i) => linhaEditorHtml(line, `AFASTADOS-${i}-${line.policialId}`, polSlim, funcoes))
+        .join('');
+
+      secoes.push(`<section class="bloco-escala" data-bloco-id="AFASTADOS" data-default-horario="${escHtml(defaultHorarioAfast)}" data-lista="AFASTADO" data-tipo-linha="EXPEDIENTE">
   <h2 class="titulo-bloco">${escHtml(tituloBlocoEscalaComLinhas('AFASTADOS', afast))}</h2>
   <table class="escala-bloco editor-table">
     <thead>
@@ -283,6 +390,7 @@ export function buildEscalaGeradaEditorHtml(
     </tbody>
   </table>
 </section>`);
+    }
   }
 
   const BLOCO_IDS = [...ORDEM_BLOCOS_IMPRESSAO, 'AFASTADOS'] as string[];
@@ -302,6 +410,7 @@ export function buildEscalaGeradaEditorHtml(
   var FUN_BY_ID = ${safeJsonForScript(funById)};
   ${escalaEditorOrderingInline.trim()}
   var INITIAL_DRAFT = ${safeJsonForScript(initialDraft)};
+  var IS_EXTRAORDINARIA = ${draft.tipoServico === 'EXTRAORDINARIA' ? 'true' : 'false'};
   var HORARIO_AUTO = ${safeJsonForScript(ESCALA_CABECALHO_HORARIO_AUTOMATICO)};
   var ORDEM_BLOCOS = ${safeJsonForScript([...ORDEM_BLOCOS_IMPRESSAO])};
   var addSeq = 0;
@@ -426,7 +535,7 @@ export function buildEscalaGeradaEditorHtml(
     var ps = document.querySelector('[name="policial-' + lineKey + '"]');
     var fs = document.querySelector('[name="funcao-' + lineKey + '"]');
     var mat = document.querySelector('.cel-matricula[data-line-key="' + lineKey + '"]');
-    if (!ps || !fs || !mat) return;
+    if (!ps || !mat) return;
     if (!ps.value) {
       mat.textContent = '—';
       return;
@@ -438,7 +547,7 @@ export function buildEscalaGeradaEditorHtml(
       return;
     }
     mat.textContent = formatMatriculaExibicao(p.matricula) || '—';
-    if (p.funcaoId != null) fs.value = String(p.funcaoId);
+    if (fs && p.funcaoId != null) fs.value = String(p.funcaoId);
   }
 
   document.getElementById('pol-combo-popover').addEventListener('click', function(e) {
@@ -527,21 +636,6 @@ export function buildEscalaGeradaEditorHtml(
     wrapP.appendChild(hidP);
     wrapP.appendChild(btnP);
     tdPol.appendChild(wrapP);
-    var tdF = document.createElement('td');
-    var tdE = document.createElement('td');
-    var tdFn = document.createElement('td');
-    var selF = document.createElement('select');
-    selF.className = 'sel-funcao';
-    selF.setAttribute('data-line-key', key);
-    selF.name = 'funcao-' + key;
-    selF.style.cssText = 'max-width:100%;font-size:0.85rem';
-    var tplF = document.getElementById('tpl-funcao-opts');
-    if (tplF) {
-      for (var j = 0; j < tplF.options.length; j++) {
-        selF.appendChild(tplF.options[j].cloneNode(true));
-      }
-    }
-    tdFn.appendChild(selF);
     var tdAc = document.createElement('td');
     tdAc.className = 'cel-acoes';
     var btnEx = document.createElement('button');
@@ -551,11 +645,32 @@ export function buildEscalaGeradaEditorHtml(
     btnEx.textContent = 'Excluir';
     tdAc.appendChild(btnEx);
     tr.appendChild(tdMat);
-    tr.appendChild(tdPol);
-    tr.appendChild(tdF);
-    tr.appendChild(tdE);
-    tr.appendChild(tdFn);
-    tr.appendChild(tdAc);
+    if (IS_EXTRAORDINARIA) {
+      tdPol.setAttribute('colspan', '2');
+      tr.appendChild(tdPol);
+      tr.appendChild(tdAc);
+    } else {
+      var tdF = document.createElement('td');
+      var tdE = document.createElement('td');
+      var tdFn = document.createElement('td');
+      var selF = document.createElement('select');
+      selF.className = 'sel-funcao';
+      selF.setAttribute('data-line-key', key);
+      selF.name = 'funcao-' + key;
+      selF.style.cssText = 'max-width:100%;font-size:0.85rem';
+      var tplF = document.getElementById('tpl-funcao-opts');
+      if (tplF) {
+        for (var j = 0; j < tplF.options.length; j++) {
+          selF.appendChild(tplF.options[j].cloneNode(true));
+        }
+      }
+      tdFn.appendChild(selF);
+      tr.appendChild(tdPol);
+      tr.appendChild(tdF);
+      tr.appendChild(tdE);
+      tr.appendChild(tdFn);
+      tr.appendChild(tdAc);
+    }
     var addBar = tbody.querySelector('tr.row-add-policial');
     if (addBar) tbody.insertBefore(tr, addBar);
     else tbody.insertBefore(tr, obsRow);
@@ -624,8 +739,10 @@ export function buildEscalaGeradaEditorHtml(
       var circ = document.querySelector('[name="circ-' + bid + '"]');
       var esp = document.querySelector('[name="esp-' + bid + '"]');
       var obs = document.querySelector('[name="obs-' + bid + '"]');
+      var horCabIn = document.querySelector('[name="horario-cab-' + bid + '"]');
+      var horVal = horCabIn && horCabIn.value ? horCabIn.value : HORARIO_AUTO;
       cabecalhoPorBloco[bid] = {
-        horario: HORARIO_AUTO,
+        horario: horVal,
         tipo: tipo ? tipo.value : '',
         circunstancia: circ ? circ.value : '',
         especialidade: esp ? esp.value : '',
@@ -718,10 +835,12 @@ export function buildEscalaGeradaEditorHtml(
 <style>
   body { font-family: system-ui, sans-serif; margin: 20px; color: #111; font-size: 0.9rem; }
   h1 { font-size: 1.35rem; margin-bottom: 8px; }
+  .resumo-escala-extra { font-size: 0.98rem; font-weight: 600; color: #0d47a1; margin: 0 0 12px; line-height: 1.45; }
   .subtitulo { color: #555; margin-bottom: 20px; line-height: 1.5; }
   .bloco-escala { margin-bottom: 28px; }
   .titulo-bloco { font-size: 1.02rem; margin: 0 0 8px 0; border-bottom: 1px solid #333; padding-bottom: 4px; }
   table.editor-table { width: 100%; border-collapse: collapse; table-layout: fixed; border: none; }
+  .editor-table-extraordinaria .cab-extraordinaria td { vertical-align: middle; }
   .editor-table th, .editor-table td { border: none; padding: 6px 8px; text-align: left; vertical-align: middle; }
   .editor-table thead th { background: transparent; font-size: 0.78rem; }
   .cab-valores td { background: transparent; font-size: 0.85rem; }
@@ -741,6 +860,21 @@ export function buildEscalaGeradaEditorHtml(
   .btn-excluir-linha:hover { background: #ffebee; }
   .obs td { background: transparent; vertical-align: top; }
   .muted { color: #666; font-style: italic; font-size: 0.88rem; }
+  .badge-troca-servico {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    color: #0d47a1;
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
   .acoes-top, .acoes-rodape {
     display: flex;
     gap: 12px;
@@ -819,6 +953,11 @@ export function buildEscalaGeradaEditorHtml(
 </head>
 <body>
   <h1>Editar escala</h1>
+  ${
+    draft.tipoServico === 'EXTRAORDINARIA' && (draft.resumoEquipes ?? '').trim()
+      ? `<p class="resumo-escala-extra">${escHtml(draft.resumoEquipes.trim())}</p>`
+      : ''
+  }
   <p class="subtitulo">Só aparecem os blocos que já têm pelo menos um policial. Use <strong>Adicionar policial</strong> e <strong>Excluir</strong> dentro de cada bloco visível. Se remover todos de um bloco, ele some da tela. Matrícula preenchida ao escolher o nome. Depois: <strong>Gerar escala definitiva</strong>.</p>
   <div class="acoes-top">
     <button type="button" class="danger" id="btn-cancelar">Cancelar</button>

@@ -8,6 +8,7 @@ import type { BlocoEscalaId } from './escalaBlocos';
  * - Ajuste horários, nomes ou alternância de semana editando este arquivo.
  * - Afastamentos continuam sendo tratados em `gerarEscalasCalculo` (lista separada).
  * - SVG: bloco separado / outra tela (fora do escopo aqui).
+ * - Quem entra na lista de expediente na geração também depende do cadastro da função (`escalaExpediente` e `expedienteHorarioPreset` em Gestão → Funções).
  */
 
 /**
@@ -58,15 +59,17 @@ function semanaPar(d: Date): boolean {
   return getISOWeekLocal(d) % 2 === 0;
 }
 
-/** Converte "13:00" / "07:00" para rótulo "13h" / "07h". */
+/** Converte "13:00" / "07:30" para rótulo "13h" / "07h30". */
+export function formatoRelogioUm(s: string): string {
+  const [h, m] = s.split(':').map((x) => parseInt(x, 10));
+  if (Number.isNaN(h)) return s;
+  if (m === 0) return `${String(h).padStart(2, '0')}h`;
+  return `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}`;
+}
+
+/** Intervalo "13h às 19h" a partir de dois horários "HH:mm". */
 export function relogioParaLabel(inicio: string, fim: string): string {
-  const fmt = (s: string) => {
-    const [h, m] = s.split(':').map((x) => parseInt(x, 10));
-    if (Number.isNaN(h)) return s;
-    if (m === 0) return `${String(h).padStart(2, '0')}h`;
-    return `${String(h).padStart(2, '0')}h${String(m).padStart(2, '0')}`;
-  };
-  return `${fmt(inicio)} às ${fmt(fim)}`;
+  return `${formatoRelogioUm(inicio)} às ${formatoRelogioUm(fim)}`;
 }
 
 /** Horário “padrão órgão” do dia (seg–qui 13–19, sex 07–13), ou null. */
@@ -81,9 +84,18 @@ function ehExpedienteAdm(p: Policial): boolean {
   return f.includes('EXPEDIENTE') && f.includes('ADM');
 }
 
+/** Valores persistidos em `Funcao.expedienteHorarioPreset` (exceto AUTO, que não entra no contexto). */
+export type ExpedienteHorarioPresetFuncao =
+  | 'ORGAO_DIAS_UTEIS'
+  | 'SEG_SEX_07_19'
+  | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
+  | 'JORNADA_24X72';
+
 export type ContextoResolverExpediente = {
   /** Resultado de `indiceFuncaoOrdenacaoEscala` no momento da geração (evita import circular). */
   indiceFuncaoEscala: number;
+  /** Quando definido, tem prioridade sobre regras por nome do policial. */
+  expedienteHorarioPreset?: ExpedienteHorarioPresetFuncao;
 };
 
 /**
@@ -95,13 +107,35 @@ export function resolverHorarioExpedientePolicial(
   dataRef: Date,
   ctx: ContextoResolverExpediente,
 ): string | null {
-  if (getExpedienteHorario(dataRef) === null) return null;
+  const preset = ctx.expedienteHorarioPreset;
+  if (preset !== 'JORNADA_24X72' && getExpedienteHorario(dataRef) === null) return null;
 
   const dow = dataRef.getDay(); // 0 dom … 6 sáb
-  if (dow === 0 || dow === 6) return null;
+  if (preset !== 'JORNADA_24X72' && (dow === 0 || dow === 6)) return null;
+
+  const org = horarioOrgaoExpedienteLabel(dataRef);
+
+  if (preset === 'ORGAO_DIAS_UTEIS') {
+    return org;
+  }
+  if (preset === 'SEG_SEX_07_19') {
+    if (dow >= 1 && dow <= 5) return '07h às 19h';
+    return null;
+  }
+  if (preset === 'SEG_SEX_12X36_SEMANA_ALTERNADA') {
+    const fase = policial.expediente12x36Fase;
+    if (!fase) return null;
+    const par = semanaPar(dataRef);
+    const ativo = (fase === 'PAR' && par) || (fase === 'IMPAR' && !par);
+    if (!ativo) return null;
+    if (dow >= 1 && dow <= 5) return '07h às 19h';
+    return null;
+  }
+  if (preset === 'JORNADA_24X72') {
+    return '24x72';
+  }
 
   const nome = policial.nome;
-  const org = horarioOrgaoExpedienteLabel(dataRef);
 
   // --- 1) 12×36 (Manoel / Edilson): seg/qua/sex vs ter/qui; alternância quinzenal. Sempre 07h–19h nos dias de serviço.
   const horarioManoelEdilson = '07h às 19h';
@@ -184,9 +218,10 @@ export function resolverHorarioExpedientePolicial(
     return org;
   }
 
-  // --- Expediente ADM genérico: seg–qui 13h–19h (sex não entra na regra “quase todos”) ---
+  // --- Expediente ADM genérico: seg–qui 13h–19h; sexta segue o horário do órgão (07h–13h), como CMT/SubCmt ---
   if (ctx.indiceFuncaoEscala === 9 || ehExpedienteAdm(policial)) {
     if (dow >= 1 && dow <= 4) return '13h às 19h';
+    if (dow === 5 && org) return org;
     return null;
   }
 
@@ -202,6 +237,17 @@ export function blocoExpedienteParaPolicial(
   _dataRef: Date,
   ctx: ContextoResolverExpediente,
 ): BlocoEscalaId {
+  const preset = ctx.expedienteHorarioPreset;
+  if (preset === 'ORGAO_DIAS_UTEIS') {
+    return 'EXP_13_19_SEG_SEX';
+  }
+  if (preset === 'SEG_SEX_07_19' || preset === 'SEG_SEX_12X36_SEMANA_ALTERNADA') {
+    return 'EXP_ALT_SEMANAL_07';
+  }
+  if (preset === 'JORNADA_24X72') {
+    return 'EXP_DIFERENCIADO';
+  }
+
   const nome = policial.nome;
 
   if (contemNome(nome, 'MANOEL PEREIRA DOS SANTOS') || contemNome(nome, 'EDILSON PEREIRA DE ALMEIDA')) {
@@ -243,4 +289,5 @@ export function blocoExpedienteParaPolicial(
 export const EXPEDIENTE_ESCALA_RESUMO_REGRAS =
   'Expediente — 13h às 19h (segunda a quinta) e sexta 07h às 13h, salvo exceções no bloco horários diferenciados. ' +
   'Manoel/Edilson: 12×36 em blocos de 2 semanas ISO (seg/qua/sex vs ter/qui, alternando a cada quinzena). ' +
+  'Funções com preset no cadastro (ex.: 12×36 seg–sex por semana ISO) têm prioridade sobre regras por nome. ' +
   'CMT/SubCmt no topo da lista do expediente. Ajustes: expedienteEscalaRegras.ts.';

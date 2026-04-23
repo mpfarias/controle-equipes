@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsOptional, IsString, Matches, ValidateNested } from 'class-validator';
+import { IsArray, IsObject, IsOptional, IsString, Matches, ValidateNested } from 'class-validator';
 import { EscalaGeradaLinhaDto } from './escala-gerada-linha.dto';
 
 export class CreateEscalaGeradaDto {
@@ -9,14 +9,23 @@ export class CreateEscalaGeradaDto {
 
   /** Um valor ou lista separada por vírgula, ex.: `OPERACIONAL` ou `OPERACIONAL,MOTORISTAS`. */
   @IsString()
-  @Matches(/^(OPERACIONAL|EXPEDIENTE|MOTORISTAS)(,(OPERACIONAL|EXPEDIENTE|MOTORISTAS))*$/, {
-    message: 'tipoServico deve ser OPERACIONAL, EXPEDIENTE e/ou MOTORISTAS (separados por vírgula).',
-  })
+  @Matches(
+    /^(OPERACIONAL|EXPEDIENTE|MOTORISTAS|EXTRAORDINARIA)(,(OPERACIONAL|EXPEDIENTE|MOTORISTAS|EXTRAORDINARIA))*$/,
+    {
+      message:
+        'tipoServico deve ser OPERACIONAL, EXPEDIENTE, MOTORISTAS e/ou EXTRAORDINARIA (separados por vírgula).',
+    },
+  )
   tipoServico!: string;
 
   @IsOptional()
   @IsString()
   resumoEquipes?: string | null;
+
+  /** Mesmo objeto enviado à janela de impressão definitiva (para reabrir idêntico em «Ver escalas geradas»). */
+  @IsOptional()
+  @IsObject()
+  impressaoDraft?: Record<string, unknown>;
 
   @IsArray()
   @ValidateNested({ each: true })

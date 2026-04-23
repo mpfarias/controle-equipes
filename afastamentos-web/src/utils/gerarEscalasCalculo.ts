@@ -1,4 +1,12 @@
-import type { Afastamento, Policial, PolicialStatus, TrocaServicoAtivaListaItem } from '../types';
+import type {
+  Afastamento,
+  EscalaExtraordinariaTipoServico,
+  FuncaoOption,
+  Policial,
+  PolicialStatus,
+  TrocaServicoAtivaListaItem,
+} from '../types';
+import { ESCALA_MOTORISTA_DIA } from '../constants/escalaMotoristasDia';
 import type { EscalaParsed } from './escalaParametros';
 import { comparePorPatenteENome } from './sortPoliciais';
 import {
@@ -11,6 +19,8 @@ import {
 import {
   blocoExpedienteParaPolicial,
   EXPEDIENTE_ESCALA_RESUMO_REGRAS,
+  formatoRelogioUm,
+  relogioParaLabel,
   resolverHorarioExpedientePolicial,
 } from './expedienteEscalaRegras';
 import { indiceOrdenacaoBloco, type BlocoEscalaId, type EscalaCabecalhoFormulario } from './escalaBlocos';
@@ -238,11 +248,19 @@ function policialElegivelListaExpediente(p: Policial): boolean {
   return p.status !== 'DESATIVADO';
 }
 
-/** CMT UPM (0), SUBCMT UPM (1), Expediente ADM (9) — mesmo critério de `indiceFuncaoOrdenacaoEscala`. */
+function metaFuncaoNoCatalogo(p: Policial, catalogo: FuncaoOption[] | undefined): FuncaoOption | undefined {
+  if (!catalogo?.length || p.funcaoId == null) return undefined;
+  return catalogo.find((f) => f.id === p.funcaoId);
+}
+
+/** CMT UPM (0), SUBCMT UPM (1), Expediente ADM (9) — mesmo critério de `indiceFuncaoOrdenacaoEscala`, mais flag no cadastro. */
 function policialEhFuncaoExpedienteGeracao(
   p: Policial,
   funcoesExpedienteIds: number[] | undefined,
+  funcoesCatalogo?: FuncaoOption[],
 ): boolean {
+  const meta = metaFuncaoNoCatalogo(p, funcoesCatalogo);
+  if (meta?.escalaExpediente === true) return true;
   const ids = funcoesExpedienteIds;
   const matchPorId =
     ids != null && ids.length > 0 && p.funcaoId != null && ids.includes(p.funcaoId);
@@ -353,10 +371,37 @@ function aplicarTrocasServicoOperacional(
   return { diurno, noturno };
 }
 
+function policialEstaEmTrocaServicoNoTurno(params: {
+  policialId: number;
+  dataIso: string;
+  turno: 'DIURNO' | 'NOTURNO';
+  trocas: TrocaServicoAtivaListaItem[];
+}): boolean {
+  const { policialId, dataIso, turno, trocas } = params;
+  for (const t of trocas) {
+    if (t.status === 'CONCLUIDA') continue;
+    const idA = Number(t.policialA.id);
+    const idB = Number(t.policialB.id);
+    const dA = ymdTrocaServico(t.dataServicoA);
+    const dB = ymdTrocaServico(t.dataServicoB);
+    const tA = turnoServicoTroca(t, 'A');
+    const tB = turnoServicoTroca(t, 'B');
+    if (policialId === idA && !t.restauradoA && dA === dataIso && tA === turno) return true;
+    if (policialId === idB && !t.restauradoB && dB === dataIso && tB === turno) return true;
+  }
+  return false;
+}
+
 /**
- * Função motorista (catálogo ou nome contendo "MOTORISTA"): não entra na escala 12×24 das equipes; use o tipo “Motoristas” (24×72).
+ * Função motorista: flag no cadastro, ID escolhido na geração, ou nome contendo «MOTORISTA» (legado).
  */
-function ehFuncaoMotorista(p: Policial, funcaoMotoristaId: number | null): boolean {
+function ehFuncaoMotorista(
+  p: Policial,
+  funcaoMotoristaId: number | null,
+  funcoesCatalogo?: FuncaoOption[],
+): boolean {
+  const meta = metaFuncaoNoCatalogo(p, funcoesCatalogo);
+  if (meta?.escalaMotorista === true) return true;
   if (funcaoMotoristaId != null && p.funcaoId === funcaoMotoristaId) return true;
   const fn = normalizarRotuloFuncaoEscala(p.funcao?.nome);
   return fn.includes('MOTORISTA');
@@ -364,7 +409,7 @@ function ehFuncaoMotorista(p: Policial, funcaoMotoristaId: number | null): boole
 
 /**
  * Monta o payload da escala (disponíveis × afastados) conforme tipo de serviço e data,
- * alinhado ao calendário (12×24 equipes / 24×72 motoristas) e expediente.
+ * alinhado ao calendário (12×24 equipes / escala 24×72 motorista de dia) e expediente.
  */
 export type OperacionalTurnosOpcao = { diurno: boolean; noturno: boolean };
 
@@ -378,6 +423,8 @@ export function montarPayloadGerarEscalas(
     funcaoMotoristaId: number | null;
     /** IDs no cadastro de funções equivalentes a expediente adm / CMT / SUBCMT (fallback se `funcao.nome` vier vazio). */
     funcoesExpedienteIds?: number[];
+    /** Cadastro de funções (flags escalaOperacional / escalaMotorista / escalaExpediente). */
+    funcoesCatalogo?: FuncaoOption[];
     /** Somente para tipo OPERACIONAL: quais turnos incluir na escala gerada. */
     operacionalTurnos?: OperacionalTurnosOpcao;
     /** Trocas ATIVA (e em andamento): ajusta quem entra no operacional conforme data/turno do registro. */
@@ -439,7 +486,9 @@ export function montarPayloadGerarEscalas(
 
     for (const p of policiais) {
       if (!policialElegivelEscala(p)) continue;
-      if (ehFuncaoMotorista(p, opts.funcaoMotoristaId)) continue;
+      if (ehFuncaoMotorista(p, opts.funcaoMotoristaId, opts.funcoesCatalogo)) continue;
+      const metaFn = metaFuncaoNoCatalogo(p, opts.funcoesCatalogo);
+      if (metaFn && metaFn.escalaOperacional === false) continue;
       if (!p.equipe || p.equipe === 'SEM_EQUIPE') continue;
 
       const { diurno: incluiDiurno, noturno: incluiNoturno } = aplicarTrocasServicoOperacional(
@@ -451,17 +500,29 @@ export function montarPayloadGerarEscalas(
       );
 
       if (incluiDiurno) {
+        const emTroca = policialEstaEmTrocaServicoNoTurno({
+          policialId: p.id,
+          dataIso: dataEscalaNorm,
+          turno: 'DIURNO',
+          trocas: trocasOverlay,
+        });
         candidatos.push({
           policial: p,
-          horarioServico: `${ESCALA_DIA_INICIO}–${ESCALA_DIA_FIM}`,
+          horarioServico: `${ESCALA_DIA_INICIO}–${ESCALA_DIA_FIM}${emTroca ? ' • TROCA DE SERVIÇO' : ''}`,
           equipeLabel: `Equipe ${eq.equipeDia} (serviço diurno — escala ${eq.equipeDia})`,
           blocoEscala: 'EQUIPE_DIURNA_07',
         });
       }
       if (incluiNoturno) {
+        const emTroca = policialEstaEmTrocaServicoNoTurno({
+          policialId: p.id,
+          dataIso: dataEscalaNorm,
+          turno: 'NOTURNO',
+          trocas: trocasOverlay,
+        });
         candidatos.push({
           policial: p,
-          horarioServico: `${ESCALA_NOITE_INICIO} (dia da escala)–${ESCALA_NOITE_FIM} (dia seguinte)`,
+          horarioServico: `${ESCALA_NOITE_INICIO} (dia da escala)–${ESCALA_NOITE_FIM} (dia seguinte)${emTroca ? ' • TROCA DE SERVIÇO' : ''}`,
           equipeLabel: `Equipe ${eq.equipeNoite} (serviço noturno — escala ${eq.equipeNoite})`,
           blocoEscala: 'EQUIPE_NOTURNA_19_07',
         });
@@ -480,14 +541,14 @@ export function montarPayloadGerarEscalas(
         linhas: [],
       };
     }
-    const resumo = `Motoristas — equipe ${eqMot} da escala 24×72 (conforme calendário)`;
+    const resumo = `Motoristas — equipe ${eqMot} da escala ${ESCALA_MOTORISTA_DIA} (motorista de dia, conforme calendário)`;
     for (const p of policiais) {
       if (!policialElegivelEscala(p)) continue;
-      if (!opts.funcaoMotoristaId || p.funcaoId !== opts.funcaoMotoristaId) continue;
+      if (!ehFuncaoMotorista(p, opts.funcaoMotoristaId, opts.funcoesCatalogo)) continue;
       if (!p.equipe || p.equipe !== eqMot) continue;
       candidatos.push({
         policial: p,
-        horarioServico: `${ESCALA_DIA_INICIO}–${ESCALA_DIA_FIM} / ${ESCALA_NOITE_INICIO}–${ESCALA_NOITE_FIM} (24×72)`,
+        horarioServico: `${ESCALA_DIA_INICIO}–${ESCALA_DIA_FIM} / ${ESCALA_NOITE_INICIO}–${ESCALA_NOITE_FIM} (${ESCALA_MOTORISTA_DIA})`,
         equipeLabel: `Equipe ${p.equipe} (motorista)`,
         blocoEscala: 'MOTORISTAS',
       });
@@ -497,29 +558,36 @@ export function montarPayloadGerarEscalas(
 
   // EXPEDIENTE — horário por policial/dia (regras em expedienteEscalaRegras.ts)
   const exp = getExpedienteHorario(dataRef);
-  if (!exp) {
-    return {
-      dataEscala: dataIso,
-      tipoServico: tipo,
-      resumoEquipes: 'Sem expediente nesta data (fim de semana, feriado ou dia sem expediente cadastrado).',
-      linhas: [],
-    };
-  }
   const resumo = EXPEDIENTE_ESCALA_RESUMO_REGRAS;
   const idsExp = opts.funcoesExpedienteIds;
   for (const p of policiais) {
     if (!policialElegivelListaExpediente(p)) continue;
-    if (!policialEhFuncaoExpedienteGeracao(p, idsExp)) continue;
+    if (!policialEhFuncaoExpedienteGeracao(p, idsExp, opts.funcoesCatalogo)) continue;
     const idxFn = indiceFuncaoOrdenacaoEscala(p.funcao?.nome);
-    const horario = resolverHorarioExpedientePolicial(p, dataRef, { indiceFuncaoEscala: idxFn });
+    const metaFn = metaFuncaoNoCatalogo(p, opts.funcoesCatalogo);
+    const preset = metaFn?.expedienteHorarioPreset;
+    const ctxExp = {
+      indiceFuncaoEscala: idxFn,
+      expedienteHorarioPreset:
+        preset && preset !== 'AUTO' ? preset : undefined,
+    };
+    const horario = resolverHorarioExpedientePolicial(p, dataRef, ctxExp);
     if (horario == null) continue;
-    const bloco = blocoExpedienteParaPolicial(p, dataRef, { indiceFuncaoEscala: idxFn });
+    const bloco = blocoExpedienteParaPolicial(p, dataRef, ctxExp);
     candidatos.push({
       policial: p,
       horarioServico: horario,
       equipeLabel: p.equipe && p.equipe !== 'SEM_EQUIPE' ? `Equipe ${p.equipe}` : null,
       blocoEscala: bloco,
     });
+  }
+  if (!exp && candidatos.length === 0) {
+    return {
+      dataEscala: dataIso,
+      tipoServico: tipo,
+      resumoEquipes: 'Sem expediente nesta data (fim de semana, feriado ou dia sem expediente cadastrado).',
+      linhas: [],
+    };
   }
   return montarLinhasFinais(dataIso, tipo, resumo, candidatos, afastamentos, dataRef);
 }
@@ -565,6 +633,99 @@ function montarLinhasFinais(
   return { dataEscala: dataIso, tipoServico: tipo, resumoEquipes, linhas };
 }
 
+const ESCALA_EXTRA_TIPO_RESUMO: Record<EscalaExtraordinariaTipoServico, string> = {
+  CARNAVAL: 'Carnaval',
+  SETE_DE_SETEMBRO: '7 de setembro',
+  EVENTO: 'Evento',
+  OUTRO: 'Outro',
+};
+
+/**
+ * Escala extraordinária (Carnaval, 7 de setembro, evento descrito, outro): uma linha por policial escolhido,
+ * mesmo fluxo de edição/impressão/salvamento da aba «Gerar Escalas».
+ */
+export function montarPayloadEscalaExtraordinaria(input: {
+  dataIso: string;
+  horaInicio: string;
+  /** Vazio: resumo e linhas mostram só o horário de início (ex.: «07h»). */
+  horaFim: string;
+  tipoEvento: EscalaExtraordinariaTipoServico;
+  /** Se `tipoEvento === 'EVENTO'`, descrição exibida no resumo (substitui o rótulo fixo «Evento»). */
+  tipoEventoEventoTexto?: string;
+  /** Se `tipoEvento === 'OUTRO'`, texto livre exibido no resumo da escala (substitui o rótulo fixo). */
+  tipoEventoOutroTexto?: string;
+  policiais: Policial[];
+  afastamentos: Afastamento[];
+  dataGeracaoIso?: string;
+}): EscalaGeradaDraftPayload {
+  const { dataIso, horaInicio, horaFim, tipoEvento, policiais, afastamentos } = input;
+  const [y, mo, d] = dataIso.split('-').map(Number);
+  const dataRef = new Date(y, mo - 1, d);
+
+  const hi = horaInicio.trim().slice(0, 5);
+  const hf = horaFim.trim().slice(0, 5);
+  const temHorarioFim = hf.length > 0;
+  const horarioServicoBase = temHorarioFim ? relogioParaLabel(hi, hf) : formatoRelogioUm(hi);
+  const tipoEvtLabel =
+    tipoEvento === 'OUTRO'
+      ? (input.tipoEventoOutroTexto?.trim() || ESCALA_EXTRA_TIPO_RESUMO.OUTRO)
+      : tipoEvento === 'EVENTO'
+        ? (input.tipoEventoEventoTexto?.trim() || ESCALA_EXTRA_TIPO_RESUMO.EVENTO)
+        : ESCALA_EXTRA_TIPO_RESUMO[tipoEvento];
+  const resumoEquipes = `Escala extraordinária — ${tipoEvtLabel} — ${horarioServicoBase}`;
+
+  const nomeFn = (p: Policial) => p.funcao?.nome?.trim() || null;
+
+  const linhas: LinhaEscalaGeradaDraft[] = [];
+  for (const p of policiais) {
+    const af = encontrarAfastamentoNoDia(afastamentos, p.id, dataRef);
+    const equipeLabel = p.equipe && p.equipe !== 'SEM_EQUIPE' ? `Equipe ${p.equipe}` : null;
+    const base = {
+      policialId: p.id,
+      nome: p.nome,
+      matricula: p.matricula,
+      equipe: equipeLabel,
+      horarioServico: horarioServicoBase,
+      funcaoNome: nomeFn(p),
+      detalheAfastamento: af ? detalheAfastamentoTexto(af) : null,
+      tipoServicoLinha: 'OPERACIONAL' as const,
+      blocoEscala: 'ESCALA_EXTRAORDINARIA' as BlocoEscalaId,
+      ordenacaoPolicialStatus: p.status,
+    };
+    if (af) {
+      linhas.push({
+        lista: 'AFASTADO',
+        ...base,
+        blocoEscala: 'AFASTADOS',
+        tipoServicoLinha: 'EXPEDIENTE' as const,
+      });
+    } else {
+      linhas.push({ lista: 'DISPONIVEL', ...base });
+    }
+  }
+
+  linhas.sort((a, b) => {
+    if (a.lista !== b.lista) return a.lista === 'DISPONIVEL' ? -1 : 1;
+    const fa = indiceFuncaoOrdenacaoEscala(a.funcaoNome);
+    const fb = indiceFuncaoOrdenacaoEscala(b.funcaoNome);
+    if (fa !== fb) return fa - fb;
+    const c = comparePorPatenteENome(
+      { nome: a.nome, status: a.ordenacaoPolicialStatus },
+      { nome: b.nome, status: b.ordenacaoPolicialStatus },
+    );
+    if (c !== 0) return c;
+    return a.policialId - b.policialId;
+  });
+
+  return {
+    dataEscala: dataIso,
+    tipoServico: 'EXTRAORDINARIA',
+    resumoEquipes,
+    linhas,
+    dataGeracaoIso: input.dataGeracaoIso,
+  };
+}
+
 export function labelTipoServicoUm(tipo: TipoServicoGerar | string): string {
   switch (tipo) {
     case 'OPERACIONAL':
@@ -572,7 +733,9 @@ export function labelTipoServicoUm(tipo: TipoServicoGerar | string): string {
     case 'EXPEDIENTE':
       return 'Expediente';
     case 'MOTORISTAS':
-      return 'Motoristas';
+      return `Motoristas (${ESCALA_MOTORISTA_DIA})`;
+    case 'EXTRAORDINARIA':
+      return 'Escala extraordinária';
     default:
       return String(tipo);
   }
@@ -583,7 +746,7 @@ export function labelTipoServico(t: string): string {
   const partes = t
     .split(',')
     .map((s) => s.trim())
-    .filter(Boolean) as TipoServicoGerar[];
+    .filter(Boolean);
   if (partes.length === 0) return t;
   return partes.map((p) => labelTipoServicoUm(p)).join(' + ');
 }
@@ -601,6 +764,7 @@ export function montarPayloadGerarEscalasCombinado(
   opts: {
     funcaoMotoristaId: number | null;
     funcoesExpedienteIds?: number[];
+    funcoesCatalogo?: FuncaoOption[];
     operacionalTurnos?: OperacionalTurnosOpcao;
     trocasServicoAtivas?: TrocaServicoAtivaListaItem[];
     /** Momento da geração (aba de edição / impressão). */

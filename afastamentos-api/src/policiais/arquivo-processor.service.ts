@@ -502,7 +502,14 @@ export class ArquivoProcessorService {
       if (!funcaoId && funcaoNomeUpper !== NAO_INFORMADO_UPPER) {
         try {
           const novaFuncao = await this.prisma.funcao.create({
-            data: { nome: policial.funcaoNome, descricao: null },
+            data: {
+              nome: policial.funcaoNome,
+              descricao: null,
+              vinculoEquipe: 'OPCIONAL',
+              escalaOperacional: true,
+              escalaMotorista: false,
+              escalaExpediente: false,
+            },
           });
           funcaoId = novaFuncao.id;
           mapaFuncoes.set(funcaoNomeUpper, funcaoId);
