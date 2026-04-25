@@ -12,7 +12,7 @@ const theme = createTheme({
     mode: 'dark',
     primary: { main: '#c4b5fd' },
     secondary: { main: '#94a3b8' },
-    background: { default: '#1e1b2e', paper: '#252136' },
+    background: { default: '#0f172a', paper: '#1e293b' },
   },
   typography: {
     fontFamily: '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif',

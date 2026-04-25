@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import {
+  AssignmentInd,
   Description,
   FactCheck,
   Gavel,
@@ -60,6 +61,8 @@ function iconeMenuOutroSistema(id: string) {
       return Inventory2;
     case 'ORION_MULHER':
       return Woman;
+    case 'ORION_ASSESSORIA':
+      return AssignmentInd;
     default:
       return Description;
   }
@@ -313,8 +316,6 @@ export default function App() {
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
             <span className="app-footer__name">2º SGT M. Farias</span>
-            <span className="app-footer__separator">·</span>
-            <span className="app-footer__name">2º SGT Gadelha</span>
           </div>
           <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
@@ -809,8 +810,6 @@ export default function App() {
         <span className="app-footer__label">Desenvolvido por</span>
         <div className="app-footer__credits">
           <span className="app-footer__name">2º SGT M. Farias</span>
-          <span className="app-footer__separator">·</span>
-          <span className="app-footer__name">2º SGT Gadelha</span>
         </div>
         <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
       </footer>

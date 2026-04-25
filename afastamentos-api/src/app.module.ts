@@ -19,6 +19,8 @@ import { ErrorReportsModule } from './error-reports/error-reports.module';
 import { OrionQualidadeModule } from './orion-qualidade/orion-qualidade.module';
 import { OrionJuridicoModule } from './orion-juridico/orion-juridico.module';
 import { OrionPatrimonioModule } from './orion-patrimonio/orion-patrimonio.module';
+import { OrionAssessoriaModule } from './orion-assessoria/orion-assessoria.module';
+import { OrionOperacoesModule } from './orion-operacoes/orion-operacoes.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { APP_FILTER } from '@nestjs/core';
@@ -50,6 +52,8 @@ import { HttpExceptionFilter } from './erros/http-exception.filter';
     OrionQualidadeModule,
     OrionJuridicoModule,
     OrionPatrimonioModule,
+    OrionAssessoriaModule,
+    OrionOperacoesModule,
   ],
   providers: [
     {

@@ -10,6 +10,7 @@ import {
 import { alpha } from '@mui/material/styles';
 import {
   ArrowForward,
+  AssignmentInd,
   Description,
   FactCheck,
   Gavel,
@@ -29,6 +30,7 @@ import {
   SISTEMA_ID_ORION_JURIDICO,
   SISTEMA_ID_ORION_PATRIMONIO,
   SISTEMA_ID_ORION_MULHER,
+  SISTEMA_ID_ORION_ASSESSORIA,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
 } from '../../constants/sistemaDestinos';
@@ -44,6 +46,7 @@ const ICONS: Record<string, ReactNode> = {
   [SISTEMA_ID_ORION_JURIDICO]: <Gavel sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_PATRIMONIO]: <Inventory2 sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_MULHER]: <Woman sx={{ fontSize: 28 }} />,
+  [SISTEMA_ID_ORION_ASSESSORIA]: <AssignmentInd sx={{ fontSize: 28 }} />,
 };
 
 interface SelecionarSistemaViewProps {
@@ -173,11 +176,12 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
           );
         }) && (
           <Alert severity="info" sx={{ bgcolor: alpha('#2c7be5', 0.12), color: '#b8d4f0', border: `1px solid ${alpha('#2c7be5', 0.35)}` }}>
-            Configure as variáveis <code style={{ fontSize: '0.85em' }}>VITE_SISTEMA_URL_OPERACOES</code>,{' '}
+            Configure as variáveis <code style={{ fontSize: '0.85em' }}>VITE_ORION_OPERACOES_URL</code>,{' '}
             <code style={{ fontSize: '0.85em' }}>VITE_ORION_QUALIDADE_URL</code>,{' '}
             <code style={{ fontSize: '0.85em' }}>VITE_ORION_JURIDICO_URL</code>,{' '}
             <code style={{ fontSize: '0.85em' }}>VITE_ORION_PATRIMONIO_URL</code> e{' '}
-            <code style={{ fontSize: '0.85em' }}>VITE_ORION_MULHER_URL</code> no arquivo{' '}
+            <code style={{ fontSize: '0.85em' }}>VITE_ORION_MULHER_URL</code>,{' '}
+            <code style={{ fontSize: '0.85em' }}>VITE_ORION_ASSESSORIA_URL</code> no arquivo{' '}
             <code style={{ fontSize: '0.85em' }}>.env</code> quando o deploy não usar o host/porta padrão de desenvolvimento.
           </Alert>
         )}

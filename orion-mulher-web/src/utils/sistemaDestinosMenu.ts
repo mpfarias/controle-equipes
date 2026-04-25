@@ -1,8 +1,10 @@
 import { getUrlOrionJuridico } from '../constants/orionJuridico';
+import { getUrlOrionOperacoes } from '../constants/orionOperacoes';
 import { getUrlOrionPatrimonio } from '../constants/orionPatrimonio';
 import { getUrlOrionQualidade } from '../constants/orionQualidade';
 import { getUrlOrionSAD } from '../constants/orionSAD';
 import { getUrlOrionSuporte } from '../constants/orionSuporte';
+import { getUrlOrionAssessoria } from '../constants/orionAssessoria';
 import type { Usuario } from '../types';
 import { temAcessoOrionSuporteEfetivo } from './orionSuporteEfetivo';
 import { usuarioPodeAcessarOrionSAD } from './sistemaAccess';
@@ -16,11 +18,6 @@ function idsSistemasExplicitos(usuario: Usuario): Set<string> {
     return new Set<string>();
   }
   return new Set(raw.map((s) => String(s).trim().toUpperCase()).filter(Boolean));
-}
-
-function envUrl(key: string): string {
-  const v = import.meta.env[key as keyof ImportMeta['env']];
-  return typeof v === 'string' ? v.trim().replace(/\/+$/, '') : '';
 }
 
 export type MenuOutroSistemaItem = {
@@ -42,9 +39,11 @@ export function listaMenuOutrosSistemas(usuario: Usuario): MenuOutroSistemaItem[
     out.push({ id: 'SAD', label: 'Órion SAD', url: getUrlOrionSAD() });
   }
 
-  const urlOpe = envUrl('VITE_SISTEMA_URL_OPERACOES');
-  if (explicit.has('OPERACOES') && urlOpe) {
-    out.push({ id: 'OPERACOES', label: 'Órion Operações', url: urlOpe });
+  if (explicit.has('OPERACOES')) {
+    const u = getUrlOrionOperacoes();
+    if (u) {
+      out.push({ id: 'OPERACOES', label: 'Órion Operações', url: u });
+    }
   }
 
   if (explicit.has('ORION_QUALIDADE')) {
@@ -65,6 +64,13 @@ export function listaMenuOutrosSistemas(usuario: Usuario): MenuOutroSistemaItem[
     const u = getUrlOrionPatrimonio();
     if (u) {
       out.push({ id: 'ORION_PATRIMONIO', label: 'Órion Patrimônio', url: u });
+    }
+  }
+
+  if (explicit.has('ORION_ASSESSORIA')) {
+    const u = getUrlOrionAssessoria();
+    if (u) {
+      out.push({ id: 'ORION_ASSESSORIA', label: 'Órion Assessoria', url: u });
     }
   }
 

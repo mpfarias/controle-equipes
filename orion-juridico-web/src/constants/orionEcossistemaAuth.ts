@@ -14,6 +14,11 @@ const LEGACY_ACESSO_KEYS = ['orion-juridico-web:acessoId'] as const;
 
 export const ORION_SSO_HASH_PARAM = 'orion_sso';
 
+export function buildUrlComHandoffJwt(urlBase: string, token: string): string {
+  const base = urlBase.replace(/#.*$/, '');
+  return `${base}#${ORION_SSO_HASH_PARAM}=${encodeURIComponent(token)}`;
+}
+
 export function migrarELerTokenSession(): string | null {
   let v = sessionStorage.getItem(ORION_ECOSISTEMA_TOKEN_KEY);
   if (v) return v;

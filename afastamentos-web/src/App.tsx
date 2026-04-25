@@ -19,6 +19,8 @@ import { getUrlOrionJuridico } from './constants/orionJuridico';
 import { getUrlOrionQualidade } from './constants/orionQualidade';
 import { getUrlOrionPatrimonio } from './constants/orionPatrimonio';
 import { getUrlOrionMulher } from './constants/orionMulher';
+import { getUrlOrionAssessoria } from './constants/orionAssessoria';
+import { getUrlOrionOperacoes } from './constants/orionOperacoes';
 import { getUrlOrionSuporte } from './constants/orionSuporte';
 import {
   expandirPermissoesLegadoEscalas,
@@ -47,6 +49,7 @@ import {
 import {
   FactCheck,
   Gavel,
+  Hub,
   Logout,
   PhotoCamera,
   Lock,
@@ -55,6 +58,7 @@ import {
   Visibility,
   VisibilityOff,
   Woman,
+  AssignmentInd,
 } from '@mui/icons-material';
 import { ImageCropper } from './components/common/ImageCropper';
 import {
@@ -72,6 +76,7 @@ import {
   SISTEMA_ID_ORION_JURIDICO,
   SISTEMA_ID_ORION_PATRIMONIO,
   SISTEMA_ID_ORION_MULHER,
+  SISTEMA_ID_ORION_ASSESSORIA,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
   writeSistemaSessao,
@@ -418,12 +423,20 @@ export default function App() {
       navegarComHandoffJwt(getUrlOrionQualidade());
       return;
     }
+    if (sistemaId === 'OPERACOES') {
+      navegarComHandoffJwt(getUrlOrionOperacoes());
+      return;
+    }
     if (sistemaId === SISTEMA_ID_ORION_PATRIMONIO) {
       navegarComHandoffJwt(getUrlOrionPatrimonio());
       return;
     }
     if (sistemaId === SISTEMA_ID_ORION_MULHER) {
       navegarComHandoffJwt(getUrlOrionMulher());
+      return;
+    }
+    if (sistemaId === SISTEMA_ID_ORION_ASSESSORIA) {
+      navegarComHandoffJwt(getUrlOrionAssessoria());
       return;
     }
     if (sistemaId !== SISTEMA_ID_APP_ATUAL) {
@@ -668,6 +681,16 @@ export default function App() {
     return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_MULHER);
   }, [currentUser]);
 
+  const usuarioPodeOrionAssessoria = useMemo(() => {
+    if (!currentUser) return false;
+    return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_ASSESSORIA);
+  }, [currentUser]);
+
+  const usuarioPodeOrionOperacoes = useMemo(() => {
+    if (!currentUser) return false;
+    return listaDestinosPosLogin(currentUser).includes('OPERACOES');
+  }, [currentUser]);
+
   const [chamadosAbertosGestao, setChamadosAbertosGestao] = useState<number | null>(null);
 
   const carregarContagemChamadosGestao = useCallback(async () => {
@@ -908,8 +931,6 @@ export default function App() {
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
             <span className="app-footer__name">2º SGT M. Farias</span>
-            <span className="app-footer__separator">·</span>
-            <span className="app-footer__name">2º SGT Gadelha</span>
           </div>
           <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
@@ -935,8 +956,6 @@ export default function App() {
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
             <span className="app-footer__name">2º SGT M. Farias</span>
-            <span className="app-footer__separator">·</span>
-            <span className="app-footer__name">2º SGT Gadelha</span>
           </div>
           <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
@@ -999,6 +1018,18 @@ export default function App() {
               </IconButton>
             </Tooltip>
           ) : null}
+          {usuarioPodeOrionOperacoes ? (
+            <Tooltip title="Órion Operações — abrir em nova aba">
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionOperacoes())}
+                aria-label="Abrir Órion Operações"
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <Hub sx={{ fontSize: 24 }} />
+              </IconButton>
+            </Tooltip>
+          ) : null}
           {usuarioPodeOrionPatrimonio ? (
             <Tooltip title="Órion Patrimônio — abrir em nova aba">
               <IconButton
@@ -1020,6 +1051,18 @@ export default function App() {
                 sx={{ color: 'var(--text-primary)' }}
               >
                 <Woman sx={{ fontSize: 24 }} />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+          {usuarioPodeOrionAssessoria ? (
+            <Tooltip title="Órion Assessoria — abrir em nova aba">
+              <IconButton
+                size="small"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionAssessoria())}
+                aria-label="Abrir Órion Assessoria"
+                sx={{ color: 'var(--text-primary)' }}
+              >
+                <AssignmentInd sx={{ fontSize: 24 }} />
               </IconButton>
             </Tooltip>
           ) : null}
@@ -1085,6 +1128,17 @@ export default function App() {
                 Órion Qualidade
               </MenuItem>
             ) : null}
+            {usuarioPodeOrionOperacoes ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionOperacoes());
+                }}
+              >
+                <Hub sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Operações
+              </MenuItem>
+            ) : null}
             {usuarioPodeOrionPatrimonio ? (
               <MenuItem
                 onClick={() => {
@@ -1105,6 +1159,17 @@ export default function App() {
               >
                 <Woman sx={{ mr: 1.5, fontSize: 20 }} />
                 Órion Mulher
+              </MenuItem>
+            ) : null}
+            {usuarioPodeOrionAssessoria ? (
+              <MenuItem
+                onClick={() => {
+                  setAvatarMenuAnchor(null);
+                  abrirNovaAbaComHandoffJwt(getUrlOrionAssessoria());
+                }}
+              >
+                <AssignmentInd sx={{ mr: 1.5, fontSize: 20 }} />
+                Órion Assessoria
               </MenuItem>
             ) : null}
             {usuarioPodeOrionJuridico ? (
@@ -1472,8 +1537,6 @@ export default function App() {
         <span className="app-footer__label">Desenvolvido por</span>
         <div className="app-footer__credits">
           <span className="app-footer__name">2º SGT M. Farias</span>
-          <span className="app-footer__separator">·</span>
-          <span className="app-footer__name">2º SGT Gadelha</span>
         </div>
         <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
       </footer>

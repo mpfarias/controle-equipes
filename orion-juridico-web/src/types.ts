@@ -5,8 +5,16 @@ export interface Usuario {
   equipe?: string;
   isAdmin?: boolean;
   nivelId?: number | null;
-  nivel?: { id: number; nome: string; descricao?: string | null; ativo?: boolean };
+  nivel?: {
+    id: number;
+    nome: string;
+    descricao?: string | null;
+    ativo?: boolean;
+    acessoOrionSuporte?: boolean | null;
+  };
   fotoUrl?: string | null;
+  acessoOrionSuporte?: boolean | null;
+  sistemasPermitidos?: string[];
 }
 
 export interface LoginInput {

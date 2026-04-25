@@ -1,5 +1,7 @@
 import { getUrlOrionJuridico } from '../constants/orionJuridico';
 import { getUrlOrionMulher } from '../constants/orionMulher';
+import { getUrlOrionOperacoes } from '../constants/orionOperacoes';
+import { getUrlOrionAssessoria } from '../constants/orionAssessoria';
 import { getUrlOrionPatrimonio } from '../constants/orionPatrimonio';
 import { getUrlOrionSAD } from '../constants/orionSAD';
 import { getUrlOrionSuporte } from '../constants/orionSuporte';
@@ -16,11 +18,6 @@ function idsSistemasExplicitos(usuario: Usuario): Set<string> {
     return new Set<string>();
   }
   return new Set(raw.map((s) => String(s).trim().toUpperCase()).filter(Boolean));
-}
-
-function envUrl(key: string): string {
-  const v = import.meta.env[key as keyof ImportMeta['env']];
-  return typeof v === 'string' ? v.trim().replace(/\/+$/, '') : '';
 }
 
 export type MenuOutroSistemaItem = {
@@ -45,9 +42,11 @@ export function listaMenuOutrosSistemas(usuario: Usuario): MenuOutroSistemaItem[
     out.push({ id: 'SAD', label: 'Órion SAD', url: getUrlOrionSAD() });
   }
 
-  const urlOpe = envUrl('VITE_SISTEMA_URL_OPERACOES');
-  if (explicit.has('OPERACOES') && urlOpe) {
-    out.push({ id: 'OPERACOES', label: 'Órion Operações', url: urlOpe });
+  if (explicit.has('OPERACOES')) {
+    const u = getUrlOrionOperacoes();
+    if (u) {
+      out.push({ id: 'OPERACOES', label: 'Órion Operações', url: u });
+    }
   }
 
   if (explicit.has(SISTEMA_ID_JURIDICO)) {
@@ -68,6 +67,13 @@ export function listaMenuOutrosSistemas(usuario: Usuario): MenuOutroSistemaItem[
     const u = getUrlOrionMulher();
     if (u) {
       out.push({ id: 'ORION_MULHER', label: 'Órion Mulher', url: u });
+    }
+  }
+
+  if (explicit.has('ORION_ASSESSORIA')) {
+    const u = getUrlOrionAssessoria();
+    if (u) {
+      out.push({ id: 'ORION_ASSESSORIA', label: 'Órion Assessoria', url: u });
     }
   }
 

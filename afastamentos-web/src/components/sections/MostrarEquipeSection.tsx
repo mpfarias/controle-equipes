@@ -628,18 +628,10 @@ export function MostrarEquipeSection({
       return null;
     }
 
-    // A equipe que saiu do serviço noturno às 07h do dia X é a que estava de noite do dia X-1 (19h) até 07h do dia X
-    // Então, preciso calcular qual equipe estava de noite no dia anterior
     const diaAnterior = new Date(data);
     diaAnterior.setDate(diaAnterior.getDate() - 1);
     const diffTimeAnterior = diaAnterior.getTime() - dataInicio.getTime();
     const diffDaysAnterior = Math.floor(diffTimeAnterior / (1000 * 60 * 60 * 24));
-    
-    // Permitir cálculo retroativo para datas anteriores ao início da escala (mas após 1/1/2026)
-    // Usar módulo para calcular a posição na sequência circular mesmo para datas anteriores
-    // Não retornar null se diffDaysAnterior for negativo, usar módulo mesmo assim
-
-    // Calcular equipe que estava de noite no dia anterior
     const posicaoDiaAnterior = ((diffDaysAnterior % nEquipes) + nEquipes) % nEquipes;
     const posicaoNoiteAnterior = (posicaoDiaAnterior - 1 + nEquipes) % nEquipes;
     const equipe = SEQUENCIA_EQUIPES[posicaoNoiteAnterior];
@@ -647,7 +639,6 @@ export function MostrarEquipeSection({
     return equipe;
   };
 
-  // Calcular qual equipe está de serviço em dia/período (para regras SVG)
   const calcularEquipeServico = (ano: number, mes: number, dia: number, periodo: 'dia' | 'noite'): Equipe | null => {
     const dataAtual = new Date(ano, mes, dia);
     const dataMinima = new Date(2026, 0, 1);
@@ -660,18 +651,9 @@ export function MostrarEquipeSection({
     return equipe;
   };
 
-  // Verificar se uma equipe está em folga 1, 2 ou 3 em uma data específica
+
   const equipeEstaEmQualquerFolga = (equipe: Equipe, data: Date): boolean => {
-    // A equipe que sai do serviço noturno às 07h do dia X entra de folga
-    // Folga 1: dia X (primeiro dia de folga)
-    // Folga 2: dia X+1 (segundo dia de folga) ✓
-    // Folga 3: dia X+2 (terceiro dia de folga) ✓
-    // Volta ao serviço: dia X+3 (manhã)
-    
-    // Preciso encontrar quando essa equipe saiu do serviço noturno pela última vez antes ou na data selecionada
-    // Vou procurar retroativamente até encontrar quando a equipe saiu do serviço noturno
-    // Ampliar o range para garantir que encontre todas as possibilidades
-    
+
     const dataSelecionadaStr = `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
     
     for (let diasAtras = 0; diasAtras <= 15; diasAtras++) {
