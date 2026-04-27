@@ -7,6 +7,7 @@ import { CreateTrocaServicoDto } from './dto/create-troca-servico.dto';
 import { UpdateTrocaServicoDto } from './dto/update-troca-servico.dto';
 import {
   calcularEquipesOperacionalDia,
+  funcaoNomeExcluiTrocaDeServicoExpedienteComandoUpm,
   validarPolicialDeServicoNoDiaEmContextoTroca,
   type TrocaServicoEscalaParametros,
 } from './troca-servico-escala.helper';
@@ -149,12 +150,18 @@ export class TrocaServicoService {
     return fn.includes('MOTORISTA DE DIA');
   }
 
-  /** Equipe operacional (não SEM_EQUIPE), motorista de dia, DESIGNADO, PTTC ou COMISSIONADO. */
+  /**
+   * Equipe operacional (não SEM_EQUIPE), motorista de dia, DESIGNADO, PTTC ou COMISSIONADO.
+   * Funções Expediente ADM / CMT UPM / SubCMT UPM estão excluídas (não podem trocar).
+   */
   private policialElegivelTrocaServico(p: {
     equipe: string | null;
     funcao: { nome: string } | null;
     status: { nome: string } | null;
   }): boolean {
+    if (funcaoNomeExcluiTrocaDeServicoExpedienteComandoUpm(p.funcao?.nome)) {
+      return false;
+    }
     const fn = p.funcao?.nome?.toUpperCase() ?? '';
     const motorista = fn.includes('MOTORISTA DE DIA');
     const eq = p.equipe?.trim() ?? '';
@@ -245,12 +252,12 @@ export class TrocaServicoService {
 
     if (!this.policialElegivelTrocaServico(a)) {
       throw new BadRequestException(
-        'Troca de serviço só é permitida para policiais com equipe operacional, motoristas de dia, DESIGNADO, PTTC ou COMISSIONADO.',
+        'Troca de serviço só é permitida para policiais com equipe operacional, motoristas de dia, DESIGNADO, PTTC ou COMISSIONADO. Funções Expediente ADM, CMT UPM e SubCMT UPM não participam de troca.',
       );
     }
     if (!this.policialElegivelTrocaServico(b)) {
       throw new BadRequestException(
-        'O outro policial precisa ter equipe operacional, ser motorista de dia, DESIGNADO, PTTC ou COMISSIONADO.',
+        'O outro policial precisa ter equipe operacional, ser motorista de dia, ou estar como DESIGNADO, PTTC ou COMISSIONADO. Funções Expediente ADM, CMT UPM e SubCMT UPM não participam de troca.',
       );
     }
 
@@ -260,7 +267,7 @@ export class TrocaServicoService {
       this.policialEhMotoristaDeDia(a) && this.policialEhMotoristaDeDia(b);
     if (!trocaLivreEntreMotoristas && curA === curB) {
       throw new BadRequestException(
-        'Troca de serviço é sempre com policial de outra equipe. Não é permitido trocar com quem é da mesma equipe (inclui ambos sem equipe ou ambos SEM_EQUIPE).',
+        'Troca de serviço é sempre com policial de outra equipe. Não é permitido trocar com quem é da mesma equipe (inclui ambos sem equipe ou ambos SEM_EQUIPE), exceto entre motoristas de dia.',
       );
     }
 

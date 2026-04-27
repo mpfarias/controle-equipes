@@ -1,4 +1,5 @@
 import type { Policial, TrocaServicoAtivaListaItem } from '../types';
+import { nomeFuncaoIndicaExpedienteAdministrativo } from './gerarEscalasCalculo';
 
 /** Função cadastrada como motorista de dia (nome contém "MOTORISTA DE DIA"). */
 export function policialEhMotoristaDeDia(p: Policial): boolean {
@@ -16,14 +17,25 @@ export function trocaServicoAtivaEhEntreMotoristasDeDia(row: TrocaServicoAtivaLi
   return funcaoNomeEhMotoristaDeDia(row.policialA.funcaoNome) && funcaoNomeEhMotoristaDeDia(row.policialB.funcaoNome);
 }
 
-/** Troca de serviço: apenas quem tem equipe operacional (não SEM_EQUIPE) ou função motorista de dia. */
+/**
+ * Expediente ADM, CMT UPM e SubCMT UPM (critério igual ao das escalas) **não** participam de troca de serviço.
+ */
+export function policialFuncaoExcluiTrocaDeServico(p: Policial): boolean {
+  return nomeFuncaoIndicaExpedienteAdministrativo(p.funcao?.nome);
+}
+
+/**
+ * Troca de serviço: apenas quem tem equipe operacional (não SEM_EQUIPE) ou função motorista de dia,
+ * exceto funções Expediente ADM / CMT UPM / SubCMT UPM (sempre excluídas).
+ */
 export function policialElegivelTrocaServico(p: Policial): boolean {
+  if (policialFuncaoExcluiTrocaDeServico(p)) return false;
+
   const fn = p.funcao?.nome?.toUpperCase() ?? '';
   const motorista = fn.includes('MOTORISTA DE DIA');
   const eq = p.equipe?.trim() ?? '';
   const equipeOperacional = Boolean(eq && eq !== 'SEM_EQUIPE');
 
-  // Alguns status possuem direito de participar da troca mesmo sem equipe operacional.
   const status = p.status;
   const statusPermiteTroca = status === 'DESIGNADO' || status === 'PTTC' || status === 'COMISSIONADO';
 

@@ -67,6 +67,43 @@ export type PolicialParaValidacaoServicoDia = {
   status: { nome: string } | null;
 };
 
+function normalizarNomeFuncaoTroca(s: string | null | undefined): string {
+  if (!s) return '';
+  return s
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Expediente ADM, CMT UPM e SubCMT UPM (mesmo critério do front `nomeFuncaoIndicaExpedienteAdministrativo`).
+ * Essas funções **não** participam de troca de serviço.
+ */
+export function funcaoNomeExcluiTrocaDeServicoExpedienteComandoUpm(nome: string | null | undefined): boolean {
+  const f = normalizarNomeFuncaoTroca(nome);
+  if (!f) return false;
+  const compact = f.replace(/\s/g, '').replace(/-/g, '');
+  if (f.includes('EXPEDIENTE') && f.includes('ADM')) return true;
+  const temUpm = f.includes('UPM');
+  const ehSubCmtUpm =
+    compact.includes('SUBCMTUPM') ||
+    compact.includes('SUBTCMTUPM') ||
+    (f.includes('SUBCMT') && temUpm) ||
+    (f.includes('SUBTCMT') && temUpm) ||
+    (f.includes('SUBCOMANDANTE') && temUpm);
+  if (ehSubCmtUpm) return true;
+  if (!temUpm) return false;
+  const ehCmtSemSub =
+    /^CMT(\s+|-)?UPM\b/u.test(f) ||
+    (compact.includes('CMTUPM') &&
+      !compact.includes('SUBCMTUPM') &&
+      !compact.includes('SUBTCMTUPM') &&
+      !f.includes('SUB'));
+  return Boolean(ehCmtSemSub);
+}
+
 /**
  * Garante que o policial está escalado na data informada.
  *

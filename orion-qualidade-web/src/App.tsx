@@ -9,6 +9,7 @@ import {
   Divider,
   IconButton,
   InputAdornment,
+  LinearProgress,
   Menu,
   MenuItem,
   Stack,
@@ -40,7 +41,7 @@ import { RegistrosQualidadeSection } from './components/RegistrosQualidadeSectio
 import { ChamadasImportProvider } from './context/ChamadasImportContext';
 import { api, getToken, removeToken } from './api';
 import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
-import type { Usuario } from './types';
+import type { IntegraSspStatus, Usuario } from './types';
 import { formatMatricula } from './utils/formatMatricula';
 import { listaMenuOutrosSistemas } from './utils/sistemaDestinosMenu';
 import { usuarioPodeAcessarOrionQualidade } from './utils/sistemaAccess';
@@ -66,6 +67,73 @@ function iconeMenuOutroSistema(id: string) {
     default:
       return Description;
   }
+}
+
+type IntegraRemoteState =
+  | { phase: 'idle' }
+  | { phase: 'loading' }
+  | { phase: 'error'; message: string }
+  | { phase: 'ready'; data: IntegraSspStatus };
+
+function renderIntegraSspStatusBanner(state: IntegraRemoteState) {
+  if (state.phase === 'idle') return null;
+
+  if (state.phase === 'loading') {
+    return (
+      <Alert severity="info" variant="outlined" sx={{ borderColor: 'divider' }}>
+        <Stack spacing={1}>
+          <Typography variant="body2">
+            Verificando conexão com o banco remoto <strong>Integra SSP</strong>…
+          </Typography>
+          <LinearProgress />
+        </Stack>
+      </Alert>
+    );
+  }
+
+  if (state.phase === 'error') {
+    return (
+      <Alert severity="warning" variant="outlined" sx={{ borderColor: 'divider' }}>
+        <Typography variant="body2" component="span" fontWeight={700}>
+          Banco remoto Integra SSP:{' '}
+        </Typography>
+        não foi possível verificar ({state.message}). O login continua no banco principal (Prisma).
+      </Alert>
+    );
+  }
+
+  const { data } = state;
+  if (!data.configurado) {
+    return (
+      <Alert severity="info" variant="outlined" sx={{ borderColor: 'divider' }}>
+        <Typography variant="body2" component="span" fontWeight={700}>
+          Banco remoto Integra SSP:{' '}
+        </Typography>
+        não configurado na API. Defina <code>INTEGRA_SSP_DATABASE_URL</code> no servidor. Login e permissões usam o
+        Prisma (<code>DATABASE_URL</code>).
+      </Alert>
+    );
+  }
+
+  if (data.conectado) {
+    return (
+      <Alert severity="success" variant="outlined" sx={{ borderColor: 'divider' }}>
+        <Typography variant="body2" component="span" fontWeight={700}>
+          Banco remoto Integra SSP:{' '}
+        </Typography>
+        conectado ao PostgreSQL «{data.bancoAtual ?? '—'}». Autenticação do sistema permanece no banco Prisma.
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert severity="error" variant="outlined" sx={{ borderColor: 'divider' }}>
+      <Typography variant="body2" component="span" fontWeight={700}>
+        Banco remoto Integra SSP:{' '}
+      </Typography>
+      não conectou. {data.mensagem ?? 'Erro desconhecido.'}
+    </Alert>
+  );
 }
 
 function getIniciaisUsuario(nome: string): string {
@@ -98,6 +166,7 @@ export default function App() {
   const [showSenhaConfirmar, setShowSenhaConfirmar] = useState(false);
   const [senhaConfirmarValidarAoSair, setSenhaConfirmarValidarAoSair] = useState(false);
   const [abaModulo, setAbaModulo] = useState<'inicio' | 'registros'>('registros');
+  const [integraRemote, setIntegraRemote] = useState<IntegraRemoteState>({ phase: 'idle' });
 
   const outrosSistemasMenu = useMemo(
     () => (currentUser ? listaMenuOutrosSistemas(currentUser) : []),
@@ -134,6 +203,27 @@ export default function App() {
   useEffect(() => {
     void carregarSessao();
   }, [carregarSessao]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      setIntegraRemote({ phase: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setIntegraRemote({ phase: 'loading' });
+    void api
+      .getIntegraSspStatus()
+      .then((data) => {
+        if (!cancelled) setIntegraRemote({ phase: 'ready', data });
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (!cancelled) setIntegraRemote({ phase: 'error', message: msg });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser]);
 
   useEffect(() => {
     if (bootstrapError && !currentUser) {
@@ -787,6 +877,7 @@ export default function App() {
       <main className="app-qualidade__main">
         <ChamadasImportProvider>
           <Stack spacing={2}>
+            {renderIntegraSspStatusBanner(integraRemote)}
             <Tabs
               value={abaModulo}
               onChange={(_, v) => setAbaModulo(v)}

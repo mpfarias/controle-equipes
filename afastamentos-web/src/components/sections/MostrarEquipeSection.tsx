@@ -39,7 +39,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
 import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
-import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
+import {
+  compareColunaStatusPolicial,
+  comparePorPatenteENome,
+  sortPorPatenteENome,
+  sortAfastamentosPorPatenteENome,
+} from '../../utils/sortPoliciais';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar, podeGerenciarTrocaServicoElevado } from '../../utils/permissions';
 import { useEscalaParametros } from '../../hooks/useEscalaParametros';
@@ -123,6 +128,12 @@ function timestampDataDesligamentoPolicial(p: Policial): number {
 }
 
 /** Texto para coluna “Desligamento” na lista (data cadastrada ou instante da desativação); sem data → traço. */
+/** Comparação de texto para colunas da tabela (pt-BR); matrícula usa ordem numérica nos dígitos. */
+function compareTextoColunaPolicial(a: string, b: string, dir: 'asc' | 'desc', numeric: boolean): number {
+  const cmp = a.localeCompare(b, 'pt-BR', { sensitivity: 'base', ...(numeric ? { numeric: true } : {}) });
+  return dir === 'asc' ? cmp : -cmp;
+}
+
 function textoDataDesligamentoLista(p: Policial): string {
   const a = p.dataDesativacaoAPartirDe;
   const b = p.desativadoEm;
@@ -622,7 +633,6 @@ export function MostrarEquipeSection({
   const calcularEquipeQueSaiuNoturno = (data: Date): Equipe | null => {
     const dataInicio = DATA_INICIO_ESCALA;
     
-    // Se a data for anterior a 1 de janeiro de 2026, retornar null
     const dataMinima = new Date(2026, 0, 1);
     if (data.getTime() < dataMinima.getTime()) {
       return null;
@@ -1365,7 +1375,7 @@ export function MostrarEquipeSection({
     async (policial: Policial) => {
       if (!policialElegivelTrocaServico(policial)) {
         setError(
-          'Troca de serviço só é permitida para policiais com equipe operacional, motorista de dia, Designado, PTTC ou comissionado.',
+          'Troca de serviço só é permitida para policiais com equipe operacional, motorista de dia, Designado, PTTC ou comissionado. Funções Expediente ADM, CMT UPM e SubCMT UPM não participam de troca.',
         );
         return;
       }
@@ -1776,55 +1786,14 @@ export function MostrarEquipeSection({
   );
 
   const filteredPoliciales = useMemo(() => {
-    // Quando a paginação é no servidor, os dados já vêm ordenados do backend (desativados por último).
-    // Aplicar a mesma ordenação no cliente para garantir que a página exibida mostre desativados no final.
+    // Paginação no servidor: a API já devolve a fatia na ordem global correta.
+    // Reordenar só a página no cliente quebrava a ordenação (empates e critério diferente do backend).
     if (paginacaoNoServidor) {
       let base = policiaisDaEquipe;
       if (excluirDesativados) {
         base = base.filter((p) => p.status !== 'DESATIVADO');
       }
-      return [...base].sort((a, b) => {
-        const campo = ordenacao?.campo ?? 'nome';
-        const dir = ordenacao?.direcao ?? 'asc';
-        if (campo === 'dataDesligamento') {
-          const ta = timestampDataDesligamentoPolicial(a);
-          const tb = timestampDataDesligamentoPolicial(b);
-          if (ta !== tb) return dir === 'desc' ? tb - ta : ta - tb;
-          return comparePorPatenteENome(a, b);
-        }
-        const aDesativado = a.status === 'DESATIVADO';
-        const bDesativado = b.status === 'DESATIVADO';
-        if (aDesativado && !bDesativado) return 1;
-        if (!aDesativado && bDesativado) return -1;
-        if (campo === 'nome') {
-          const cmp = comparePorPatenteENome(a, b);
-          return dir === 'asc' ? cmp : -cmp;
-        }
-        let valorA: string;
-        let valorB: string;
-        switch (campo) {
-          case 'matricula':
-            valorA = a.matricula.toUpperCase();
-            valorB = b.matricula.toUpperCase();
-            break;
-          case 'equipe':
-            valorA = a.equipe || '';
-            valorB = b.equipe || '';
-            break;
-          case 'status':
-            valorA = (a.status ?? '').toUpperCase();
-            valorB = (b.status ?? '').toUpperCase();
-            break;
-          case 'funcao':
-            valorA = (a.funcao?.nome ?? '').toUpperCase();
-            valorB = (b.funcao?.nome ?? '').toUpperCase();
-            break;
-          default:
-            return comparePorPatenteENome(a, b);
-        }
-        const cmp = valorA.localeCompare(valorB);
-        return dir === 'asc' ? cmp : -cmp;
-      });
+      return base;
     }
 
     // Quando a paginação é no cliente (ex.: Cpmulher), aplicar filtros no cliente
@@ -1883,11 +1852,12 @@ export function MostrarEquipeSection({
 
     if (ordenacao) {
       resultado = [...resultado].sort((a, b) => {
+        const dir = ordenacao.direcao;
         if (ordenacao.campo === 'dataDesligamento') {
           const ta = timestampDataDesligamentoPolicial(a);
           const tb = timestampDataDesligamentoPolicial(b);
           if (ta !== tb) {
-            return ordenacao.direcao === 'desc' ? tb - ta : ta - tb;
+            return dir === 'desc' ? tb - ta : ta - tb;
           }
           return comparePorPatenteENome(a, b);
         }
@@ -1896,36 +1866,46 @@ export function MostrarEquipeSection({
         if (aDesativado && !bDesativado) return 1;
         if (!aDesativado && bDesativado) return -1;
 
-        let valorA: string | number;
-        let valorB: string | number;
-
         if (ordenacao.campo === 'nome') {
           const cmp = comparePorPatenteENome(a, b);
-          return ordenacao.direcao === 'asc' ? cmp : -cmp;
-        }
-        switch (ordenacao.campo) {
-          case 'matricula':
-            valorA = a.matricula.toUpperCase();
-            valorB = b.matricula.toUpperCase();
-            break;
-          case 'equipe':
-            valorA = a.equipe || '';
-            valorB = b.equipe || '';
-            break;
-          case 'status':
-            valorA = (a.status ?? '').toUpperCase();
-            valorB = (b.status ?? '').toUpperCase();
-            break;
-          case 'funcao':
-            valorA = (a.funcao?.nome ?? '').toUpperCase();
-            valorB = (b.funcao?.nome ?? '').toUpperCase();
-            break;
-          default:
-            return comparePorPatenteENome(a, b);
+          return dir === 'asc' ? cmp : -cmp;
         }
 
-        const comparacao = valorA < valorB ? -1 : valorA > valorB ? 1 : 0;
-        return ordenacao.direcao === 'asc' ? comparacao : -comparacao;
+        let primary = 0;
+        if (ordenacao.campo === 'status') {
+          primary = compareColunaStatusPolicial(a.status, b.status, dir);
+        } else {
+          switch (ordenacao.campo) {
+            case 'matricula':
+              primary = compareTextoColunaPolicial(
+                a.matricula.toUpperCase(),
+                b.matricula.toUpperCase(),
+                dir,
+                true,
+              );
+              break;
+            case 'equipe':
+              primary = compareTextoColunaPolicial(
+                (a.equipe ?? '').toUpperCase(),
+                (b.equipe ?? '').toUpperCase(),
+                dir,
+                false,
+              );
+              break;
+            case 'funcao':
+              primary = compareTextoColunaPolicial(
+                (a.funcao?.nome ?? '').toUpperCase(),
+                (b.funcao?.nome ?? '').toUpperCase(),
+                dir,
+                false,
+              );
+              break;
+            default:
+              return comparePorPatenteENome(a, b);
+          }
+        }
+        if (primary !== 0) return primary;
+        return comparePorPatenteENome(a, b);
       });
     } else {
       resultado = [...resultado].sort((a, b) => {
@@ -2003,10 +1983,17 @@ export function MostrarEquipeSection({
     return Object.entries(totais).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'));
   }, [viewingAfastamentos]);
 
-  // Resetar para página 1 quando filtros ou busca mudarem
+  // Resetar para página 1 quando filtros, busca ou ordenação mudarem (nova ordenação = novo índice global)
   useEffect(() => {
     setPaginaAtual(1);
-  }, [normalizedSearch, equipesSelecionadas, statusSelecionados, funcoesSelecionadas, somenteComRestricaoMedica]);
+  }, [
+    normalizedSearch,
+    equipesSelecionadas,
+    statusSelecionados,
+    funcoesSelecionadas,
+    somenteComRestricaoMedica,
+    ordenacao,
+  ]);
 
   const handleOrdenacao = (
     campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento',
@@ -3093,6 +3080,9 @@ export function MostrarEquipeSection({
               <strong>Motoristas de dia entre si:</strong> podem trocar livremente com qualquer outro motorista de dia
               (mesmo equipe no cadastro); informe as datas — sem validação contra a escala {ESCALA_MOTORISTA_DIA}{' '}
               (motorista de dia). Na troca, a cobertura considerada é <strong>07h às 07h</strong> do dia civil.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Expediente ADM, CMT UPM e SubCMT UPM:</strong> não participam de troca de serviço neste sistema.
             </Typography>
             <Typography variant="body2" color="text.secondary">
               <strong>Demais policiais (escala 12×24, Designado, PTTC ou Comissionado):</strong> a troca é com policial de{' '}

@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
@@ -28,7 +29,11 @@ import { HttpExceptionFilter } from './erros/http-exception.filter';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      // Sempre `afastamentos-api/.env`, mesmo se `node` for iniciado com cwd fora desta pasta.
+      envFilePath: join(__dirname, '..', '.env'),
+    }),
     ThrottlerModule.forRoot([
       {
         ttl: 60000, // 1 minuto

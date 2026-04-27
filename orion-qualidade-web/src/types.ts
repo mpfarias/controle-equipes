@@ -45,3 +45,11 @@ export type QualidadeRegistro = {
   createdAt: string;
   updatedAt: string;
 };
+
+/** GET /orion-qualidade/v1/integra-ssp/status */
+export type IntegraSspStatus = {
+  configurado: boolean;
+  conectado: boolean;
+  bancoAtual?: string;
+  mensagem?: string;
+};

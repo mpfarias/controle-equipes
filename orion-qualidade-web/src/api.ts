@@ -1,5 +1,6 @@
 import type {
   EquipeAtendenteSadItem,
+  IntegraSspStatus,
   LoginInput,
   QualidadeRegistro,
   QualidadeRegistroStatus,
@@ -161,6 +162,14 @@ export const api = {
 
   async listarRegistrosQualidade(): Promise<QualidadeRegistro[]> {
     return request<QualidadeRegistro[]>('/orion-qualidade/v1/registros');
+  },
+
+  /**
+   * Estado do pool opcional integra_ssp na API (`INTEGRA_SSP_DATABASE_URL`).
+   * Login e permissões continuam no banco principal (Prisma / `DATABASE_URL` na API).
+   */
+  async getIntegraSspStatus(): Promise<IntegraSspStatus> {
+    return request<IntegraSspStatus>('/orion-qualidade/v1/integra-ssp/status');
   },
 
   async atualizarRegistroQualidade(

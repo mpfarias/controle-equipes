@@ -770,6 +770,19 @@ export class PoliciaisService {
       mapped = mapped.filter((p) => p.status !== 'COMISSIONADO');
     }
 
+    /** Mesma ordem institucional usada no front (lista / coluna Status). */
+    const statusRankLista = (nome: string): number => {
+      const n = nome.toUpperCase();
+      const rank: Record<string, number> = {
+        ATIVO: 1,
+        DESIGNADO: 2,
+        PTTC: 3,
+        COMISSIONADO: 4,
+        DESATIVADO: 99,
+      };
+      return rank[n] ?? 50;
+    };
+
     // Ordenar em memória: desativados sempre por último, depois pelo campo solicitado
     const orderField = orderBy || 'nome';
     mapped.sort((a, b) => {
@@ -800,10 +813,16 @@ export class PoliciaisService {
           valorA = a.equipe ?? '';
           valorB = b.equipe ?? '';
           break;
-        case 'status':
+        case 'status': {
+          const ra = statusRankLista(a.status ?? '');
+          const rb = statusRankLista(b.status ?? '');
+          if (ra !== rb) {
+            return dir === 'asc' ? ra - rb : rb - ra;
+          }
           valorA = (a.status ?? '').toUpperCase();
           valorB = (b.status ?? '').toUpperCase();
           break;
+        }
         case 'funcao':
           valorA = ((a as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
           valorB = ((b as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
@@ -812,8 +831,14 @@ export class PoliciaisService {
           valorA = a.nome.toUpperCase();
           valorB = b.nome.toUpperCase();
       }
-      const cmp = valorA.localeCompare(valorB);
-      return dir === 'asc' ? cmp : -cmp;
+      const cmp =
+        orderField === 'matricula'
+          ? valorA.localeCompare(valorB, 'pt-BR', { sensitivity: 'base', numeric: true })
+          : valorA.localeCompare(valorB, 'pt-BR', { sensitivity: 'base' });
+      if (cmp !== 0) {
+        return dir === 'asc' ? cmp : -cmp;
+      }
+      return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
     });
 
     const total = mapped.length;

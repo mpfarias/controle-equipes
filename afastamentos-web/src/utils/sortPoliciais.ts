@@ -78,6 +78,23 @@ export function comparePorPatenteENome<T extends { nome: string; status?: string
 }
 
 /**
+ * Ordenação pela coluna “Status” na lista (ATIVO → DESIGNADO → PTTC → COMISSIONADO → DESATIVADO).
+ * Status desconhecidos ficam entre COMISSIONADO e DESATIVADO; empate desempata pelo nome do status.
+ */
+export function compareColunaStatusPolicial(
+  statusA: string | null | undefined,
+  statusB: string | null | undefined,
+  dir: 'asc' | 'desc',
+): number {
+  const na = (statusA ?? '').toUpperCase();
+  const nb = (statusB ?? '').toUpperCase();
+  const ord = (s: string) => STATUS_ORDER[s] ?? 50;
+  const diff = dir === 'asc' ? ord(na) - ord(nb) : ord(nb) - ord(na);
+  if (diff !== 0) return diff;
+  return na.localeCompare(nb, 'pt-BR', { sensitivity: 'base' });
+}
+
+/**
  * Ordena array de itens com nome e status (policiais, etc.)
  * por patente, status (Ativo, Designado, PTTC, Comissionado, Desativado) e nome.
  */

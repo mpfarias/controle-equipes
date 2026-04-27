@@ -54,6 +54,20 @@ export class OrionQualidadeController {
     return this.orionQualidadeService.sessaoResumo(toQualidadeUser(user));
   }
 
+  @Get('v1/integra-ssp/status')
+  @AnyAuthenticated()
+  statusIntegraSsp(
+    @CurrentUser()
+    user: {
+      id: number;
+      nome: string;
+      matricula: string;
+      sistemasPermitidos: string[];
+    },
+  ) {
+    return this.orionQualidadeService.statusIntegraSsp(toQualidadeUser(user));
+  }
+
   @Get('v1/registros')
   @AnyAuthenticated()
   listarRegistros(

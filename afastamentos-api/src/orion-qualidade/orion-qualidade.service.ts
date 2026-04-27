@@ -8,6 +8,7 @@ import { QualidadeRegistroStatus } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CreateQualidadeRegistroDto } from './dto/create-qualidade-registro.dto';
 import { UpdateQualidadeRegistroDto } from './dto/update-qualidade-registro.dto';
+import { IntegraSspPoolService } from './integra-ssp-pool.service';
 
 export type UsuarioOrionQualidadeReq = {
   id: number;
@@ -16,6 +17,11 @@ export type UsuarioOrionQualidadeReq = {
   sistemasPermitidos: string[];
 };
 
+/**
+ * Órion Qualidade: dados de negócio do próprio módulo (registros, cruzamento com `Policial`) vêm do
+ * Prisma (`DATABASE_URL`). O `IntegraSspPoolService` é opcional e separado — só para integrações
+ * com o banco remoto integra_ssp ao desenvolver ferramentas; nunca para validar credenciais.
+ */
 @Injectable()
 export class OrionQualidadeService {
   /** Partículas que não contam como “nome” para exigir dois termos na planilha. */
@@ -32,7 +38,10 @@ export class OrionQualidadeService {
     'aos',
   ]);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly integraSspPool: IntegraSspPoolService,
+  ) {}
 
   podeAcessarOrionQualidade(usuario: UsuarioOrionQualidadeReq): boolean {
     const ids = (usuario.sistemasPermitidos ?? []).map((s) =>
@@ -55,6 +64,28 @@ export class OrionQualidadeService {
       nome: 'Órion Qualidade',
       versao: '0.2.0',
       fase: 'dashboard-visual',
+      /** Indicador fixo: login/JWT/usuários usam sempre o Prisma (`DATABASE_URL`), nunca integra_ssp. */
+      autenticacaoViaPrisma: true,
+      integraSspPostgres: this.integraSspPool.isConfigured(),
+    };
+  }
+
+  /** Diagnóstico do pool opcional integra_ssp (ferramentas). Autenticação não usa esta URL. */
+  async statusIntegraSsp(usuario: UsuarioOrionQualidadeReq) {
+    this.assertAcessoModulo(usuario);
+    const configurado = this.integraSspPool.isConfigured();
+    const ping = await this.integraSspPool.ping();
+    if (ping.ok) {
+      return {
+        configurado,
+        conectado: true,
+        bancoAtual: ping.bancoAtual,
+      };
+    }
+    return {
+      configurado,
+      conectado: false,
+      mensagem: ping.mensagem,
     };
   }
 
