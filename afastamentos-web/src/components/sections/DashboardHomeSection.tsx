@@ -31,7 +31,19 @@ import {
   alpha,
   Stack,
 } from '@mui/material';
-import { Close as CloseIcon, Groups, MilitaryTech, EventBusy, PersonSearch, BeachAccess, WbSunny, DirectionsCar, Diversity1, BusinessCenter } from '@mui/icons-material';
+import {
+  Close as CloseIcon,
+  Groups,
+  MilitaryTech,
+  EventBusy,
+  PersonSearch,
+  BeachAccess,
+  WbSunny,
+  DirectionsCar,
+  Diversity1,
+  BusinessCenter,
+  HealthAndSafety,
+} from '@mui/icons-material';
 import { api } from '../../api';
 import { formatEquipeLabel } from '../../constants';
 import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
@@ -215,6 +227,12 @@ export function DashboardHomeSection({
   });
   const [totalFerias, setTotalFerias] = useState<number | null>(null);
   const [totalAbono, setTotalAbono] = useState<number | null>(null);
+  const [totalRestricoesMedicas, setTotalRestricoesMedicas] = useState<number | null>(null);
+  const [restricoesMedicasData, setRestricoesMedicasData] = useState<{
+    total: number;
+    esteMes: number;
+    hoje: number;
+  }>({ total: 0, esteMes: 0, hoje: 0 });
   const [expedienteData, setExpedienteData] = useState<{
     total: number;
     afastados: number;
@@ -677,6 +695,8 @@ export function DashboardHomeSection({
           if (funcoesCopomMulherIds.length === 0) {
             // Aguardar até que as funções sejam carregadas
             setTotalPoliciaisCadastrados(0);
+            setTotalRestricoesMedicas(0);
+            setRestricoesMedicasData({ total: 0, esteMes: 0, hoje: 0 });
             setEfetivoPorStatus({ ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 });
             setEfetivoPorPosto({ oficiais: 0, pracas: 0, civis: 0, outros: 0 });
             return;
@@ -691,6 +711,26 @@ export function DashboardHomeSection({
           ? policiaisAtivos.length
           : (data.totalDisponiveis ?? policiaisAtivos.length);
         setTotalPoliciaisCadastrados(totalParaExibir);
+        const comRestricao = policiaisAtivos.filter((p) => p.restricaoMedicaId != null);
+        setTotalRestricoesMedicas(comRestricao.length);
+        const hoje = new Date();
+        const mesAtual = hoje.getMonth();
+        const anoAtual = hoje.getFullYear();
+        const restricoesEsteMes = comRestricao.filter((p) => {
+          if (!p.restricaoMedicaDataInicio) return false;
+          const d = new Date(p.restricaoMedicaDataInicio);
+          return d.getFullYear() === anoAtual && d.getMonth() === mesAtual;
+        }).length;
+        const restricoesHoje = comRestricao.filter((p) => {
+          if (!p.restricaoMedicaDataInicio) return false;
+          const d = new Date(p.restricaoMedicaDataInicio);
+          return d.getFullYear() === anoAtual && d.getMonth() === mesAtual;
+        }).length;
+        setRestricoesMedicasData({
+          total: comRestricao.length,
+          esteMes: restricoesEsteMes,
+          hoje: restricoesHoje,
+        });
 
         // Contar por status (Ativos, PTTC, Designados, Comissionados)
         const counts: Record<string, number> = { ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 };
@@ -712,6 +752,8 @@ export function DashboardHomeSection({
       } catch (error) {
         console.error('Erro ao carregar total de policiais:', error);
         setTotalPoliciaisCadastrados(0);
+        setTotalRestricoesMedicas(0);
+        setRestricoesMedicasData({ total: 0, esteMes: 0, hoje: 0 });
         setEfetivoPorStatus({ ATIVO: 0, PTTC: 0, DESIGNADO: 0, COMISSIONADO: 0 });
         setEfetivoPorPosto({ oficiais: 0, pracas: 0, civis: 0, outros: 0 });
       } finally {
@@ -1209,15 +1251,16 @@ export function DashboardHomeSection({
         filters: { motivo: 'Abono' },
       },
       {
-        title: 'Expediente',
-        description: '',
+        title: 'Restrições',
+        description: 'Policiais com restrição médica ativa',
         tab: 'equipe' as TabKey,
-        color: '#06b6d4',
+        color: '#ef4444',
         showCount: false,
+        countValue: totalRestricoesMedicas,
+        loadingCount: loadingPoliciais,
         isEquipe: true,
-        isExpediente: true,
-        loadingCount: loadingExpediente || loadingAfastamentos,
-        filters: funcaoExpedienteId ? { funcaoId: funcaoExpedienteId } : undefined,
+        isRestricoesMedicas: true,
+        filters: { hasRestricao: true },
       },
       {
         title: 'Equipe A',
@@ -1296,6 +1339,17 @@ export function DashboardHomeSection({
         loadingCount: loadingCopomMulher || loadingAfastamentos,
         filters: funcoesCopomMulherIds.length > 0 ? { funcoesIds: funcoesCopomMulherIds } : undefined,
       },
+      {
+        title: 'Expediente',
+        description: '',
+        tab: 'equipe' as TabKey,
+        color: '#06b6d4',
+        showCount: false,
+        isEquipe: true,
+        isExpediente: true,
+        loadingCount: loadingExpediente || loadingAfastamentos,
+        filters: funcaoExpedienteId ? { funcaoId: funcaoExpedienteId } : undefined,
+      },
     ];
     
     // Se for Cpmulher, ocultar os cards "Expediente" e "Motoristas"
@@ -1314,6 +1368,8 @@ export function DashboardHomeSection({
     loadingPoliciais,
     totalFerias,
     totalAbono,
+    totalRestricoesMedicas,
+    restricoesMedicasData,
     policiaisPorEquipe,
     expedienteData,
     loadingExpediente,
@@ -1427,10 +1483,20 @@ export function DashboardHomeSection({
   };
 
   const handleNumberClick = async (
-    card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; funcoesIds?: number[] }; isEquipe?: boolean; isExpediente?: boolean; isMotoristas?: boolean; isCopomMulher?: boolean; equipe?: string },
-    tipo: 'total' | 'afastados' | 'disponiveis'
+    card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; funcoesIds?: number[]; hasRestricao?: boolean }; isEquipe?: boolean; isExpediente?: boolean; isMotoristas?: boolean; isCopomMulher?: boolean; isRestricoesMedicas?: boolean; equipe?: string },
+    tipo: 'total' | 'afastados' | 'disponiveis' | 'esteMes' | 'hoje'
   ) => {
-    setModalTitle(`${card.title} - ${tipo === 'total' ? 'Total' : tipo === 'afastados' ? 'Afastados' : 'Disponíveis'}`);
+    const sufixo =
+      tipo === 'total'
+        ? 'Total'
+        : tipo === 'afastados'
+          ? 'Afastados'
+          : tipo === 'disponiveis'
+            ? 'Disponíveis'
+            : tipo === 'esteMes'
+              ? 'Este mês'
+              : 'Hoje';
+    setModalTitle(`${card.title} - ${sufixo}`);
     setModalOpen(true);
     setModalResumoComposicaoEfetivo(null);
     setLoadingModal(true);
@@ -1441,7 +1507,7 @@ export function DashboardHomeSection({
         page: 1,
         pageSize: 1000, // Buscar todos
         includeAfastamentos: false,
-        includeRestricoes: false,
+        includeRestricoes: Boolean(card.filters?.hasRestricao || (card as any).isRestricoesMedicas),
         // Não passar status para incluir todos exceto DESATIVADO
       };
 
@@ -1476,6 +1542,32 @@ export function DashboardHomeSection({
       } else {
         const data = await api.listPoliciaisPaginated(params);
         todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+      }
+
+      if (card.filters?.hasRestricao) {
+        todosPoliciais = todosPoliciais.filter((p) => p.restricaoMedicaId != null);
+      }
+
+      if ((card as any).isRestricoesMedicas) {
+        setModalType('policiais');
+        let filtrados = todosPoliciais;
+        if (tipo === 'esteMes') {
+          const hoje = new Date();
+          filtrados = filtrados.filter((p) => {
+            if (!p.restricaoMedicaDataInicio) return false;
+            const d = new Date(p.restricaoMedicaDataInicio);
+            return d.getFullYear() === hoje.getFullYear() && d.getMonth() === hoje.getMonth();
+          });
+        } else if (tipo === 'hoje') {
+          const hoje = new Date();
+          filtrados = filtrados.filter((p) => {
+            if (!p.restricaoMedicaDataInicio) return false;
+            const d = new Date(p.restricaoMedicaDataInicio);
+            return d.getFullYear() === hoje.getFullYear() && d.getMonth() === hoje.getMonth();
+          });
+        }
+        setPoliciaisModal(sortPorPatenteENome(filtrados));
+        return;
       }
 
       // Se for um card de equipe, excluir policiais com função MOTORISTA DE DIA
@@ -1558,7 +1650,7 @@ export function DashboardHomeSection({
     }
   };
 
-  const handleCardClick = async (card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number }; isEquipe?: boolean; isExpediente?: boolean }) => {
+  const handleCardClick = async (card: { title: string; filters?: { equipe?: string; motivo?: string; funcaoId?: number; hasRestricao?: boolean }; isEquipe?: boolean; isExpediente?: boolean }) => {
     setModalTitle(card.title);
     setModalOpen(true);
     setModalResumoComposicaoEfetivo(null);
@@ -1728,14 +1820,14 @@ export function DashboardHomeSection({
           }))
           .sort((a, b) => b.count - a.count);
         setAfastamentosPorMotivoModal(resumo);
-      } else if (card.filters?.equipe || card.filters?.funcaoId) {
+      } else if (card.filters?.equipe || card.filters?.funcaoId || card.filters?.hasRestricao) {
         // Card de equipe ou expediente - buscar policiais
         setModalType('policiais');
         const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
           page: 1,
           pageSize: 1000, // Buscar todos
           includeAfastamentos: false,
-          includeRestricoes: false,
+          includeRestricoes: Boolean(card.filters?.hasRestricao),
           // Não passar status para incluir todos exceto DESATIVADO
         };
 
@@ -1756,6 +1848,9 @@ export function DashboardHomeSection({
         // Filtrar apenas para excluir DESATIVADOS (incluir ATIVO, DESIGNADO, COMISSIONADO, PTTC)
         // Mostrar TODOS os policiais, independente de estarem afastados ou não
         let todosPoliciais = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+        if (card.filters?.hasRestricao) {
+          todosPoliciais = todosPoliciais.filter((p) => p.restricaoMedicaId != null);
+        }
         
         // Se for Cpmulher, filtrar apenas policiais com as funções permitidas (Analista e Telefonista 190 - Auxiliar)
         // Isso se aplica tanto para cards de equipe quanto para o card "COPOM Mulher"
@@ -2188,7 +2283,7 @@ export function DashboardHomeSection({
                   },
                 }}
                 onClick={(e) => {
-                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher && !(card as any).isEfetivo && !(card as any).isEfetivoPosto) {
+                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher && !(card as any).isRestricoesMedicas && !(card as any).isEfetivo && !(card as any).isEfetivoPosto) {
                     handleCardClick(card);
                   } else {
                     e.stopPropagation();
@@ -2278,7 +2373,7 @@ export function DashboardHomeSection({
                     </Box>
                   </Typography>
                 )}
-                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isEfetivo || (card as any).isEfetivoPosto ? (
+                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isRestricoesMedicas || (card as any).isEfetivo || (card as any).isEfetivoPosto ? (
                   <Box sx={{ mb: 1, minHeight: '60px' }}>
                     {(card as any).loadingCount ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60px' }}>
@@ -2449,6 +2544,30 @@ export function DashboardHomeSection({
                                   </Typography>
                                 </Box>
                               )}
+                            </Box>
+                          </Box>
+                        );
+                      }
+                      if ((card as any).isRestricoesMedicas) {
+                        return (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
+                              onClick={(e) => { e.stopPropagation(); handleNumberClick(card as any, 'total'); }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Total:</Typography>
+                              <Typography variant="h4" sx={{ fontWeight: 700, color: card.color, fontSize: '2rem' }}>{restricoesMedicasData.total}</Typography>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>registros</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
+                              onClick={(e) => { e.stopPropagation(); handleNumberClick(card as any, 'esteMes'); }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Este mês:</Typography>
+                              <Typography variant="h5" sx={{ fontWeight: 700, color: card.color, fontSize: '1.75rem' }}>{restricoesMedicasData.esteMes}</Typography>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>registros</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.8 } }}
+                              onClick={(e) => { e.stopPropagation(); handleNumberClick(card as any, 'hoje'); }}>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>Hoje:</Typography>
+                              <Typography variant="h5" sx={{ fontWeight: 700, color: card.color, fontSize: '1.75rem' }}>{restricoesMedicasData.hoje}</Typography>
+                              <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.875rem' }}>registros</Typography>
                             </Box>
                           </Box>
                         );
@@ -2924,6 +3043,7 @@ export function DashboardHomeSection({
               card.title === 'Policiais Disponíveis' ? PersonSearch :
               card.title === 'Férias' ? BeachAccess :
               card.title === 'Abono' ? WbSunny :
+              card.title === 'Restrições' ? HealthAndSafety :
               (card as any).isExpediente ? BusinessCenter :
               (card as any).isMotoristas ? DirectionsCar :
               (card as any).isCopomMulher ? Diversity1 :
@@ -2934,7 +3054,7 @@ export function DashboardHomeSection({
                 elevation={0}
                 sx={{
                   height: '100%',
-                  cursor: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher ? 'default' : 'pointer',
+                  cursor: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isRestricoesMedicas ? 'default' : 'pointer',
                   transition: 'all 0.25s ease',
                   border: '1px solid',
                   borderColor: alpha(card.color, 0.25),
@@ -2942,14 +3062,14 @@ export function DashboardHomeSection({
                   borderRadius: 2,
                   overflow: 'hidden',
                   '&:hover': {
-                    boxShadow: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher
+                    boxShadow: (card as any).isEquipe || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isRestricoesMedicas
                       ? undefined
                       : `0 8px 24px ${alpha(card.color, 0.12)}`,
                     borderColor: alpha(card.color, 0.4),
                   },
                 }}
                 onClick={(e) => {
-                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher) {
+                  if (!(card as any).isEquipe && !(card as any).isExpediente && !(card as any).isMotoristas && !(card as any).isCopomMulher && !(card as any).isRestricoesMedicas) {
                     handleCardClick(card);
                   } else {
                     e.stopPropagation();
@@ -3038,7 +3158,7 @@ export function DashboardHomeSection({
                     </Box>
                   </Typography>
                 )}
-                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isEfetivo || (card as any).isEfetivoPosto ? (
+                {((card as any).isEquipe && (card as any).equipe) || (card as any).isExpediente || (card as any).isMotoristas || (card as any).isCopomMulher || (card as any).isRestricoesMedicas || (card as any).isEfetivo || (card as any).isEfetivoPosto ? (
                   <Box sx={{ mb: 1, minHeight: '60px' }}>
                     {(card as any).loadingCount ? (
                       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60px' }}>
@@ -3085,6 +3205,42 @@ export function DashboardHomeSection({
                                 </Box>
                               ))}
                             </Box>
+                          </Box>
+                        );
+                      }
+                      if ((card as any).isRestricoesMedicas) {
+                        return (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, fontSize: '0.875rem' }}>
+                            {([
+                              { key: 'total', label: 'Total', value: restricoesMedicasData.total },
+                              { key: 'esteMes', label: 'Este mês', value: restricoesMedicasData.esteMes },
+                              { key: 'hoje', label: 'Hoje', value: restricoesMedicasData.hoje },
+                            ] as const).map((item) => (
+                              <Box
+                                key={item.key}
+                                sx={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  cursor: 'pointer',
+                                  borderRadius: 1,
+                                  px: 1,
+                                  py: 0.5,
+                                  '&:hover': { bgcolor: (theme) => alpha(theme.palette.primary.main, 0.06) },
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleNumberClick(card as any, item.key);
+                                }}
+                              >
+                                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                  {item.label}:
+                                </Typography>
+                                <Typography component="span" fontWeight={600} sx={{ color: card.color }}>
+                                  {item.value}
+                                </Typography>
+                              </Box>
+                            ))}
                           </Box>
                         );
                       }
@@ -3466,6 +3622,29 @@ export function DashboardHomeSection({
                           <Box component="span" sx={{ display: 'block', mt: 0.5, color: 'text.secondary' }}>
                             Matrícula: {formatMatricula(policial.matricula)}
                           </Box>
+                          {modalTitle.toLowerCase().includes('restrições') && policial.restricaoMedicaId != null && (
+                            <>
+                              <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                                Restrição: {policial.restricaoMedica?.nome?.trim()
+                                  ? formatNome(policial.restricaoMedica.nome)
+                                  : 'Não informada'}
+                              </Box>
+                              <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                                Início:{' '}
+                                {policial.restricaoMedicaDataInicio
+                                  ? new Date(policial.restricaoMedicaDataInicio).toLocaleDateString('pt-BR')
+                                  : '—'}
+                              </Box>
+                              <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
+                                Fim:{' '}
+                                {policial.restricaoMedicaPermanente
+                                  ? 'Indeterminado / Permanente'
+                                  : policial.restricaoMedicaDataFim
+                                    ? new Date(policial.restricaoMedicaDataFim).toLocaleDateString('pt-BR')
+                                    : '—'}
+                              </Box>
+                            </>
+                          )}
                           {policial.funcao && (
                             <Box component="span" sx={{ display: 'block', color: 'text.secondary' }}>
                               Função: {formatNome(policial.funcao.nome)}

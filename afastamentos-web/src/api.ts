@@ -869,10 +869,13 @@ export const api = {
     id: number,
     restricaoMedicaId: number | null,
     observacao?: string | null,
+    dataInicio?: string | null,
+    dataFim?: string | null,
+    permanente?: boolean,
   ): Promise<Policial> {
     const data = await request<Policial>(`/policiais/${id}/restricao-medica`, {
       method: 'PATCH',
-      body: JSON.stringify({ restricaoMedicaId, observacao }),
+      body: JSON.stringify({ restricaoMedicaId, observacao, dataInicio, dataFim, permanente }),
     });
     clearCache();
     return data;

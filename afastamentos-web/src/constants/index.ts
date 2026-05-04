@@ -50,6 +50,7 @@ export type TabKey =
   | 'dashboard'
   | 'afastamentos'
   | 'calendario'
+  | 'legislacao'
   /** Legado: uma única chave para toda a área Escalas (ainda pode existir no banco até regravar permissões). */
   | 'escalas'
   /** Gerar e gravar escalas (aba Gerar). */
@@ -96,6 +97,7 @@ export const SistemaSubTABS: { key: SistemaSubTabKey; label: string }[] = [
 export const TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'calendario', label: 'Calendário das Equipes' },
+  { key: 'legislacao', label: 'Legislação' },
   { key: 'escalas', label: 'Escalas' },
   { key: 'afastamentos', label: 'Afastamentos' },
   { key: 'equipe', label: 'Efetivo' },

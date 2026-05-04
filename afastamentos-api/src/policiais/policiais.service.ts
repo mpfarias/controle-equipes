@@ -151,6 +151,56 @@ export class PoliciaisService {
     return normalizado;
   }
 
+  /** Remove automaticamente restrições vencidas, preservando histórico. */
+  private async autoDesativarRestricoesMedicasVencidas(): Promise<void> {
+    const agora = new Date();
+    const vencidas = await this.prisma.policial.findMany({
+      where: {
+        restricaoMedicaId: { not: null },
+        restricaoMedicaPermanente: false,
+        restricaoMedicaDataFim: { not: null, lt: agora },
+      },
+      select: {
+        id: true,
+        restricaoMedicaId: true,
+        restricaoMedicaObservacao: true,
+        restricaoMedicaDataInicio: true,
+        restricaoMedicaDataFim: true,
+        updatedAt: true,
+      },
+    });
+    if (vencidas.length === 0) return;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const p of vencidas) {
+        if (!p.restricaoMedicaId) continue;
+        const dataFim = p.restricaoMedicaDataFim ?? agora;
+        const dataInicio = p.restricaoMedicaDataInicio ?? p.updatedAt ?? dataFim;
+        await tx.restricaoMedicaHistorico.create({
+          data: {
+            policialId: p.id,
+            restricaoMedicaId: p.restricaoMedicaId,
+            dataInicio,
+            dataFim,
+            observacao: p.restricaoMedicaObservacao ?? null,
+            removidoPorNome: 'SISTEMA (VENCIMENTO AUTOMÁTICO)',
+          },
+        });
+        await tx.policial.update({
+          where: { id: p.id },
+          data: {
+            restricaoMedica: { disconnect: true },
+            restricaoMedicaObservacao: null,
+            restricaoMedicaDataInicio: null,
+            restricaoMedicaDataFim: null,
+            restricaoMedicaPermanente: false,
+            updatedByName: 'SISTEMA (VENCIMENTO AUTOMÁTICO)',
+          },
+        });
+      }
+    });
+  }
+
   /** Para ordenação por desligamento: prioriza data cadastrada na desativação, depois o instante do registro. */
   private desligamentoTimestampMs(p: PolicialResponse): number {
     const raw = p.dataDesativacaoAPartirDe ?? p.desativadoEm;
@@ -652,6 +702,8 @@ export class PoliciaisService {
         totalPages: number;
       }
   > {
+    await this.autoDesativarRestricoesMedicasVencidas();
+
     const {
       page,
       pageSize,
@@ -885,6 +937,8 @@ export class PoliciaisService {
   }
 
   async findOne(id: number): Promise<PolicialResponse> {
+    await this.autoDesativarRestricoesMedicasVencidas();
+
     const policial = await this.prisma.policial.findUnique({
       where: { id },
       include: { 
@@ -1858,6 +1912,9 @@ export class PoliciaisService {
     restricaoMedicaId: number | null,
     responsavelId?: number,
     observacao?: string | null,
+    dataInicio?: string | null,
+    dataFim?: string | null,
+    permanente = false,
   ): Promise<PolicialResponse> {
     const actor = await this.audit.resolveActor(responsavelId);
 
@@ -1882,6 +1939,32 @@ export class PoliciaisService {
       }
     }
 
+    let dataInicioDate: Date | null = null;
+    let dataFimDate: Date | null = null;
+    if (restricaoMedicaId !== null) {
+      if (!dataInicio) {
+        throw new BadRequestException('Informe a data de início da restrição.');
+      }
+      dataInicioDate = new Date(dataInicio);
+      if (Number.isNaN(dataInicioDate.getTime())) {
+        throw new BadRequestException('Data de início inválida.');
+      }
+      if (!permanente && dataFim) {
+        dataFimDate = new Date(dataFim);
+        if (Number.isNaN(dataFimDate.getTime())) {
+          throw new BadRequestException('Data de fim inválida.');
+        }
+        if (dataFimDate.getTime() < dataInicioDate.getTime()) {
+          throw new BadRequestException('A data de fim deve ser igual ou posterior à data de início.');
+        }
+      }
+      if (!permanente && !dataFim) {
+        throw new BadRequestException(
+          'Informe a data de fim ou marque a restrição como indeterminada/permanente.',
+        );
+      }
+    }
+
     const updateData: Prisma.PolicialUpdateInput = {
       restricaoMedica: restricaoMedicaId 
         ? { connect: { id: restricaoMedicaId } }
@@ -1890,6 +1973,9 @@ export class PoliciaisService {
           : undefined,
       restricaoMedicaObservacao:
         restricaoMedicaId === null ? null : (observacao?.trim() ? observacao.trim() : null),
+      restricaoMedicaDataInicio: restricaoMedicaId === null ? null : dataInicioDate,
+      restricaoMedicaDataFim: restricaoMedicaId === null ? null : permanente ? null : dataFimDate,
+      restricaoMedicaPermanente: restricaoMedicaId === null ? false : permanente,
       updatedById: actor?.id ?? null,
       updatedByName: actor?.nome ?? null,
     };
@@ -1981,7 +2067,7 @@ export class PoliciaisService {
       data: {
         policialId: id,
         restricaoMedicaId: before.restricaoMedicaId!,
-        dataInicio: before.restricaoMedicaId ? before.updatedAt : new Date(),
+        dataInicio: before.restricaoMedicaDataInicio ?? before.updatedAt ?? new Date(),
         dataFim: new Date(),
         observacao: before.restricaoMedicaObservacao ?? null,
         removidoPorId: actor.id,
@@ -1993,6 +2079,9 @@ export class PoliciaisService {
     const updateData: Prisma.PolicialUpdateInput = {
       restricaoMedica: { disconnect: true },
       restricaoMedicaObservacao: null,
+      restricaoMedicaDataInicio: null,
+      restricaoMedicaDataFim: null,
+      restricaoMedicaPermanente: false,
       updatedById: actor.id,
       updatedByName: actor.nome,
     };

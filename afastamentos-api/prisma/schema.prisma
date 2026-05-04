@@ -24,6 +24,9 @@ model Policial {
   restricaoMedicaId          Int?
   restricaoMedica            RestricaoMedica?           @relation(fields: [restricaoMedicaId], references: [id])
   restricaoMedicaObservacao  String?
+  restricaoMedicaDataInicio  DateTime?
+  restricaoMedicaDataFim     DateTime?
+  restricaoMedicaPermanente  Boolean                    @default(false)
   restricoesMedicasHistorico RestricaoMedicaHistorico[]
   fotoUrl                    String?
   ferias                     FeriasPolicial[]

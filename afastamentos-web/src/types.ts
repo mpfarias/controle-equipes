@@ -174,6 +174,9 @@ export interface Policial {
   restricaoMedicaId?: number | null;
   restricaoMedica?: RestricaoMedica | null;
   restricaoMedicaObservacao?: string | null;
+  restricaoMedicaDataInicio?: string | null;
+  restricaoMedicaDataFim?: string | null;
+  restricaoMedicaPermanente?: boolean;
   restricoesMedicasHistorico?: RestricaoMedicaHistorico[];
   fotoUrl?: string | null;
   mesPrevisaoFerias?: number | null;

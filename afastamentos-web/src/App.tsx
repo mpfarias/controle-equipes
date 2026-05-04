@@ -747,6 +747,7 @@ export default function App() {
       permissoesPorTela['relatorios']?.VISUALIZAR;
     return TABS.filter((tab) => {
       if (tab.key === 'reportar-erro') return true;
+      if (tab.key === 'legislacao') return true;
       if (tab.key === 'afastamentos') return Boolean(temAcessoAfastamentos);
       if (tab.key === 'equipe') return Boolean(temAcessoListaEfetivo);
       if (tab.key === 'sistema') return Boolean(temAcessoSistema);
@@ -813,6 +814,8 @@ export default function App() {
     const podeAcessar =
       activeTab === 'reportar-erro'
         ? true
+        : activeTab === 'legislacao'
+          ? true
         : activeTab === 'afastamentos'
           ? temAcessoAfastamentos
           : activeTab === 'equipe'
@@ -930,7 +933,7 @@ export default function App() {
         <footer className="app-footer app-footer--auth">
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
-            <span className="app-footer__name">2º SGT M. Farias</span>
+            <span className="app-footer__name">2º SGT M. Farias · 2º SGT Gadelha</span>
           </div>
           <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
@@ -955,7 +958,7 @@ export default function App() {
         <footer className="app-footer app-footer--auth">
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
-            <span className="app-footer__name">2º SGT M. Farias</span>
+            <span className="app-footer__name">2º SGT M. Farias · 2º SGT Gadelha</span>
           </div>
           <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
@@ -1526,6 +1529,7 @@ export default function App() {
         {activeTab === 'reportar-erro' && (
           <ReportarErroSection currentUser={currentUser} focusChamadoFormSeq={focusChamadoFormSeq} />
         )}
+        {activeTab === 'legislacao' && <p className="empty-state">Em construção</p>}
       </Suspense>
 
       <ConfirmDialog
@@ -1536,7 +1540,7 @@ export default function App() {
       <footer className="app-footer">
         <span className="app-footer__label">Desenvolvido por</span>
         <div className="app-footer__credits">
-          <span className="app-footer__name">2º SGT M. Farias</span>
+          <span className="app-footer__name">2º SGT M. Farias · 2º SGT Gadelha</span>
         </div>
         <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
       </footer>

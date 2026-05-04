@@ -179,6 +179,9 @@ export function MostrarEquipeSection({
     policial: Policial | null;
     restricaoMedicaId: number | null;
     observacao: string;
+    dataInicio: string;
+    dataFim: string;
+    permanente: boolean;
     loading: boolean;
     error: string | null;
   }>({
@@ -186,6 +189,9 @@ export function MostrarEquipeSection({
     policial: null,
     restricaoMedicaId: null,
     observacao: '',
+    dataInicio: '',
+    dataFim: '',
+    permanente: false,
     loading: false,
     error: null,
   });
@@ -4012,11 +4018,19 @@ export function MostrarEquipeSection({
                                 <Typography variant="body2" sx={{ fontWeight: 600, color: 'error.main', mb: 0.5 }}>
                                   Ativa: {viewingPolicial.restricaoMedica.nome}
                                 </Typography>
-                                {viewingPolicial.updatedAt && (
+                                {viewingPolicial.restricaoMedicaDataInicio && (
                                   <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                                    Adicionada em: {new Date(viewingPolicial.updatedAt).toLocaleDateString('pt-BR')}
+                                    Início: {new Date(viewingPolicial.restricaoMedicaDataInicio).toLocaleDateString('pt-BR')}
                                   </Typography>
                                 )}
+                                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
+                                  Fim:{' '}
+                                  {viewingPolicial.restricaoMedicaPermanente
+                                    ? 'Indeterminado / Permanente'
+                                    : viewingPolicial.restricaoMedicaDataFim
+                                      ? new Date(viewingPolicial.restricaoMedicaDataFim).toLocaleDateString('pt-BR')
+                                      : '—'}
+                                </Typography>
                               </Box>
                             )}
 
@@ -4207,12 +4221,21 @@ export function MostrarEquipeSection({
                       policial: viewingPolicial,
                       restricaoMedicaId: viewingPolicial.restricaoMedicaId ?? null,
                       observacao: viewingPolicial.restricaoMedicaObservacao ?? '',
+                      dataInicio: viewingPolicial.restricaoMedicaDataInicio
+                        ? new Date(viewingPolicial.restricaoMedicaDataInicio).toISOString().slice(0, 10)
+                        : viewingPolicial.restricaoMedicaId != null && viewingPolicial.updatedAt
+                          ? new Date(viewingPolicial.updatedAt).toISOString().slice(0, 10)
+                          : new Date().toISOString().slice(0, 10),
+                      dataFim: viewingPolicial.restricaoMedicaDataFim
+                        ? new Date(viewingPolicial.restricaoMedicaDataFim).toISOString().slice(0, 10)
+                        : '',
+                      permanente: viewingPolicial.restricaoMedicaPermanente === true,
                       loading: false,
                       error: null,
                     });
                   }}
                 >
-                  Inserir restrição
+                  {viewingPolicial?.restricaoMedicaId ? 'Editar restrição' : 'Inserir restrição'}
                 </button>
                 {viewingPolicial && podeExibirTrocaNaLinha(viewingPolicial) && (
                   <button
@@ -4264,10 +4287,20 @@ export function MostrarEquipeSection({
         </div>
       )}
 
-      {/* Modal de Inserir Restrição Médica */}
+      {/* Modal de Inserir/Editar Restrição Médica */}
       {restricaoModal.open && restricaoModal.policial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => {
-          setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, observacao: '', loading: false, error: null });
+          setRestricaoModal({
+            open: false,
+            policial: null,
+            restricaoMedicaId: null,
+            observacao: '',
+            dataInicio: '',
+            dataFim: '',
+            permanente: false,
+            loading: false,
+            error: null,
+          });
         }}>
           <Box
             component="div"
@@ -4286,7 +4319,7 @@ export function MostrarEquipeSection({
           >
             <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider' }}>
               <Typography variant="h5" component="h2" sx={{ fontWeight: 600, color: 'text.primary' }}>
-                Inserir Restrição
+                {restricaoModal.policial.restricaoMedicaId ? 'Editar Restrição' : 'Inserir Restrição'}
               </Typography>
               <Typography variant="body2" sx={{ mt: 1, color: 'text.secondary' }}>
                 {restricaoModal.policial.nome}
@@ -4315,6 +4348,9 @@ export function MostrarEquipeSection({
                         ...prev,
                         restricaoMedicaId: value === '' ? null : parseInt(value, 10),
                         observacao: value === '' ? '' : prev.observacao,
+                        dataInicio: value === '' ? '' : (prev.dataInicio || new Date().toISOString().slice(0, 10)),
+                        dataFim: value === '' ? '' : prev.dataFim,
+                        permanente: value === '' ? false : prev.permanente,
                       }));
                     }}
                     disabled={restricaoModal.loading || loadingRestricoes}
@@ -4338,26 +4374,82 @@ export function MostrarEquipeSection({
                 )}
               </label>
               {restricaoModal.restricaoMedicaId !== null && (
-                <label style={{ display: 'block', marginBottom: '16px' }}>
-                  <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Observação</span>
-                  <textarea
-                    value={restricaoModal.observacao}
-                    onChange={(e) => setRestricaoModal((prev) => ({ ...prev, observacao: e.target.value }))}
-                    disabled={restricaoModal.loading}
-                    rows={3}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      fontSize: '1rem',
-                      border: '1px solid var(--border-soft)',
-                      borderRadius: '8px',
-                      backgroundColor: 'var(--card-bg)',
-                      resize: 'vertical',
-                      minHeight: '80px',
-                    }}
-                    placeholder="Descreva a observação da restrição (opcional)"
-                  />
-                </label>
+                <>
+                  <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, mb: 2 }}>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Data de início</span>
+                      <input
+                        type="date"
+                        value={restricaoModal.dataInicio}
+                        onChange={(e) => setRestricaoModal((prev) => ({ ...prev, dataInicio: e.target.value }))}
+                        disabled={restricaoModal.loading}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '1rem',
+                          border: '1px solid var(--border-soft)',
+                          borderRadius: '8px',
+                          backgroundColor: 'var(--card-bg)',
+                          color: 'var(--text-primary)',
+                        }}
+                      />
+                    </label>
+                    <label style={{ display: 'block' }}>
+                      <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Data de fim</span>
+                      <input
+                        type="date"
+                        value={restricaoModal.dataFim}
+                        onChange={(e) => setRestricaoModal((prev) => ({ ...prev, dataFim: e.target.value }))}
+                        disabled={restricaoModal.loading || restricaoModal.permanente}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          fontSize: '1rem',
+                          border: '1px solid var(--border-soft)',
+                          borderRadius: '8px',
+                          backgroundColor: 'var(--card-bg)',
+                          color: 'var(--text-primary)',
+                          opacity: restricaoModal.permanente ? 0.6 : 1,
+                        }}
+                      />
+                    </label>
+                  </Box>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '16px' }}>
+                    <input
+                      type="checkbox"
+                      checked={restricaoModal.permanente}
+                      onChange={(e) =>
+                        setRestricaoModal((prev) => ({
+                          ...prev,
+                          permanente: e.target.checked,
+                          dataFim: e.target.checked ? '' : prev.dataFim,
+                        }))
+                      }
+                      disabled={restricaoModal.loading}
+                    />
+                    <span style={{ fontWeight: 500 }}>Indeterminado / Permanente</span>
+                  </label>
+                  <label style={{ display: 'block', marginBottom: '16px' }}>
+                    <span style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Observação</span>
+                    <textarea
+                      value={restricaoModal.observacao}
+                      onChange={(e) => setRestricaoModal((prev) => ({ ...prev, observacao: e.target.value }))}
+                      disabled={restricaoModal.loading}
+                      rows={3}
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        fontSize: '1rem',
+                        border: '1px solid var(--border-soft)',
+                        borderRadius: '8px',
+                        backgroundColor: 'var(--card-bg)',
+                        resize: 'vertical',
+                        minHeight: '80px',
+                      }}
+                      placeholder="Descreva a observação da restrição (opcional)"
+                    />
+                  </label>
+                </>
               )}
             </Box>
 
@@ -4366,7 +4458,17 @@ export function MostrarEquipeSection({
                 type="button"
                 className="secondary"
                 onClick={() => {
-                  setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, observacao: '', loading: false, error: null });
+                  setRestricaoModal({
+                    open: false,
+                    policial: null,
+                    restricaoMedicaId: null,
+                    observacao: '',
+                    dataInicio: '',
+                    dataFim: '',
+                    permanente: false,
+                    loading: false,
+                    error: null,
+                  });
                 }}
                 disabled={restricaoModal.loading}
               >
@@ -4378,6 +4480,22 @@ export function MostrarEquipeSection({
                 disabled={restricaoModal.loading}
                 onClick={async () => {
                   if (!restricaoModal.policial) return;
+                  if (restricaoModal.restricaoMedicaId !== null) {
+                    if (!restricaoModal.dataInicio) {
+                      setRestricaoModal((prev) => ({
+                        ...prev,
+                        error: 'Informe a data de início da restrição.',
+                      }));
+                      return;
+                    }
+                    if (!restricaoModal.permanente && !restricaoModal.dataFim) {
+                      setRestricaoModal((prev) => ({
+                        ...prev,
+                        error: 'Informe a data de fim ou marque como indeterminada/permanente.',
+                      }));
+                      return;
+                    }
+                  }
 
                   try {
                     setRestricaoModal((prev) => ({ ...prev, loading: true, error: null }));
@@ -4387,6 +4505,11 @@ export function MostrarEquipeSection({
                       restricaoModal.restricaoMedicaId === null
                         ? null
                         : (restricaoModal.observacao?.trim() ? restricaoModal.observacao.trim() : null),
+                      restricaoModal.restricaoMedicaId === null ? null : restricaoModal.dataInicio,
+                      restricaoModal.restricaoMedicaId === null || restricaoModal.permanente
+                        ? null
+                        : restricaoModal.dataFim,
+                      restricaoModal.restricaoMedicaId === null ? false : restricaoModal.permanente,
                     );
 
                     // Atualizar o policial na visualização
@@ -4395,7 +4518,17 @@ export function MostrarEquipeSection({
                     // Recarregar lista de policiais
                     await carregarPoliciais(paginaAtual, itensPorPagina);
 
-                    setRestricaoModal({ open: false, policial: null, restricaoMedicaId: null, observacao: '', loading: false, error: null });
+                    setRestricaoModal({
+                      open: false,
+                      policial: null,
+                      restricaoMedicaId: null,
+                      observacao: '',
+                      dataInicio: '',
+                      dataFim: '',
+                      permanente: false,
+                      loading: false,
+                      error: null,
+                    });
                   } catch (err) {
                     setRestricaoModal((prev) => ({
                       ...prev,

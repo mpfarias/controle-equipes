@@ -242,6 +242,9 @@ export function AfastamentosSection({
   const [calcularPeriodo, setCalcularPeriodo] = useState<boolean>(false);
   const [quantidadeDias, setQuantidadeDias] = useState<string>('');
   const [tabAtiva, setTabAtiva] = useState<number>(0);
+  const [abaListaAfastamentos, setAbaListaAfastamentos] = useState<'principais' | 'desativados'>(
+    'principais',
+  );
   const [dataFimFocada, setDataFimFocada] = useState(false);
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(20);
@@ -1773,18 +1776,33 @@ export function AfastamentosSection({
     periodoSobrepoeMes,
   ]);
 
+  const afastamentosPrincipais = useMemo(
+    () => afastamentosFiltrados.filter((afastamento) => afastamento.status !== 'DESATIVADO'),
+    [afastamentosFiltrados],
+  );
+
+  const afastamentosDesativados = useMemo(
+    () => afastamentosFiltrados.filter((afastamento) => afastamento.status === 'DESATIVADO'),
+    [afastamentosFiltrados],
+  );
+
+  const afastamentosFiltradosAba = useMemo(
+    () => (abaListaAfastamentos === 'desativados' ? afastamentosDesativados : afastamentosPrincipais),
+    [abaListaAfastamentos, afastamentosDesativados, afastamentosPrincipais],
+  );
+
   const totalPaginas = useMemo(
-    () => Math.max(1, Math.ceil(afastamentosFiltrados.length / itensPorPagina)),
-    [afastamentosFiltrados.length, itensPorPagina],
+    () => Math.max(1, Math.ceil(afastamentosFiltradosAba.length / itensPorPagina)),
+    [afastamentosFiltradosAba.length, itensPorPagina],
   );
 
   const afastamentosPaginados = useMemo(() => {
     const inicio = (paginaAtual - 1) * itensPorPagina;
-    return afastamentosFiltrados.slice(inicio, inicio + itensPorPagina);
-  }, [afastamentosFiltrados, paginaAtual, itensPorPagina]);
+    return afastamentosFiltradosAba.slice(inicio, inicio + itensPorPagina);
+  }, [afastamentosFiltradosAba, paginaAtual, itensPorPagina]);
 
-  const registroInicio = afastamentosFiltrados.length === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
-  const registroFim = afastamentosFiltrados.length === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, afastamentosFiltrados.length);
+  const registroInicio = afastamentosFiltradosAba.length === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
+  const registroFim = afastamentosFiltradosAba.length === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, afastamentosFiltradosAba.length);
 
   useEffect(() => {
     if (paginaAtual > totalPaginas && totalPaginas > 0) {
@@ -1794,7 +1812,15 @@ export function AfastamentosSection({
 
   useEffect(() => {
     setPaginaAtual(1);
-  }, [motivoFiltro, motivoFiltroOutro, searchTerm, selectedMonth, dataInicioFiltro, dataFimFiltro]);
+  }, [
+    motivoFiltro,
+    motivoFiltroOutro,
+    searchTerm,
+    selectedMonth,
+    dataInicioFiltro,
+    dataFimFiltro,
+    abaListaAfastamentos,
+  ]);
 
   const descricaoPeriodo = useMemo(() => {
     // Prioridade para intervalo de datas
@@ -2254,9 +2280,20 @@ export function AfastamentosSection({
         <div className="section-header">
           <h3>Lista de afastamentos</h3>
           <p className="subtitle" style={{ marginTop: 4, marginBottom: 0 }}>
-            Lista única: ativos, encerrados e desativados. Use a coluna Status e os filtros para localizar registros.
+            Ativos e encerrados ficam na lista principal. Registros desativados ficam na aba "Desativados".
           </p>
         </div>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}>
+          <Tabs
+            value={abaListaAfastamentos}
+            onChange={(_event, novoValor) =>
+              setAbaListaAfastamentos(novoValor as 'principais' | 'desativados')
+            }
+          >
+            <Tab label={`Lista principal (${afastamentosPrincipais.length})`} value="principais" />
+            <Tab label={`Desativados (${afastamentosDesativados.length})`} value="desativados" />
+          </Tabs>
+        </Box>
         <div className="list-controls">
           <input
             className="search-input"
@@ -2390,11 +2427,15 @@ export function AfastamentosSection({
         </div>
         {loading ? (
           <p className="empty-state">Carregando afastamentos...</p>
-        ) : afastamentosFiltrados.length === 0 ? (
+        ) : afastamentosFiltradosAba.length === 0 ? (
           <p className="empty-state">
             {dataInicioFiltro || dataFimFiltro || selectedMonth
-              ? 'Nenhum afastamento encontrado no período selecionado.'
-              : 'Nenhum afastamento cadastrado.'}
+              ? abaListaAfastamentos === 'desativados'
+                ? 'Nenhum afastamento desativado encontrado no período selecionado.'
+                : 'Nenhum afastamento ativo/encerrado encontrado no período selecionado.'
+              : abaListaAfastamentos === 'desativados'
+                ? 'Nenhum afastamento desativado cadastrado.'
+                : 'Nenhum afastamento ativo/encerrado cadastrado.'}
           </p>
         ) : (
           <>
@@ -2555,7 +2596,7 @@ export function AfastamentosSection({
               }}
             >
               <div style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-                Mostrando {registroInicio} a {registroFim} de {afastamentosFiltrados.length} registro(s)
+                Mostrando {registroInicio} a {registroFim} de {afastamentosFiltradosAba.length} registro(s)
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button

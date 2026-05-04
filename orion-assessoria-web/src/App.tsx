@@ -194,7 +194,7 @@ export default function App() {
         <footer className="app-footer app-footer--auth">
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">
-            <span className="app-footer__name">2º SGT M. Farias</span>
+            <span className="app-footer__name">2º SGT M. Farias · 2º SGT Gadelha</span>
           </div>
           <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
         </footer>
@@ -461,7 +461,7 @@ export default function App() {
       <footer className="app-footer">
         <span className="app-footer__label">Desenvolvido por</span>
         <div className="app-footer__credits">
-          <span className="app-footer__name">2º SGT M. Farias</span>
+          <span className="app-footer__name">2º SGT M. Farias · 2º SGT Gadelha</span>
         </div>
         <span className="app-footer__meta">COPOM · {new Date().getFullYear()}</span>
       </footer>

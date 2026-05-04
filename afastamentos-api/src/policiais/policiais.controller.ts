@@ -354,6 +354,9 @@ export class PoliciaisController {
       body.restricaoMedicaId ?? null,
       user.id,
       body.observacao ?? null,
+      body.dataInicio ?? null,
+      body.dataFim ?? null,
+      body.permanente ?? false,
     );
   }
 

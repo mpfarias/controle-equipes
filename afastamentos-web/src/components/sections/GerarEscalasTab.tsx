@@ -111,6 +111,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
   const [operacionalNoturno, setOperacionalNoturno] = useState(false);
   const [dataEscala, setDataEscala] = useState(hojeIsoLocal);
   const [loading, setLoading] = useState(false);
+  const [loadingTotal, setLoadingTotal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
   const [funcoesAtivas, setFuncoesAtivas] = useState<FuncaoOption[]>([]);
@@ -200,26 +201,14 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
     return () => window.removeEventListener('message', onMessage);
   }, [handleSalvarFromPrint]);
 
-  const handleGerar = async () => {
-    setLoading(true);
+  const gerarEscala = async (tiposSelecionados: TipoServicoGerar[], operacionalTurnos?: { diurno: boolean; noturno: boolean }) => {
     setError(null);
 
-    if (tipos.length === 0) {
-      setError('Marque ao menos um tipo de serviço.');
-      setLoading(false);
-      return;
-    }
-    if (tipoOperacional && !operacionalDiurno && !operacionalNoturno) {
-      setError('Com Operacional marcado, escolha ao menos um turno: Diurno e/ou Noturno.');
-      setLoading(false);
-      return;
-    }
     const win = openEscalaGeradaBlankWindow();
     if (!win) {
       setError(
         'O navegador bloqueou a nova janela. Permita pop-ups para este site (ícone na barra de endereços) e tente de novo.',
       );
-      setLoading(false);
       return;
     }
     printWinRef.current = win;
@@ -241,11 +230,10 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
 
       /** Sempre no momento da geração (evita IDs vazios por corrida com o useEffect ou falha silenciosa no carregamento). */
       const ativasGeracao = funcoes.filter((f) => f.ativo !== false);
-      if (tipoMotoristas && !ativasGeracao.some((f) => f.escalaMotorista || f.nome.toUpperCase().includes('MOTORISTA'))) {
+      if (tiposSelecionados.includes('MOTORISTAS') && !ativasGeracao.some((f) => f.escalaMotorista || f.nome.toUpperCase().includes('MOTORISTA'))) {
         setError(
           'Nenhuma função está marcada para a escala de motoristas. Em Gestão do sistema → Funções, marque «Escala motoristas» na função correspondente (ou use uma função cujo nome contenha «Motorista»).',
         );
-        setLoading(false);
         try {
           win.close();
         } catch {
@@ -264,7 +252,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
       }
 
       const draft = montarPayloadGerarEscalasCombinado(
-        tipos,
+        tiposSelecionados,
         dataEscala,
         policiais,
         afastamentos,
@@ -273,8 +261,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
           funcaoMotoristaId,
           funcoesExpedienteIds: [...idsExpGeracao],
           funcoesCatalogo: ativasGeracao,
-          operacionalTurnos:
-            tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined,
+          operacionalTurnos,
           trocasServicoAtivas,
           dataGeracaoIso: new Date().toISOString(),
         },
@@ -290,6 +277,26 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
       }
       printWinRef.current = null;
       setError(e instanceof Error ? e.message : 'Erro ao gerar a escala.');
+    }
+  };
+
+  const handleGerar = async () => {
+    setLoading(true);
+    if (tipos.length === 0) {
+      setError('Marque ao menos um tipo de serviço.');
+      setLoading(false);
+      return;
+    }
+    if (tipoOperacional && !operacionalDiurno && !operacionalNoturno) {
+      setError('Com Operacional marcado, escolha ao menos um turno: Diurno e/ou Noturno.');
+      setLoading(false);
+      return;
+    }
+    try {
+      await gerarEscala(
+        tipos,
+        tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined,
+      );
     } finally {
       setLoading(false);
     }
@@ -298,12 +305,22 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
   const gerarDesabilitado =
     !podeEditar ||
     loading ||
+    loadingTotal ||
     !dataEscala ||
     tipos.length === 0 ||
     (tipoOperacional && !operacionalDiurno && !operacionalNoturno) ||
     (tipoMotoristas && !podeGerarMotoristas);
 
   const controlesDesabilitados = !podeEditar;
+  const handleGerarEscalaTotal = async () => {
+    if (!podeEditar || !dataEscala) return;
+    setLoadingTotal(true);
+    try {
+      await gerarEscala(['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS'], { diurno: true, noturno: true });
+    } finally {
+      setLoadingTotal(false);
+    }
+  };
 
   return (
     <Stack spacing={2.5} sx={{ pt: 0.5 }}>
@@ -481,6 +498,32 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
             </Button>
           </Grid>
         </Grid>
+      </Paper>
+
+      <Paper
+        variant="outlined"
+        elevation={0}
+        sx={{
+          p: { xs: 2, sm: 2.5 },
+          borderRadius: 2,
+          borderColor: 'var(--border-soft, rgba(0,0,0,0.12))',
+          bgcolor: 'var(--card-bg, transparent)',
+          maxWidth: 800,
+        }}
+      >
+        <Stack spacing={1.5}>
+          <Typography variant="subtitle2">Escala total</Typography>
+          <Box>
+            <Button
+              variant="contained"
+              size="medium"
+              onClick={() => void handleGerarEscalaTotal()}
+              disabled={controlesDesabilitados || loading || loadingTotal || !dataEscala}
+            >
+              {loadingTotal ? <CircularProgress size={22} color="inherit" /> : 'Gerar escala total'}
+            </Button>
+          </Box>
+        </Stack>
       </Paper>
 
       {tipoMotoristas && !podeGerarMotoristas && (
