@@ -18,9 +18,12 @@ export function usuarioPodeAcessarOrionSAD(usuario: Usuario | null): boolean {
   return sistemasPermitidosDoUsuario(usuario).includes(SISTEMA_ID_SAD);
 }
 
-/** Alinhado ao cadastro no SAD: só com `ORION_QUALIDADE` em sistemas permitidos. */
+/** Administrador do sistema ou nível ADMINISTRADOR, ou `ORION_QUALIDADE` em sistemas permitidos (cadastro SAD). */
 export function usuarioPodeAcessarOrionQualidade(usuario: Usuario | null): boolean {
   if (!usuario) return false;
+  if (usuario.isAdmin === true) return true;
+  const nomeNivel = usuario.nivel?.nome?.trim().toUpperCase();
+  if (nomeNivel === 'ADMINISTRADOR') return true;
   return (usuario.sistemasPermitidos ?? []).some(
     (s) => String(s).trim().toUpperCase() === 'ORION_QUALIDADE',
   );

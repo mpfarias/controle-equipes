@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
@@ -42,6 +43,7 @@ async function bootstrap() {
   const orionSuporteUrl = process.env.ORION_SUPORTE_FRONTEND_URL;
 
   const allowedOrigins = [
+    'http://10.95.91.53:5173', // Frontend em produção na rede local
     'http://localhost:5173', // Vite dev Órion SAD
     'http://localhost:5174', // legado / outro dev
     'http://localhost:5180', // Vite dev Órion Suporte

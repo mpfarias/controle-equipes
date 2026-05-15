@@ -17,11 +17,11 @@
  * - Escalas: 6h antes e 6h depois do SVG
  * - Expediente: 1h antes e 1h depois do SVG
  *
- * IMPEDIMENTOS (não podem ser escalados):
+ * IMPEDIMENTOS (não podem ser escalados no SVG):
  * - Em gozo de qualquer afastamento
  * - Em dispensa ou licença regulamentar
  * - Em licença para tratamento de saúde própria
- * - Com restrição médica (inclui porte de arma suspenso)
+ * - Com qualquer restrição cadastrada no sistema (catálogo de restrições de serviço)
  * - Status DESATIVADO
  * - Status COMISSIONADO
  * - Status PTTC

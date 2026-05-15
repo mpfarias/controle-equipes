@@ -642,6 +642,8 @@ export const api = {
     feriasAno?: number;
     /** Exclui COMISSIONADO do efetivo e contagens (para limite 1/12 de férias) */
     excluirComissionadosParaLimiteFerias?: boolean;
+    /** Exclui função «Superior de dia» do efetivo (ex.: dashboard). */
+    excluirSuperiorDeDia?: boolean;
   }): Promise<{
     Policiales: Policial[];
     total: number;
@@ -673,6 +675,9 @@ export const api = {
     if (params.feriasAno != null) searchParams.append('feriasAno', String(params.feriasAno));
     if (params.excluirComissionadosParaLimiteFerias === true) {
       searchParams.append('excluirComissionadosParaLimiteFerias', 'true');
+    }
+    if (params.excluirSuperiorDeDia === true) {
+      searchParams.append('excluirSuperiorDeDia', 'true');
     }
     const query = searchParams.toString();
     const path = `/policiais?${query}`;

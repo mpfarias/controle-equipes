@@ -1,4 +1,5 @@
 import type { Policial, TrocaServicoAtivaListaItem } from '../types';
+import { policialFuncaoBloqueiaEscalasEOperacoes } from './funcaoSupervisorDeDia';
 import { nomeFuncaoIndicaExpedienteAdministrativo } from './gerarEscalasCalculo';
 
 /** Função cadastrada como motorista de dia (nome contém "MOTORISTA DE DIA"). */
@@ -30,6 +31,7 @@ export function policialFuncaoExcluiTrocaDeServico(p: Policial): boolean {
  */
 export function policialElegivelTrocaServico(p: Policial): boolean {
   if (policialFuncaoExcluiTrocaDeServico(p)) return false;
+  if (policialFuncaoBloqueiaEscalasEOperacoes(p)) return false;
 
   const fn = p.funcao?.nome?.toUpperCase() ?? '';
   const motorista = fn.includes('MOTORISTA DE DIA');

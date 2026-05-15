@@ -1,13 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Alert, Paper, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { Alert, Box, Paper, Stack, Tab, Tabs, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import {
   Bar,
   BarChart,
   CartesianGrid,
   LabelList,
-  Legend,
-  Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,7 +12,15 @@ import {
 } from 'recharts';
 import { useChamadasImport } from '../context/ChamadasImportContext';
 import { agregarAtendidasPorAtendente } from '../utils/agregarAtendidasPorAtendente';
-import { agregarChamadasAtendidasAbandonadasPorHora, type PontoChamadasPorHora } from '../utils/agregarChamadasPorHora';
+import {
+  agregarChamadasAtendidasAbandonadasPorHora,
+  normalizarRamalChamada,
+} from '../utils/agregarChamadasPorHora';
+import {
+  agregarChamadasLinhaTempo,
+  CORES_FAIXA_BARRA,
+  PROPORCAO_FAIXA_24H,
+} from '../utils/agregarChamadasLinhaTempo';
 import { resumoPeriodoDatasChamadas, tituloComPeriodoChamadas } from '../utils/periodoDatasChamadas';
 import {
   type PeriodoTurnoChamada,
@@ -23,6 +28,24 @@ import {
   filtrarChamadasPorTurno,
 } from '../utils/periodoTurnoChamada';
 import { extrairLetraEquipe } from '../utils/extrairLetraEquipe';
+import { ChamadasVolumeLinhasSvg } from './ChamadasVolumeLinhasSvg';
+
+function rotuloAtendenteMotivoAgregacao(raw: string): string {
+  const t = String(raw ?? '').trim();
+  return t.length > 0 ? t : '(Sem atendente)';
+}
+
+/** Par chave/contagem com maior contagem; em empate, desempate alfabético pt-BR na chave. */
+function modaComContagem(contagens: Map<string, number>): { k: string; q: number } {
+  let melhor: { k: string; q: number } | null = null;
+  for (const [k, q] of contagens) {
+    if (q <= 0) continue;
+    if (!melhor || q > melhor.q || (q === melhor.q && k.localeCompare(melhor.k, 'pt-BR') < 0)) {
+      melhor = { k, q };
+    }
+  }
+  return melhor ?? { k: '—', q: 0 };
+}
 
 type LinhaGraficoAtendente = {
   nome: string;
@@ -31,8 +54,10 @@ type LinhaGraficoAtendente = {
   ramal: string;
 };
 
-const COR_ATENDIDA = '#2563eb';
-const COR_ABANDONADA = '#ea580c';
+/** Chamadas ATENDIDA — azul */
+const COR_ATENDIDAS_AZUL = '#2563eb';
+/** Chamadas ABANDONADA — laranja */
+const COR_ABANDONADAS_LARANJA = '#ea580c';
 
 const tooltipStyle = {
   backgroundColor: '#1e293b',
@@ -41,40 +66,19 @@ const tooltipStyle = {
   color: '#e2e8f0',
 };
 
-function DotComValor({
-  cx,
-  cy,
-  payload,
-  dataKey,
-  fill,
-}: {
-  cx?: number;
-  cy?: number;
-  payload?: PontoChamadasPorHora;
-  dataKey: 'atendidas' | 'abandonadas';
-  fill: string;
-}) {
-  if (cx == null || cy == null || !payload) return null;
-  const v = payload[dataKey];
-  const r = v > 99 ? 16 : 14;
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={r} fill={fill} stroke="rgba(15,23,42,0.25)" strokeWidth={1} />
-      <text
-        x={cx}
-        y={cy}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill="#ffffff"
-        fontSize={11}
-        fontWeight={700}
-        style={{ pointerEvents: 'none' }}
-      >
-        {v}
-      </text>
-    </g>
-  );
-}
+type PayloadContagensHora = {
+  atendidas?: number;
+  abandonadas?: number;
+  horaLabel?: string;
+  bucketMs?: number;
+  horaIndex?: number;
+};
+
+type PontoGraficoComIndice = PayloadContagensHora & {
+  eixoIdx: number;
+  atendidas: number;
+  abandonadas: number;
+};
 
 function AbasTurnoChamadas({
   value,
@@ -121,6 +125,54 @@ export function QualidadeInicioCharts() {
     [buckets24PorTurno, turno],
   );
 
+  const linhaTempo = useMemo(() => agregarChamadasLinhaTempo(chamadasRows), [chamadasRows]);
+
+  const pontosPrimeiroGrafico = useMemo(
+    () => linhaTempo?.pontos ?? dadosPorHora,
+    [linhaTempo, dadosPorHora],
+  );
+
+  /** Pontos do primeiro gráfico com índice e contagens numéricas (usado pelo gráfico SVG). */
+  const dadosComIndiceGrafico = useMemo((): PontoGraficoComIndice[] => {
+    return pontosPrimeiroGrafico.map((p, i) => ({
+      ...p,
+      eixoIdx: i,
+      atendidas: Number(p.atendidas) || 0,
+      abandonadas: Number(p.abandonadas) || 0,
+    }));
+  }, [pontosPrimeiroGrafico]);
+
+  const totaisPrimeiroGrafico = useMemo(() => {
+    let at = 0;
+    let ab = 0;
+    for (const p of pontosPrimeiroGrafico) {
+      at += p.atendidas;
+      ab += p.abandonadas;
+    }
+    return { atendidas: at, abandonadas: ab };
+  }, [pontosPrimeiroGrafico]);
+
+  const maxYPrimeiroGrafico = useMemo(() => {
+    let m = 0;
+    for (const p of pontosPrimeiroGrafico) {
+      m = Math.max(m, p.atendidas, p.abandonadas);
+    }
+    if (m <= 0) return 50;
+    return Math.max(50, Math.ceil(m / 50) * 50);
+  }, [pontosPrimeiroGrafico]);
+
+  const diasBarraFaixa = useMemo(() => {
+    if (!linhaTempo) return [];
+    const seen = new Set<number>();
+    const out: Date[] = [];
+    for (const met of linhaTempo.metricasFaixas) {
+      if (seen.has(met.dataRefMs)) continue;
+      seen.add(met.dataRefMs);
+      out.push(new Date(met.dataRefMs));
+    }
+    return out;
+  }, [linhaTempo]);
+
   const dadosPorAtendente = useMemo(
     () => agregarAtendidasPorAtendente(linhasPorTurno),
     [linhasPorTurno],
@@ -149,25 +201,42 @@ export function QualidadeInicioCharts() {
     return Math.min(900, Math.max(260, n * 44 + 96));
   }, [dadosPorAtendente.length]);
 
-  const totaisChamadasGrafico = useMemo(() => {
-    let at = 0;
-    let ab = 0;
-    for (const p of dadosPorHora) {
-      at += p.atendidas;
-      ab += p.abandonadas;
-    }
-    return { atendidas: at, abandonadas: ab };
-  }, [dadosPorHora]);
-
-  const maxY = useMemo(() => {
-    let m = 0;
-    for (const p of dadosPorHora) {
-      m = Math.max(m, p.atendidas, p.abandonadas);
-    }
-    return m <= 0 ? 5 : Math.ceil(m * 1.1);
-  }, [dadosPorHora]);
-
   const resumoPeriodoArquivo = useMemo(() => resumoPeriodoDatasChamadas(chamadasRows), [chamadasRows]);
+
+  /** Por motivo (não vazio): quantidade total, ramal mais frequente e atendente mais frequente entre essas linhas. */
+  const resumoMotivosEncerramento = useMemo(() => {
+    if (chamadasRows.length === 0) return [];
+    type Ac = { qtd: number; ramais: Map<string, number>; atendentes: Map<string, number> };
+    const porMotivo = new Map<string, Ac>();
+    for (const row of chamadasRows) {
+      const motivo = String(row.motivoEncerramento ?? '').trim();
+      if (motivo.length === 0) continue;
+      let g = porMotivo.get(motivo);
+      if (!g) {
+        g = { qtd: 0, ramais: new Map(), atendentes: new Map() };
+        porMotivo.set(motivo, g);
+      }
+      g.qtd += 1;
+      const ram = normalizarRamalChamada(row.ramal);
+      g.ramais.set(ram, (g.ramais.get(ram) ?? 0) + 1);
+      const at = rotuloAtendenteMotivoAgregacao(row.atendente);
+      g.atendentes.set(at, (g.atendentes.get(at) ?? 0) + 1);
+    }
+    return Array.from(porMotivo.entries())
+      .map(([texto, g]) => {
+        const ram = modaComContagem(g.ramais);
+        const at = modaComContagem(g.atendentes);
+        return {
+          texto,
+          qtd: g.qtd,
+          ramalModa: ram.k,
+          ramalModaQtd: ram.q,
+          atendenteModa: at.k,
+          atendenteModaQtd: at.q,
+        };
+      })
+      .sort((a, b) => b.qtd - a.qtd || a.texto.localeCompare(b.texto, 'pt-BR'));
+  }, [chamadasRows]);
 
   return (
     <Stack spacing={2}>
@@ -185,8 +254,9 @@ export function QualidadeInicioCharts() {
               (aba <strong>{abaNome}</strong>)
             </>
           ) : null}
-          — {chamadasRows.length} registro(s). Intervalo de hora pela <strong>Hora Entrada Fila</strong> (com fallback
-          para atendimento/desligamento quando vazia).
+          — {chamadasRows.length} registro(s). No gráfico com data completa, os pontos são a cada <strong>30 minutos</strong>;
+          no modo só turno, por hora. Referência: <strong>Hora Entrada Fila</strong> (com fallback para atendimento/desligamento
+          quando vazia).
           {resumoPeriodoArquivo.identificado ? (
             <Typography component="div" variant="body2" sx={{ mt: 1.25 }}>
               <strong>Período dos registros:</strong> {resumoPeriodoArquivo.textoPeriodo}
@@ -201,74 +271,234 @@ export function QualidadeInicioCharts() {
       )}
 
       <Paper sx={{ p: 2, minHeight: 480 }}>
-        <AbasTurnoChamadas value={turno} onChange={setTurno} />
-        <Typography variant="h6" component="h2" fontWeight={700} gutterBottom sx={{ mt: 0.25 }}>
-          {tituloComPeriodoChamadas('Chamadas por hora do dia', chamadasRows)}
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Turno pela mesma referência de horário (Hora Entrada Fila, depois atendimento/desligamento):{' '}
-          <strong>Diurno</strong> 07:00–18:59 · <strong>Noturno</strong> 19:00–06:59. Nesta aba:{' '}
-          {turno === 'diurno' ? (
-            <>intervalos 07:00–18:00.</>
-          ) : (
-            <>19:00–23:00 e depois 00:00–06:00 (ordem do eixo).</>
-          )}{' '}
-          Apenas status <strong>ATENDIDA</strong> e <strong>ABANDONADA</strong>. Totais no turno:{' '}
-          <strong style={{ color: COR_ATENDIDA }}>ATEND. {totaisChamadasGrafico.atendidas}</strong>
-          {' · '}
-          <strong style={{ color: COR_ABANDONADA }}>ABAND. {totaisChamadasGrafico.abandonadas}</strong>
-        </Typography>
-        <ResponsiveContainer width="100%" height={400}>
-          <LineChart data={dadosPorHora} margin={{ top: 16, right: 12, left: 4, bottom: 36 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.55} />
-            <XAxis
-              dataKey="horaLabel"
-              stroke="#94a3b8"
-              fontSize={11}
-              interval={0}
-              tick={{ fill: '#94a3b8' }}
-              tickMargin={14}
-              height={52}
+        {linhaTempo ? (
+          <>
+            <Typography variant="h6" component="h2" fontWeight={700} gutterBottom sx={{ mt: 0.25 }}>
+              {tituloComPeriodoChamadas('Atendimentos e abandonos (a cada 30 min)', chamadasRows)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+              Pontos no gráfico a cada <strong>30 minutos</strong> (:00 e :30). Contagem por status <strong>ATENDIDA</strong> e{' '}
+              <strong>ABANDONADA</strong> (mesma ordem de campos de horário). Totais no período:{' '}
+              <strong style={{ color: COR_ATENDIDAS_AZUL }}>ATEND. {totaisPrimeiroGrafico.atendidas}</strong>
+              {' · '}
+              <strong style={{ color: COR_ABANDONADAS_LARANJA }}>ABAND. {totaisPrimeiroGrafico.abandonadas}</strong>
+            </Typography>
+            {linhaTempo.usouFallbackSomenteHora ? (
+              <Alert severity="warning" variant="outlined" sx={{ mb: 2, borderColor: 'divider' }}>
+                Parte das linhas tinha <strong>só horário</strong> (sem data): esses registros foram posicionados no dia
+                do primeiro carimbo com data, para manter o gráfico contínuo.
+              </Alert>
+            ) : null}
+            <Stack direction="row" flexWrap="wrap" gap={1.5} justifyContent="center" sx={{ mb: 2 }}>
+              {linhaTempo.metricasFaixas.map((met) => (
+                <Paper
+                  key={met.id}
+                  variant="outlined"
+                  sx={{
+                    minWidth: 128,
+                    flex: '1 1 128px',
+                    maxWidth: 168,
+                    p: 1.25,
+                    textAlign: 'center',
+                    borderColor: 'divider',
+                    background: (theme) =>
+                      theme.palette.mode === 'dark' ? 'rgba(15, 23, 42, 0.55)' : 'rgba(248, 250, 252, 0.9)',
+                  }}
+                >
+                  <Typography variant="overline" color="text.secondary" sx={{ lineHeight: 1.2, fontWeight: 600 }}>
+                    {met.dataLabelCurta}
+                  </Typography>
+                  <Typography
+                    variant="h5"
+                    component="div"
+                    fontWeight={800}
+                    sx={{
+                      my: 0.5,
+                      color: met.pctAtendidas != null ? COR_ATENDIDAS_AZUL : 'text.disabled',
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {met.pctAtendidas != null ? `${met.pctAtendidas}%` : '—'}
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                    sx={{ mb: 0.75, lineHeight: 1.2 }}
+                  >
+                    de chamadas atendidas
+                  </Typography>
+                  <Typography variant="caption" fontWeight={700} display="block">
+                    {met.faixaTitulo}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.75 }}>
+                    {met.faixaSub}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                    ATEND. {met.atendidas} · ABAND. {met.abandonadas}
+                  </Typography>
+                </Paper>
+              ))}
+            </Stack>
+            <ChamadasVolumeLinhasSvg
+              pontos={dadosComIndiceGrafico}
+              maxY={maxYPrimeiroGrafico}
+              corAtendidas={COR_ATENDIDAS_AZUL}
+              corAbandonadas={COR_ABANDONADAS_LARANJA}
+              height={pontosPrimeiroGrafico.length > 72 ? 460 : 420}
             />
-            <YAxis
-              stroke="#94a3b8"
-              fontSize={12}
-              allowDecimals={false}
-              domain={[0, maxY]}
-              padding={{ bottom: 12 }}
-              tick={{ fill: '#94a3b8' }}
+            {diasBarraFaixa.length > 0 ? (
+              <Stack spacing={0.75} sx={{ mt: 2 }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                  Faixas do dia (referência visual — madrugada / diurno / noturno)
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="stretch">
+                  {diasBarraFaixa.map((dia) => {
+                    const rotulo =
+                      linhaTempo.metricasFaixas.find((m) => m.dataRefMs === dia.getTime())?.dataLabelCurta ??
+                      dia.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+                    return (
+                      <Stack key={dia.getTime()} flex={1} spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+                        <Stack
+                          direction="row"
+                          width="100%"
+                          sx={{
+                            height: 14,
+                            borderRadius: 1,
+                            overflow: 'hidden',
+                            border: '1px solid',
+                            borderColor: 'divider',
+                          }}
+                        >
+                          <Box
+                            title="Madrugada · 00h às 06:59min"
+                            sx={{ flex: PROPORCAO_FAIXA_24H.madrugada, bgcolor: CORES_FAIXA_BARRA.madrugada }}
+                          />
+                          <Box
+                            title="Diurno · 07h às 18:59min"
+                            sx={{ flex: PROPORCAO_FAIXA_24H.diurno, bgcolor: CORES_FAIXA_BARRA.diurno }}
+                          />
+                          <Box
+                            title="Noturno · 19h às 23:59min"
+                            sx={{ flex: PROPORCAO_FAIXA_24H.noturno, bgcolor: CORES_FAIXA_BARRA.noturno }}
+                          />
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          {rotulo}
+                        </Typography>
+                      </Stack>
+                    );
+                  })}
+                </Stack>
+              </Stack>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <AbasTurnoChamadas value={turno} onChange={setTurno} />
+            <Typography variant="h6" component="h2" fontWeight={700} gutterBottom sx={{ mt: 0.25 }}>
+              {tituloComPeriodoChamadas('Chamadas por hora do dia', chamadasRows)}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+              Sem <strong>data e hora completas</strong> no arquivo, usamos o modo por <strong>turno</strong> (24 h). Com
+              data nas colunas de horário, o gráfico passa a mostrar o <strong>intervalo total</strong>, cartões de % e
+              faixas coloridas. Referência: Hora Entrada Fila → atendimento → desligamento.{' '}
+              <strong>Diurno</strong> 07:00–18:59 · <strong>Noturno</strong> 19:00–06:59. Nesta aba:{' '}
+              {turno === 'diurno' ? (
+                <>intervalos 07:00–18:00.</>
+              ) : (
+                <>19:00–23:00 e depois 00:00–06:00 (ordem do eixo).</>
+              )}{' '}
+              Apenas status <strong>ATENDIDA</strong> e <strong>ABANDONADA</strong>. Totais no turno:{' '}
+              <strong style={{ color: COR_ATENDIDAS_AZUL }}>ATEND. {totaisPrimeiroGrafico.atendidas}</strong>
+              {' · '}
+              <strong style={{ color: COR_ABANDONADAS_LARANJA }}>ABAND. {totaisPrimeiroGrafico.abandonadas}</strong>
+            </Typography>
+            <ChamadasVolumeLinhasSvg
+              pontos={dadosComIndiceGrafico}
+              maxY={maxYPrimeiroGrafico}
+              corAtendidas={COR_ATENDIDAS_AZUL}
+              corAbandonadas={COR_ABANDONADAS_LARANJA}
+              height={400}
             />
-            <Tooltip
-              contentStyle={tooltipStyle}
-              formatter={(value: number, name: string) => [value, name === 'atendidas' ? 'ATEND.' : 'ABAND.']}
-              labelFormatter={(label) => `Hora ${label}`}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 12, color: '#94a3b8', paddingTop: 8 }}
-              formatter={(value) => (value === 'atendidas' ? 'ATEND.' : 'ABAND.')}
-            />
-            <Line
-              type="monotone"
-              dataKey="atendidas"
-              name="atendidas"
-              stroke={COR_ATENDIDA}
-              strokeWidth={2}
-              isAnimationActive={false}
-              dot={(props) => <DotComValor {...props} dataKey="atendidas" fill={COR_ATENDIDA} />}
-              activeDot={{ r: 6, stroke: COR_ATENDIDA, fill: '#fff' }}
-            />
-            <Line
-              type="monotone"
-              dataKey="abandonadas"
-              name="abandonadas"
-              stroke={COR_ABANDONADA}
-              strokeWidth={2}
-              isAnimationActive={false}
-              dot={(props) => <DotComValor {...props} dataKey="abandonadas" fill={COR_ABANDONADA} />}
-              activeDot={{ r: 6, stroke: COR_ABANDONADA, fill: '#fff' }}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+          </>
+        )}
+        {chamadasRows.length > 0 && resumoMotivosEncerramento.length > 0 ? (
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="subtitle1" component="h3" fontWeight={700} gutterBottom>
+              Motivo encerramento
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
+              Formato: <strong>motivo: total</strong> e, entre parênteses, o ramal e o atendente mais frequentes naquele
+              motivo, cada um com a <strong>quantidade de registros</strong> em que aparecem (entre as linhas com esse
+              motivo). Empates: desempate alfabético.
+            </Typography>
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{
+                maxHeight: 440,
+                borderColor: 'divider',
+                background: (theme) =>
+                  theme.palette.mode === 'dark' ? 'rgba(15, 23, 42, 0.35)' : 'rgba(248, 250, 252, 0.85)',
+              }}
+            >
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 700 }}>Motivo: total (ramal e atendente moda · subcontagens)</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {resumoMotivosEncerramento.map((row) => (
+                    <TableRow key={row.texto} hover>
+                      <TableCell
+                        sx={{
+                          wordBreak: 'break-word',
+                          maxWidth: { xs: '100%', sm: 720 },
+                          verticalAlign: 'top',
+                        }}
+                      >
+                        <Typography component="span" fontWeight={600}>
+                          {row.texto}
+                        </Typography>
+                        <Typography component="span" color="text.secondary">
+                          :{' '}
+                        </Typography>
+                        <Typography component="span" fontWeight={700}>
+                          {row.qtd}
+                        </Typography>
+                        <Typography component="span" color="text.secondary">
+                          {' '}
+                          (Ramal:{' '}
+                        </Typography>
+                        <Typography component="span" fontWeight={500}>
+                          {row.ramalModa}
+                        </Typography>
+                        <Typography component="span" color="text.secondary">
+                          {' '}
+                          - ({row.ramalModaQtd}{' '}
+                          {row.ramalModaQtd === 1 ? 'registro' : 'registros'}) -{' '}
+                        </Typography>
+                        <Typography component="span" fontWeight={500}>
+                          {row.atendenteModa}
+                        </Typography>
+                        <Typography component="span" color="text.secondary">
+                          {' '}
+                          ({row.atendenteModaQtd}{' '}
+                          {row.atendenteModaQtd === 1 ? 'registro' : 'registros'})
+                        </Typography>
+                        <Typography component="span" color="text.secondary">
+                          )
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Box>
+        ) : null}
       </Paper>
 
       <Paper sx={{ p: 2 }}>
@@ -277,9 +507,10 @@ export function QualidadeInicioCharts() {
           {tituloComPeriodoChamadas('Chamadas atendidas por atendente', chamadasRows)}
         </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
-          Mesmo turno (Diurno / Noturno) do gráfico acima. Cada barra é um nome da coluna <strong>Atendente</strong>; o
-          comprimento e o número à direita indicam quantas ligações <strong>ATENDIDA</strong> (mesma regra do gráfico
-          por hora) no turno selecionado.
+          O gráfico <strong>acima</strong> usa o intervalo completo do arquivo quando há data nas colunas (pontos
+          a cada <strong>30 minutos</strong>); caso contrário, o modo por turno (Diurno / Noturno), por hora. Aqui cada
+          barra é um nome da coluna <strong>Atendente</strong>; o comprimento e o número à direita indicam quantas
+          ligações <strong>ATENDIDA</strong> (mesma regra do gráfico por hora) no turno selecionado.
         </Typography>
         {chamadasRows.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 3 }}>
@@ -338,7 +569,7 @@ export function QualidadeInicioCharts() {
               />
               <Bar
                 dataKey="quantidade"
-                fill={COR_ATENDIDA}
+                fill={COR_ATENDIDAS_AZUL}
                 name="Atendidas"
                 radius={[0, 6, 6, 0]}
                 maxBarSize={32}

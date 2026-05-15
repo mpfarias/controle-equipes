@@ -27,6 +27,7 @@ import {
   propagarPermissoesEscalasSubtelasParaAbaPrincipal,
   temAcessoEscalas,
 } from './utils/permissions';
+import { usuarioFuncaoBloqueiaEscalasEOperacoes } from './utils/funcaoSupervisorDeDia';
 import { temAcessoOrionSuporteEfetivo } from './utils/orionSuporteEfetivo';
 import {
   BROWSER_TITLE_APP_SAD,
@@ -350,6 +351,10 @@ export default function App() {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<NavigateTabEventDetail>).detail;
       if (!detail?.tab) return;
+      if (detail.tab === 'escalas' && currentUser && usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)) {
+        setActiveTab('dashboard');
+        return;
+      }
       setActiveTab(detail.tab);
       if (detail.tab === 'escalas') {
         setEscalasInitialSubTab(detail.escalasSubTab ?? 'gerar');
@@ -361,7 +366,7 @@ export default function App() {
     };
     window.addEventListener(ORIAN_NAVIGATE_TAB, handler);
     return () => window.removeEventListener(ORIAN_NAVIGATE_TAB, handler);
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     if (activeTab !== 'reportar-erro') {
@@ -733,6 +738,9 @@ export default function App() {
   const tabsDisponiveis = useMemo(() => {
     if (!permissoesPorTela) return [];
     if (usuarioEhAdministrador) {
+      if (currentUser && usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)) {
+        return TABS.filter((t) => t.key !== 'escalas');
+      }
       return TABS;
     }
     const temAcessoAfastamentos =
@@ -751,10 +759,13 @@ export default function App() {
       if (tab.key === 'afastamentos') return Boolean(temAcessoAfastamentos);
       if (tab.key === 'equipe') return Boolean(temAcessoListaEfetivo);
       if (tab.key === 'sistema') return Boolean(temAcessoSistema);
-      if (tab.key === 'escalas') return temAcessoEscalas(permissoesPorTela);
+      if (tab.key === 'escalas') {
+        if (currentUser && usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)) return false;
+        return temAcessoEscalas(permissoesPorTela);
+      }
       return Boolean(permissoesPorTela[tab.key]?.VISUALIZAR);
     });
-  }, [permissoesPorTela, usuarioEhAdministrador]);
+  }, [permissoesPorTela, usuarioEhAdministrador, currentUser]);
 
   /**
    * Evita loop de `location.replace` ao Órion Suporte quando o perfil só tem gestão de chamados
@@ -800,6 +811,10 @@ export default function App() {
   // Se o usuário não tem acesso à aba e está tentando acessá-la, redirecionar
   useEffect(() => {
     if (!currentUser || !permissoesPorTela) return;
+    if (usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser) && activeTab === 'escalas') {
+      setActiveTab('dashboard');
+      return;
+    }
     if (usuarioEhAdministrador) return;
     const temAcessoAfastamentos =
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
@@ -823,7 +838,8 @@ export default function App() {
             : activeTab === 'sistema'
                 ? temAcessoSistema
                 : activeTab === 'escalas'
-                  ? temAcessoEscalas(permissoesPorTela)
+                  ? temAcessoEscalas(permissoesPorTela) &&
+                    !usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)
                   : Boolean(permissoesPorTela[activeTab]?.VISUALIZAR);
     if (!podeAcessar) {
       const destino =
@@ -851,7 +867,12 @@ export default function App() {
             if (k === 'reportar-erro') continue;
             if (k === 'dashboard' && permissoesPorTela['dashboard']?.VISUALIZAR) return k;
             if (k === 'calendario' && permissoesPorTela['calendario']?.VISUALIZAR) return k;
-            if (k === 'escalas' && temAcessoEscalas(permissoesPorTela)) return k;
+            if (
+              k === 'escalas' &&
+              temAcessoEscalas(permissoesPorTela) &&
+              !usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)
+            )
+              return k;
             if (k === 'afastamentos' && temAfast) return k;
             if (k === 'equipe' && temListaEfet) return k;
             if (k === 'sistema' && temSis) return k;
@@ -1452,12 +1473,13 @@ export default function App() {
         </ul>
       )}
 
-      <StartupFeriasAvisos
+        <StartupFeriasAvisos
         key={currentUser.id}
         currentUser={currentUser}
         enabled={!permissoesCarregando && Boolean(permissoesPorTela) && podeVerStartupFerias}
         podeAbrirDashboard={usuarioPodeVerDashboard}
         onIrPara={(tab) => {
+          if (tab === 'escalas' && usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)) return;
           setActiveTab(tab);
           if (tab === 'afastamentos') setAfastamentosInitialSubTab('afastamentos');
         }}
@@ -1470,6 +1492,7 @@ export default function App() {
           <DashboardHomeSection
             currentUser={currentUser}
             onTabChange={(tab, options?: TabChangeOptions) => {
+              if (tab === 'escalas' && usuarioFuncaoBloqueiaEscalasEOperacoes(currentUser)) return;
               setActiveTab(tab);
               if (tab === 'afastamentos') {
                 if (options?.subTab) setAfastamentosInitialSubTab(options.subTab);

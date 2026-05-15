@@ -186,15 +186,19 @@ export default function App() {
         removeToken();
         setCurrentUser(null);
         setBootstrapError(
-          'Seu perfil não tem permissão para o Órion Qualidade. Um administrador deve incluir "Órion Qualidade" nos sistemas permitidos do seu usuário (Órion SAD → Sistema → Cadastrar usuários).',
+          'Seu perfil não tem permissão para o Órion Qualidade. Peça ao administrador para marcar Órion Qualidade nos sistemas permitidos do seu usuário (SAD → Sistema → Usuários), ou conceda perfil de administrador do sistema / nível ADMINISTRADOR.',
         );
         setLoading(false);
         return;
       }
       setCurrentUser(me);
-    } catch {
+    } catch (err) {
       removeToken();
       setCurrentUser(null);
+      const detalhe = err instanceof Error ? err.message : String(err);
+      setBootstrapError(
+        `Não foi possível validar a sessão com a API: ${detalhe}. Confira se a API está no ar, se a variável VITE_API_URL do Órion Qualidade aponta para o servidor correto e se o CORS da API inclui a origem desta página (ex.: http://localhost:5182).`,
+      );
     } finally {
       setLoading(false);
     }
@@ -241,7 +245,7 @@ export default function App() {
     if (!usuarioPodeAcessarOrionQualidade(usuario)) {
       removeToken();
       setBootstrapError(
-        'Seu perfil não tem permissão para o Órion Qualidade. Solicite ao administrador a inclusão do módulo nos sistemas permitidos do seu cadastro no SAD.',
+        'Seu perfil não tem permissão para o Órion Qualidade. Peça ao administrador Órion Qualidade em sistemas permitidos (SAD → Usuários) ou perfil de administrador / nível ADMINISTRADOR.',
       );
       return;
     }

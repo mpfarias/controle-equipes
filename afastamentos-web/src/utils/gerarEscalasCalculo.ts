@@ -24,6 +24,8 @@ import {
   resolverHorarioExpedientePolicial,
 } from './expedienteEscalaRegras';
 import { indiceOrdenacaoBloco, type BlocoEscalaId, type EscalaCabecalhoFormulario } from './escalaBlocos';
+import { policialFuncaoBloqueiaEscalasEOperacoes } from './funcaoSupervisorDeDia';
+import { policialPossuiRestricaoCadastrada } from './policialRestricao';
 
 export type TipoServicoGerar = 'OPERACIONAL' | 'EXPEDIENTE' | 'MOTORISTAS';
 
@@ -486,6 +488,7 @@ export function montarPayloadGerarEscalas(
 
     for (const p of policiais) {
       if (!policialElegivelEscala(p)) continue;
+      if (policialFuncaoBloqueiaEscalasEOperacoes(p)) continue;
       if (ehFuncaoMotorista(p, opts.funcaoMotoristaId, opts.funcoesCatalogo)) continue;
       const metaFn = metaFuncaoNoCatalogo(p, opts.funcoesCatalogo);
       if (metaFn && metaFn.escalaOperacional === false) continue;
@@ -544,6 +547,8 @@ export function montarPayloadGerarEscalas(
     const resumo = `Motoristas — equipe ${eqMot} da escala ${ESCALA_MOTORISTA_DIA} (motorista de dia, conforme calendário)`;
     for (const p of policiais) {
       if (!policialElegivelEscala(p)) continue;
+      if (policialFuncaoBloqueiaEscalasEOperacoes(p)) continue;
+      if (policialPossuiRestricaoCadastrada(p)) continue;
       if (!ehFuncaoMotorista(p, opts.funcaoMotoristaId, opts.funcoesCatalogo)) continue;
       if (!p.equipe || p.equipe !== eqMot) continue;
       candidatos.push({
@@ -562,6 +567,7 @@ export function montarPayloadGerarEscalas(
   const idsExp = opts.funcoesExpedienteIds;
   for (const p of policiais) {
     if (!policialElegivelListaExpediente(p)) continue;
+    if (policialFuncaoBloqueiaEscalasEOperacoes(p)) continue;
     if (!policialEhFuncaoExpedienteGeracao(p, idsExp, opts.funcoesCatalogo)) continue;
     const idxFn = indiceFuncaoOrdenacaoEscala(p.funcao?.nome);
     const metaFn = metaFuncaoNoCatalogo(p, opts.funcoesCatalogo);
@@ -678,6 +684,7 @@ export function montarPayloadEscalaExtraordinaria(input: {
 
   const linhas: LinhaEscalaGeradaDraft[] = [];
   for (const p of policiais) {
+    if (policialFuncaoBloqueiaEscalasEOperacoes(p)) continue;
     const af = encontrarAfastamentoNoDia(afastamentos, p.id, dataRef);
     const equipeLabel = p.equipe && p.equipe !== 'SEM_EQUIPE' ? `Equipe ${p.equipe}` : null;
     const base = {

@@ -49,7 +49,11 @@ import { formatEquipeLabel } from '../../constants';
 import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { comparePorPatenteENome, sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
+import { policialFuncaoBloqueiaEscalasEOperacoes } from '../../utils/funcaoSupervisorDeDia';
 import { DashboardGraficosPanel, type TipoGraficoDashboard } from './DashboardGraficosPanel';
+
+/** Alinha totais/modais do dashboard ao efetivo operacional (sem «Superior de dia»). */
+const DASHBOARD_EFETIVO_COPOM_QUERY = { excluirSuperiorDeDia: true as const };
 
 const EQUIPES_DASHBOARD = new Set(['A', 'B', 'C', 'D', 'E']);
 
@@ -474,9 +478,14 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(params);
-        
+
+        // «Superior de dia» não integra o efetivo COPOM nas contagens do dashboard
+        const afastamentosSemSuperiorDeDia = afastamentos.filter(
+          (af) => !policialFuncaoBloqueiaEscalasEOperacoes(af.policial),
+        );
+
         // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
-        let afastamentosFiltrados = afastamentos;
+        let afastamentosFiltrados = afastamentosSemSuperiorDeDia;
         if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
           // Buscar todos os policiais com as funções permitidas
           const todosPoliciaisCpmulher: Policial[] = [];
@@ -487,6 +496,7 @@ export function DashboardHomeSection({
               includeAfastamentos: false,
               includeRestricoes: false,
               funcaoId: funcaoId,
+              ...DASHBOARD_EFETIVO_COPOM_QUERY,
             });
             todosPoliciaisCpmulher.push(...dataPoliciais.Policiales);
           }
@@ -499,7 +509,7 @@ export function DashboardHomeSection({
           );
           
           // Filtrar afastamentos apenas dos policiais permitidos
-          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
+          afastamentosFiltrados = afastamentosSemSuperiorDeDia.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
         }
         
         // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
@@ -587,6 +597,7 @@ export function DashboardHomeSection({
               includeAfastamentos: false,
               includeRestricoes: false,
               equipe: equipe,
+              ...DASHBOARD_EFETIVO_COPOM_QUERY,
               // Não passar status para incluir todos exceto DESATIVADO
               // O backend deve filtrar automaticamente ou vamos filtrar manualmente
             });
@@ -618,7 +629,11 @@ export function DashboardHomeSection({
             const idsPoliciaisEquipe = new Set(policiaisAtivos.map(p => p.id));
             
             // Filtrar afastamentos que realmente estão ativos durante o mês selecionado
-            const afastamentosNoMesEquipe = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+            const afastamentosNoMesEquipe = filtrarAfastamentosNoMes(
+              afastamentosFiltrados,
+              primeiroDia,
+              ultimoDiaStr,
+            );
             
             // Contar policiais únicos afastados dessa equipe
             const policiaisUnicosAfastados = new Set(
@@ -676,6 +691,7 @@ export function DashboardHomeSection({
           pageSize: 1000, // Buscar todos para poder filtrar DESATIVADOS
           includeAfastamentos: false,
           includeRestricoes: false,
+          ...DASHBOARD_EFETIVO_COPOM_QUERY,
           // Não passar status para incluir todos
         };
 
@@ -705,6 +721,8 @@ export function DashboardHomeSection({
             p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId)
           );
         }
+
+        policiaisAtivos = policiaisAtivos.filter((p) => !policialFuncaoBloqueiaEscalasEOperacoes(p));
         
         // Usar totalDisponiveis da API (exclui DESATIVADOS no banco) - mais confiável que filtrar a página
         const totalParaExibir = usuarioEhCpmulher
@@ -1001,6 +1019,7 @@ export function DashboardHomeSection({
             includeAfastamentos: false,
             includeRestricoes: false,
             funcaoId: funcaoId,
+            ...DASHBOARD_EFETIVO_COPOM_QUERY,
           });
           todosPoliciaisCopomMulher.push(...data.Policiales);
         }
@@ -1023,7 +1042,14 @@ export function DashboardHomeSection({
         };
 
         const afastamentos = await api.listAfastamentos(paramsAfastamentos);
-        const afastamentosNoMesCopomMulher = filtrarAfastamentosNoMes(afastamentos, primeiroDia, ultimoDiaStr);
+        const afastamentosCopomMulherBase = afastamentos.filter(
+          (af) => !policialFuncaoBloqueiaEscalasEOperacoes(af.policial),
+        );
+        const afastamentosNoMesCopomMulher = filtrarAfastamentosNoMes(
+          afastamentosCopomMulherBase,
+          primeiroDia,
+          ultimoDiaStr,
+        );
         const idsCopomMulher = new Set(policiaisCopomMulherAtivos.map((p) => p.id));
         const policiaisUnicosAfastados = new Set(
           afastamentosNoMesCopomMulher
@@ -1433,6 +1459,7 @@ export function DashboardHomeSection({
         includeAfastamentos: false,
         includeRestricoes: false,
         status,
+        ...DASHBOARD_EFETIVO_COPOM_QUERY,
       };
       if (!usuarioPodeVerTodos && currentUser.equipe) {
         params.equipe = currentUser.equipe;
@@ -1464,6 +1491,7 @@ export function DashboardHomeSection({
         pageSize: 1000,
         includeAfastamentos: false,
         includeRestricoes: false,
+        ...DASHBOARD_EFETIVO_COPOM_QUERY,
       };
       if (!usuarioPodeVerTodos && currentUser.equipe) {
         params.equipe = currentUser.equipe;
@@ -1508,6 +1536,7 @@ export function DashboardHomeSection({
         pageSize: 1000, // Buscar todos
         includeAfastamentos: false,
         includeRestricoes: Boolean(card.filters?.hasRestricao || (card as any).isRestricoesMedicas),
+        ...DASHBOARD_EFETIVO_COPOM_QUERY,
         // Não passar status para incluir todos exceto DESATIVADO
       };
 
@@ -1532,6 +1561,7 @@ export function DashboardHomeSection({
           const dataTemp = await api.listPoliciaisPaginated({
             ...params,
             funcaoId: funcaoId,
+            ...DASHBOARD_EFETIVO_COPOM_QUERY,
           });
           todosPoliciaisTemp.push(...dataTemp.Policiales);
         }
@@ -1598,17 +1628,23 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(afastamentosParams);
-        
+
+        const afastamentosSemSuperiorModal = afastamentos.filter(
+          (af) => !policialFuncaoBloqueiaEscalasEOperacoes(af.policial),
+        );
+
         // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
         // Isso se aplica tanto para cards de equipe quanto para o card "COPOM Mulher"
-        let afastamentosFiltrados = afastamentos;
+        let afastamentosFiltrados = afastamentosSemSuperiorModal;
         if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
           const idsPoliciaisPermitidos = new Set(
             todosPoliciais
               .filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId))
               .map((p) => p.id)
           );
-          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisPermitidos.has(af.policialId));
+          afastamentosFiltrados = afastamentosSemSuperiorModal.filter((af) =>
+            idsPoliciaisPermitidos.has(af.policialId),
+          );
         }
         
         const afastamentosNoMesModal = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
@@ -1673,9 +1709,13 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(params);
-        
+
+        const afastamentosSemSuperiorMotivo = afastamentos.filter(
+          (af) => !policialFuncaoBloqueiaEscalasEOperacoes(af.policial),
+        );
+
         // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
-        let afastamentosFiltradosPorFuncao = afastamentos;
+        let afastamentosFiltradosPorFuncao = afastamentosSemSuperiorMotivo;
         if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
           // Buscar todos os policiais com as funções permitidas
           const todosPoliciaisCpmulher: Policial[] = [];
@@ -1686,6 +1726,7 @@ export function DashboardHomeSection({
               includeAfastamentos: false,
               includeRestricoes: false,
               funcaoId: funcaoId,
+              ...DASHBOARD_EFETIVO_COPOM_QUERY,
             });
             todosPoliciaisCpmulher.push(...dataPoliciais.Policiales);
           }
@@ -1698,7 +1739,9 @@ export function DashboardHomeSection({
           );
           
           // Filtrar afastamentos apenas dos policiais permitidos
-          afastamentosFiltradosPorFuncao = afastamentos.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
+          afastamentosFiltradosPorFuncao = afastamentosSemSuperiorMotivo.filter((af) =>
+            idsPoliciaisCpmulher.has(af.policialId),
+          );
         }
         
         const afastamentosNoMesMotivo = filtrarAfastamentosNoMes(afastamentosFiltradosPorFuncao, primeiroDia, ultimoDiaStr);
@@ -1716,6 +1759,7 @@ export function DashboardHomeSection({
           pageSize: 1000, // Buscar todos
           includeAfastamentos: false,
           includeRestricoes: false,
+          ...DASHBOARD_EFETIVO_COPOM_QUERY,
         };
 
         if (!usuarioPodeVerTodos && currentUser.equipe) {
@@ -1746,16 +1790,19 @@ export function DashboardHomeSection({
         }
 
         const afastamentos = await api.listAfastamentos(afastamentosParams);
+        const afastamentosSemSuperior = afastamentos.filter(
+          (af) => !policialFuncaoBloqueiaEscalasEOperacoes(af.policial),
+        );
         
         // Se for Cpmulher, filtrar afastamentos apenas de policiais com as funções permitidas
-        let afastamentosFiltrados = afastamentos;
+        let afastamentosFiltrados = afastamentosSemSuperior;
         if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
           const idsPoliciaisPermitidos = new Set(
             todosPoliciais
               .filter((p) => p.funcaoId && funcoesCopomMulherIds.includes(p.funcaoId))
               .map((p) => p.id)
           );
-          afastamentosFiltrados = afastamentos.filter((af) => idsPoliciaisPermitidos.has(af.policialId));
+          afastamentosFiltrados = afastamentosSemSuperior.filter((af) => idsPoliciaisPermitidos.has(af.policialId));
         }
         
         const afastamentosNoMesDisponiveis = filtrarAfastamentosNoMes(afastamentosFiltrados, primeiroDia, ultimoDiaStr);
@@ -1782,7 +1829,11 @@ export function DashboardHomeSection({
 
         const afastamentos = await api.listAfastamentos(params);
 
-        let afastamentosFiltradosPorFuncao = afastamentos;
+        const afastamentosSemSuperiorMes = afastamentos.filter(
+          (af) => !policialFuncaoBloqueiaEscalasEOperacoes(af.policial),
+        );
+
+        let afastamentosFiltradosPorFuncao = afastamentosSemSuperiorMes;
         if (usuarioEhCpmulher && funcoesCopomMulherIds.length > 0) {
           const todosPoliciaisCpmulher: Policial[] = [];
           for (const funcaoId of funcoesCopomMulherIds) {
@@ -1792,6 +1843,7 @@ export function DashboardHomeSection({
               includeAfastamentos: false,
               includeRestricoes: false,
               funcaoId: funcaoId,
+              ...DASHBOARD_EFETIVO_COPOM_QUERY,
             });
             todosPoliciaisCpmulher.push(...dataPoliciais.Policiales);
           }
@@ -1800,7 +1852,9 @@ export function DashboardHomeSection({
               .filter((p) => p.status !== 'DESATIVADO')
               .map((p) => p.id)
           );
-          afastamentosFiltradosPorFuncao = afastamentos.filter((af) => idsPoliciaisCpmulher.has(af.policialId));
+          afastamentosFiltradosPorFuncao = afastamentosSemSuperiorMes.filter((af) =>
+            idsPoliciaisCpmulher.has(af.policialId),
+          );
         }
 
         const afastamentosNoMes = filtrarAfastamentosNoMes(afastamentosFiltradosPorFuncao, primeiroDia, ultimoDiaStr);
@@ -1828,6 +1882,7 @@ export function DashboardHomeSection({
           pageSize: 1000, // Buscar todos
           includeAfastamentos: false,
           includeRestricoes: Boolean(card.filters?.hasRestricao),
+          ...DASHBOARD_EFETIVO_COPOM_QUERY,
           // Não passar status para incluir todos exceto DESATIVADO
         };
 

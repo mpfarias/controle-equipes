@@ -62,6 +62,7 @@ export class PoliciaisController {
     @Query('anoPrevisaoFerias') anoPrevisaoFerias?: string,
     @Query('feriasAno') feriasAno?: string,
     @Query('excluirComissionadosParaLimiteFerias') excluirComissionadosParaLimiteFerias?: string,
+    @Query('excluirSuperiorDeDia') excluirSuperiorDeDia?: string,
   ) {
     const includeAfastamentosParsed = includeAfastamentos === 'true';
     const includeRestricoesParsed = includeRestricoes === 'true';
@@ -124,6 +125,7 @@ export class PoliciaisController {
       );
     }
     const excluirComissionadosParsed = excluirComissionadosParaLimiteFerias === 'true';
+    const excluirSuperiorDeDiaParsed = excluirSuperiorDeDia === 'true';
     return this.policiaisService.findAll({
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -144,6 +146,7 @@ export class PoliciaisController {
       anoPrevisaoFerias: anoPrevisaoParsed,
       feriasAno: feriasAnoParsed,
       excluirComissionadosParaLimiteFerias: excluirComissionadosParsed,
+      excluirSuperiorDeDia: excluirSuperiorDeDiaParsed,
     });
   }
 

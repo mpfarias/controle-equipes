@@ -5,6 +5,7 @@ const CAMPOS_DATA_HORA: (keyof ChamadaXlsxRow)[] = ['horaEntradaFila', 'horaAten
 /**
  * Interpreta data/hora em textos vindos do Excel (pt-BR com data, ISO, etc.).
  * Valores só com hora (sem dia) retornam null — não há como fixar o calendário.
+ * Exportado para agregação por hora ao longo de vários dias (Órion Qualidade).
  */
 export function parseDataHoraChamada(raw: string): Date | null {
   const s = raw.trim();
@@ -49,6 +50,15 @@ function coletarTimestamps(rows: ChamadaXlsxRow[]): Date[] {
     }
   }
   return out;
+}
+
+/** Menor e maior instante com data completa nas colunas de horário (para linha do tempo). */
+export function obterLimitesTimestampsChamadas(rows: ChamadaXlsxRow[]): { min: Date; max: Date } | null {
+  const ts = coletarTimestamps(rows);
+  if (ts.length === 0) return null;
+  const minT = Math.min(...ts.map((d) => d.getTime()));
+  const maxT = Math.max(...ts.map((d) => d.getTime()));
+  return { min: new Date(minT), max: new Date(maxT) };
 }
 
 function formatarSóData(d: Date): string {

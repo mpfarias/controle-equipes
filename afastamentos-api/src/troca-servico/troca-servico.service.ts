@@ -3,6 +3,7 @@ import { AuditAction, TrocaServicoTurno } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { EscalasService } from '../escalas/escalas.service';
+import { funcaoNomeIndicaSuperiorDeDia } from '../common/funcao-supervisor-dia';
 import { CreateTrocaServicoDto } from './dto/create-troca-servico.dto';
 import { UpdateTrocaServicoDto } from './dto/update-troca-servico.dto';
 import {
@@ -160,6 +161,9 @@ export class TrocaServicoService {
     status: { nome: string } | null;
   }): boolean {
     if (funcaoNomeExcluiTrocaDeServicoExpedienteComandoUpm(p.funcao?.nome)) {
+      return false;
+    }
+    if (funcaoNomeIndicaSuperiorDeDia(p.funcao?.nome)) {
       return false;
     }
     const fn = p.funcao?.nome?.toUpperCase() ?? '';

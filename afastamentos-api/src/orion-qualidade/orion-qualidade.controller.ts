@@ -16,17 +16,24 @@ import { UpdateQualidadeRegistroDto } from './dto/update-qualidade-registro.dto'
 import { EquipesPorNomeDto } from './dto/equipes-por-nome.dto';
 import type { UsuarioOrionQualidadeReq } from './orion-qualidade.service';
 
-function toQualidadeUser(user: {
+/** Campos do `Usuario` Prisma usados pelo módulo Qualidade (JWT / CurrentUser). */
+type UsuarioQualidadeAuth = {
   id: number;
   nome: string;
   matricula: string;
   sistemasPermitidos: string[];
-}): UsuarioOrionQualidadeReq {
+  isAdmin?: boolean;
+  nivel?: { nome?: string | null } | null;
+};
+
+function toQualidadeUser(user: UsuarioQualidadeAuth): UsuarioOrionQualidadeReq {
   return {
     id: user.id,
     nome: user.nome,
     matricula: user.matricula,
     sistemasPermitidos: user.sistemasPermitidos ?? [],
+    isAdmin: user.isAdmin,
+    nivel: user.nivel,
   };
 }
 
@@ -44,12 +51,7 @@ export class OrionQualidadeController {
   @AnyAuthenticated()
   sessao(
     @CurrentUser()
-    user: {
-      id: number;
-      nome: string;
-      matricula: string;
-      sistemasPermitidos: string[];
-    },
+    user: UsuarioQualidadeAuth,
   ) {
     return this.orionQualidadeService.sessaoResumo(toQualidadeUser(user));
   }
@@ -58,12 +60,7 @@ export class OrionQualidadeController {
   @AnyAuthenticated()
   statusIntegraSsp(
     @CurrentUser()
-    user: {
-      id: number;
-      nome: string;
-      matricula: string;
-      sistemasPermitidos: string[];
-    },
+    user: UsuarioQualidadeAuth,
   ) {
     return this.orionQualidadeService.statusIntegraSsp(toQualidadeUser(user));
   }
@@ -72,12 +69,7 @@ export class OrionQualidadeController {
   @AnyAuthenticated()
   listarRegistros(
     @CurrentUser()
-    user: {
-      id: number;
-      nome: string;
-      matricula: string;
-      sistemasPermitidos: string[];
-    },
+    user: UsuarioQualidadeAuth,
   ) {
     return this.orionQualidadeService.listarRegistros(toQualidadeUser(user));
   }
@@ -86,12 +78,7 @@ export class OrionQualidadeController {
   @AnyAuthenticated()
   criarRegistro(
     @CurrentUser()
-    user: {
-      id: number;
-      nome: string;
-      matricula: string;
-      sistemasPermitidos: string[];
-    },
+    user: UsuarioQualidadeAuth,
     @Body() dto: CreateQualidadeRegistroDto,
   ) {
     return this.orionQualidadeService.criarRegistro(toQualidadeUser(user), dto);
@@ -101,12 +88,7 @@ export class OrionQualidadeController {
   @AnyAuthenticated()
   equipesPorNome(
     @CurrentUser()
-    user: {
-      id: number;
-      nome: string;
-      matricula: string;
-      sistemasPermitidos: string[];
-    },
+    user: UsuarioQualidadeAuth,
     @Body() dto: EquipesPorNomeDto,
   ) {
     return this.orionQualidadeService.resolverEquipesPorNomes(
@@ -119,12 +101,7 @@ export class OrionQualidadeController {
   @AnyAuthenticated()
   atualizarRegistro(
     @CurrentUser()
-    user: {
-      id: number;
-      nome: string;
-      matricula: string;
-      sistemasPermitidos: string[];
-    },
+    user: UsuarioQualidadeAuth,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateQualidadeRegistroDto,
   ) {

@@ -30,6 +30,7 @@ import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import { imprimirListaPoliciaisCalendarioModal } from '../../utils/calendarioModalPrint';
+import { funcaoNomeIndicaSuperiorDeDia } from '../../utils/funcaoSupervisorDeDia';
 
 interface CalendarioSectionProps {
   currentUser: Usuario;
@@ -65,6 +66,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   const [policiaisModal, setPoliciaisModal] = useState<Policial[]>([]);
   const [loadingModal, setLoadingModal] = useState(false);
   const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
+  const [funcoesSuperiorDiaIds, setFuncoesSuperiorDiaIds] = useState<number[]>([]);
 
   // Gerar lista de anos (a partir de 2026 até 5 anos no futuro)
   const anosDisponiveis = useMemo(() => {
@@ -211,7 +213,7 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   };
 
   useEffect(() => {
-    const carregarFuncaoMotorista = async () => {
+    const carregarFuncoesEscala = async () => {
       try {
         const funcoes = await api.listFuncoes();
         const funcoesAtivas = funcoes.filter((f) => f.ativo !== false);
@@ -219,11 +221,15 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
           f.nome.toUpperCase().includes('MOTORISTA DE DIA')
         );
         if (funcaoMotorista) setFuncaoMotoristaId(funcaoMotorista.id);
+        const idsSuperior = funcoesAtivas
+          .filter((f) => funcaoNomeIndicaSuperiorDeDia(f.nome))
+          .map((f) => f.id);
+        setFuncoesSuperiorDiaIds(idsSuperior);
       } catch (error) {
-        console.error('Erro ao carregar função Motorista:', error);
+        console.error('Erro ao carregar funções de escala:', error);
       }
     };
-    void carregarFuncaoMotorista();
+    void carregarFuncoesEscala();
   }, []);
 
   // Abrir modal com motoristas de dia escalados conforme a equipe do dia na escala 24×72
@@ -317,6 +323,49 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       setPoliciaisModal(sortPorPatenteENome(policiaisDisponiveis));
     } catch (error) {
       console.error('Erro ao carregar policiais da equipe:', error);
+      setPoliciaisModal([]);
+    } finally {
+      setLoadingModal(false);
+    }
+  };
+
+  const handleSuperiorDiaClick = async (dia: number) => {
+    setModalOpen(true);
+    setLoadingModal(true);
+    const dataAtual = new Date(anoSelecionado, mesSelecionado, dia);
+    const dataStr = `${String(dia).padStart(2, '0')}/${String(mesSelecionado + 1).padStart(2, '0')}/${anoSelecionado}`;
+    setModalTitle(`Superior de dia — ${dataStr}`);
+
+    try {
+      if (funcoesSuperiorDiaIds.length === 0) {
+        setPoliciaisModal([]);
+        return;
+      }
+
+      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        page: 1,
+        pageSize: 1000,
+        funcaoIds: funcoesSuperiorDiaIds,
+        includeAfastamentos: false,
+        includeRestricoes: false,
+      };
+      const data = await api.listPoliciaisPaginated(params);
+      const superiores = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+
+      const dataBusca = `${anoSelecionado}-${String(mesSelecionado + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+      const afastamentos = await api.listAfastamentos({
+        dataInicio: dataBusca,
+        dataFim: dataBusca,
+        includePolicialFuncao: false,
+      });
+      const afastamentosAtivos = filtrarAfastamentosNaData(afastamentos, dataAtual);
+      const idsAfastados = new Set(afastamentosAtivos.map((af) => af.policialId));
+      const superioresDisponiveis = superiores.filter((p) => !idsAfastados.has(p.id));
+
+      setModalTitle(`Superior de dia — ${dataStr}`);
+      setPoliciaisModal(sortPorPatenteENome(superioresDisponiveis));
+    } catch (error) {
+      console.error('Erro ao carregar superior de dia:', error);
       setPoliciaisModal([]);
     } finally {
       setLoadingModal(false);
@@ -437,8 +486,18 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                   >
                     {dia !== null && (
                       <>
-                        {/* Número do dia */}
-                        <Box sx={{ p: 1, pb: 0.5, flexShrink: 0 }}>
+                        {/* Número do dia + atalho Superior */}
+                        <Box
+                          sx={{
+                            p: 1,
+                            pb: 0.5,
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 0.5,
+                          }}
+                        >
                           <Typography
                             variant="body2"
                             sx={{
@@ -450,6 +509,26 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                           >
                             {dia}
                           </Typography>
+                          <Button
+                            variant="text"
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSuperiorDiaClick(dia);
+                            }}
+                            sx={{
+                              minWidth: 'auto',
+                              px: 0.5,
+                              py: 0,
+                              fontSize: '0.65rem',
+                              lineHeight: 1.1,
+                              textTransform: 'none',
+                              color: '#E8EEF4',
+                              '&:hover': { color: '#FFFFFF' },
+                            }}
+                          >
+                            Superior
+                          </Button>
                         </Box>
 
                         {/* Divisão diagonal e equipes */}
@@ -664,6 +743,26 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
                             <Typography variant="body2" sx={{ fontWeight: isHoje(dia) ? 700 : 500, color: isHoje(dia) ? 'var(--accent-muted)' : 'var(--text-primary)' }}>
                               {dia}
                             </Typography>
+                            <Button
+                              variant="text"
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSuperiorDiaClick(dia);
+                              }}
+                              sx={{
+                                minWidth: 'auto',
+                                px: 0.5,
+                                py: 0,
+                                fontSize: '0.65rem',
+                                lineHeight: 1.1,
+                                textTransform: 'none',
+                                color: '#E8EEF4',
+                                '&:hover': { color: '#FFFFFF' },
+                              }}
+                            >
+                              Superior
+                            </Button>
                             {equipeMotoristas !== null ? (
                               <Typography
                                 variant="h6"

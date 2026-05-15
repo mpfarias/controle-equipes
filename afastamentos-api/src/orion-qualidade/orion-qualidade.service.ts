@@ -15,6 +15,8 @@ export type UsuarioOrionQualidadeReq = {
   nome: string;
   matricula: string;
   sistemasPermitidos: string[];
+  isAdmin?: boolean;
+  nivel?: { nome?: string | null } | null;
 };
 
 /**
@@ -44,9 +46,10 @@ export class OrionQualidadeService {
   ) {}
 
   podeAcessarOrionQualidade(usuario: UsuarioOrionQualidadeReq): boolean {
-    const ids = (usuario.sistemasPermitidos ?? []).map((s) =>
-      String(s).trim().toUpperCase(),
-    );
+    if (usuario.isAdmin === true) return true;
+    const nomeNivel = usuario.nivel?.nome?.trim().toUpperCase();
+    if (nomeNivel === 'ADMINISTRADOR') return true;
+    const ids = (usuario.sistemasPermitidos ?? []).map((s) => String(s).trim().toUpperCase());
     return ids.includes('ORION_QUALIDADE');
   }
 

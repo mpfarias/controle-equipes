@@ -13,6 +13,7 @@ import { UpdateRestricaoMedicaDto } from './dto/update-restricao-medica.dto';
 import { CreateStatusDto } from './dto/create-status.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
 import * as bcrypt from 'bcryptjs';
+import { funcaoNomeIndicaSuperiorDeDia } from '../common/funcao-supervisor-dia';
 
 type PolicialBase = Prisma.PolicialGetPayload<{
   include: { 
@@ -691,6 +692,8 @@ export class PoliciaisService {
     feriasAno?: number;
     /** Exclui COMISSIONADO do efetivo e das contagens (para cálculo do limite 1/12 de férias) */
     excluirComissionadosParaLimiteFerias?: boolean;
+    /** Exclui policiais cuja função seja «Superior de dia» (efetivo operacional / dashboard). */
+    excluirSuperiorDeDia?: boolean;
   }): Promise<
     | PolicialResponse[]
     | {
@@ -722,6 +725,7 @@ export class PoliciaisService {
       anoPrevisaoFerias,
       feriasAno,
       excluirComissionadosParaLimiteFerias,
+      excluirSuperiorDeDia,
     } = options || {};
     const anoFeriasInclude = feriasAno ?? new Date().getFullYear();
     const include: {
@@ -803,6 +807,14 @@ export class PoliciaisService {
     const skip = (currentPage - 1) * currentPageSize;
     const take = currentPageSize;
 
+    let superiorDeDiaFuncaoIds: number[] = [];
+    if (excluirSuperiorDeDia) {
+      const todasFuncoes = await this.prisma.funcao.findMany({ select: { id: true, nome: true } });
+      superiorDeDiaFuncaoIds = todasFuncoes
+        .filter((f) => funcaoNomeIndicaSuperiorDeDia(f.nome))
+        .map((f) => f.id);
+    }
+
     const allPoliciais = await this.prisma.policial.findMany({
       where,
       orderBy: orderByClause,
@@ -820,6 +832,12 @@ export class PoliciaisService {
     // Excluir comissionados do cálculo quando solicitado (limite 1/12 de férias)
     if (excluirComissionadosParaLimiteFerias) {
       mapped = mapped.filter((p) => p.status !== 'COMISSIONADO');
+    }
+
+    if (excluirSuperiorDeDia) {
+      mapped = mapped.filter(
+        (p) => !funcaoNomeIndicaSuperiorDeDia((p as { funcao?: { nome?: string } }).funcao?.nome),
+      );
     }
 
     /** Mesma ordem institucional usada no front (lista / coluna Status). */
@@ -899,16 +917,26 @@ export class PoliciaisService {
     // Contar policiais disponíveis (status diferente de DESATIVADO) com os mesmos filtros
     // Para limite 1/12 de férias: excluir também COMISSIONADO
     const desativadoStatusId = await this.resolveStatusId('DESATIVADO');
-    const whereDisponiveis: Prisma.PolicialWhereInput = {
+    const comissionadoStatusId = await this.resolveStatusId('COMISSIONADO');
+    const whereDisponiveisBase: Prisma.PolicialWhereInput = {
       ...where,
       ...(excluirComissionadosParaLimiteFerias
         ? {
             statusId: {
-              notIn: [desativadoStatusId, await this.resolveStatusId('COMISSIONADO')],
+              notIn: [desativadoStatusId, comissionadoStatusId],
             },
           }
         : { statusId: { not: desativadoStatusId } }),
     };
+    const whereDisponiveis: Prisma.PolicialWhereInput =
+      excluirSuperiorDeDia && superiorDeDiaFuncaoIds.length > 0
+        ? {
+            AND: [
+              whereDisponiveisBase,
+              { OR: [{ funcaoId: null }, { funcaoId: { notIn: superiorDeDiaFuncaoIds } }] },
+            ],
+          }
+        : whereDisponiveisBase;
     const totalDisponiveis = await this.prisma.policial.count({ where: whereDisponiveis });
 
     return {
@@ -2228,8 +2256,15 @@ export class PoliciaisService {
     }
     const policiais = await this.prisma.policial.findMany({
       where,
-      select: { nome: true },
+      select: {
+        nome: true,
+        funcao: { select: { nome: true } },
+      },
     });
+
+    const policiaisValidos = policiais.filter(
+      (p) => !funcaoNomeIndicaSuperiorDeDia(p.funcao?.nome),
+    );
 
     const PATENTE_OFICIAIS = [
       /\bCEL\b/i,
@@ -2252,7 +2287,7 @@ export class PoliciaisService {
     ];
 
     const postos = { oficiais: 0, pracas: 0, civis: 0, outros: 0 };
-    for (const p of policiais) {
+    for (const p of policiaisValidos) {
       const n = String(p.nome ?? '').trim();
       if (/\bCIVIL\b/i.test(n)) {
         postos.civis++;
@@ -2267,7 +2302,7 @@ export class PoliciaisService {
 
     return {
       ...postos,
-      total: policiais.length,
+      total: policiaisValidos.length,
     };
   }
 
@@ -2331,7 +2366,7 @@ export class PoliciaisService {
       return false;
     };
 
-    const filtrados = policiais.filter(filtrarPorPosto);
+    const filtrados = policiais.filter((p) => !funcaoNomeIndicaSuperiorDeDia(p.funcao?.nome) && filtrarPorPosto(p));
     return filtrados.map((p) => this.mapFeriasPrevisao(p as PolicialWithRelations & { ferias?: FeriasPolicialEntity[] }));
   }
 

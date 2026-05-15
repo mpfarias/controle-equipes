@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { funcaoNomeIndicaSuperiorDeDia } from '../common/funcao-supervisor-dia';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { ESCALA_CHAVE, ESCALA_DEFAULTS } from './escalas.constants';
@@ -164,6 +165,21 @@ export class EscalasService {
   }
 
   async createEscalaGerada(dto: CreateEscalaGeradaDto, actor: { id: number; nome: string }) {
+    const idsLinhas = [...new Set(dto.linhas.map((l) => l.policialId))];
+    if (idsLinhas.length > 0) {
+      const policiaisLinha = await this.prisma.policial.findMany({
+        where: { id: { in: idsLinhas } },
+        select: { id: true, nome: true, matricula: true, funcao: { select: { nome: true } } },
+      });
+      for (const po of policiaisLinha) {
+        if (funcaoNomeIndicaSuperiorDeDia(po.funcao?.nome)) {
+          throw new BadRequestException(
+            `Não é permitido incluir na escala o policial «${po.nome}» (${po.matricula.trim()}), função Superior de dia.`,
+          );
+        }
+      }
+    }
+
     const dataEscala = new Date(`${dto.dataEscala}T12:00:00.000Z`);
     const ordem = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS', 'EXTRAORDINARIA'] as const;
     const set = new Set(dto.tipoServico.split(',').map((s) => s.trim()).filter(Boolean));
@@ -237,16 +253,27 @@ export class EscalasService {
       where: { vezesEscaladoExtra: { gt: 0 } },
       orderBy: [{ vezesEscaladoExtra: 'desc' }, { policialId: 'asc' }],
       include: {
-        policial: { select: { id: true, nome: true, matricula: true, equipe: true } },
+        policial: {
+          select: {
+            id: true,
+            nome: true,
+            matricula: true,
+            equipe: true,
+            funcao: { select: { nome: true } },
+          },
+        },
       },
     });
-    return rows.map((r) => ({
+
+    return rows
+      .filter((r) => !funcaoNomeIndicaSuperiorDeDia(r.policial.funcao?.nome))
+      .map((r) => ({
       policialId: r.policialId,
       nome: r.policial.nome,
       matricula: r.policial.matricula,
       equipe: r.policial.equipe,
       vezesEscaladoExtra: r.vezesEscaladoExtra,
-    }));
+      }));
   }
 
   /** Remove o registro de contagem do policial (some da lista; novas gravações voltam a contar do zero). */

@@ -51,6 +51,8 @@ import { useEscalaParametros } from '../../hooks/useEscalaParametros';
 import { theme } from '../../constants/theme';
 import { nomeFuncaoIndicaExpedienteAdministrativo } from '../../utils/gerarEscalasCalculo';
 import { policialElegivelTrocaServico, policialEhMotoristaDeDia } from '../../utils/policialTrocaServico';
+import { policialPossuiRestricaoCadastrada } from '../../utils/policialRestricao';
+import { policialFuncaoBloqueiaEscalasEOperacoes } from '../../utils/funcaoSupervisorDeDia';
 import { PoliciaisSection } from './PoliciaisSection';
 
 const formFieldSx = {
@@ -563,7 +565,8 @@ export function MostrarEquipeSection({
       const avaliarPolicialSvg = (p: Policial): { disponivel: boolean; motivo?: string } => {
         if (p.status === 'DESATIVADO') return { disponivel: false, motivo: 'Status desativado' };
         if (p.status === 'COMISSIONADO' || p.status === 'PTTC') return { disponivel: false, motivo: `Status ${p.status} não permite SVG` };
-        if (p.restricaoMedicaId != null) return { disponivel: false, motivo: 'Possui restrição médica (inclui porte de arma suspenso)' };
+        if (policialPossuiRestricaoCadastrada(p))
+          return { disponivel: false, motivo: 'Possui restrição cadastrada (não elegível para SVG)' };
         if (idsAfastados.has(p.id)) return { disponivel: false, motivo: 'Em gozo de afastamento' };
 
         if (!p.equipe || p.equipe === 'SEM_EQUIPE') {
@@ -807,17 +810,22 @@ export function MostrarEquipeSection({
           return false;
         }
 
-        // 2. Não ter restrição médica
-        if (policial.restricaoMedicaId !== null && policial.restricaoMedicaId !== undefined) {
+        // 2. Não pode ser Superior de dia (só aparece no calendário)
+        if (policialFuncaoBloqueiaEscalasEOperacoes(policial)) {
           return false;
         }
 
-        // 3. Não estar afastado na data
+        // 3. Não ter restrição cadastrada
+        if (policialPossuiRestricaoCadastrada(policial)) {
+          return false;
+        }
+
+        // 4. Não estar afastado na data
         if (idsAfastados.has(policial.id)) {
           return false;
         }
 
-        // 4. Verificar se atende aos critérios:
+        // 5. Verificar se atende aos critérios:
         //    a) É do expediente OU
         //    b) É de alguma equipe e está na segunda ou terceira folga
         

@@ -1,4 +1,5 @@
 import type { Usuario } from '../types';
+import { usuarioFuncaoBloqueiaEscalasEOperacoes } from '../utils/funcaoSupervisorDeDia';
 import { temAcessoOrionSuporteEfetivo } from '../utils/orionSuporteEfetivo';
 import { SISTEMAS_EXTERNOS_OPTIONS } from './sistemasExternos';
 import { getUrlOrionQualidade } from './orionQualidade';
@@ -117,17 +118,38 @@ export function listaSistemasIntegradosExplicitos(usuario: Usuario | null): stri
 export function listaDestinosPosLogin(usuario: Usuario): string[] {
   const explicit = listaSistemasIntegradosExplicitos(usuario);
   if (explicit.length === 0) {
+    const ehAdminSistemaOuNivel =
+      usuario.isAdmin === true ||
+      usuario.nivel?.nome?.trim().toUpperCase() === 'ADMINISTRADOR';
     if (temAcessoOrionSuporteEfetivo(usuario)) {
-      return [SISTEMA_ID_ORION_SUPORTE];
+      const out: string[] = [SISTEMA_ID_ORION_SUPORTE];
+      if (ehAdminSistemaOuNivel && !out.includes(SISTEMA_ID_ORION_QUALIDADE)) {
+        out.push(SISTEMA_ID_ORION_QUALIDADE);
+      }
+      return out;
     }
-    return [SISTEMA_ID_APP_ATUAL];
+    const out: string[] = [SISTEMA_ID_APP_ATUAL];
+    if (ehAdminSistemaOuNivel && !out.includes(SISTEMA_ID_ORION_QUALIDADE)) {
+      out.push(SISTEMA_ID_ORION_QUALIDADE);
+    }
+    return out;
   }
   const destinos = [...explicit];
+  const ehAdminSistemaOuNivel =
+    usuario.isAdmin === true ||
+    usuario.nivel?.nome?.trim().toUpperCase() === 'ADMINISTRADOR';
+  if (ehAdminSistemaOuNivel && !destinos.includes(SISTEMA_ID_ORION_QUALIDADE)) {
+    destinos.push(SISTEMA_ID_ORION_QUALIDADE);
+  }
   if (
     temAcessoOrionSuporteEfetivo(usuario) &&
     !destinos.includes(SISTEMA_ID_ORION_SUPORTE)
   ) {
     destinos.push(SISTEMA_ID_ORION_SUPORTE);
+  }
+  if (usuarioFuncaoBloqueiaEscalasEOperacoes(usuario)) {
+    const semOperacoes = destinos.filter((id) => id !== 'OPERACOES');
+    return semOperacoes.length > 0 ? semOperacoes : [SISTEMA_ID_APP_ATUAL];
   }
   return destinos;
 }
