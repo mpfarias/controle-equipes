@@ -157,8 +157,29 @@ export interface RestricaoMedicaHistorico {
   createdAt: string;
 }
 
+export interface PostoGraduacaoOption {
+  id: number;
+  sigla: string;
+  ordem: number;
+  ativo?: boolean;
+}
+
+export type QuadroGrupo = 'OFICIAL' | 'PRACA';
+
+export interface QuadroOption {
+  id: number;
+  sigla: string;
+  grupo: QuadroGrupo;
+  ordem: number;
+  ativo?: boolean;
+}
+
 export interface Policial {
   id: number;
+  postoGraduacaoId?: number | null;
+  postoGraduacao?: Pick<PostoGraduacaoOption, 'id' | 'sigla' | 'ordem'> | null;
+  quadroId?: number | null;
+  quadro?: Pick<QuadroOption, 'id' | 'sigla' | 'grupo' | 'ordem'> | null;
   nome: string;
   matricula: string;
   cpf?: string | null;
@@ -201,6 +222,8 @@ export interface Policial {
 }
 
 export interface CreatePolicialInput {
+  postoGraduacaoId: number;
+  quadroId: number;
   nome: string;
   matricula: string;
   status: PolicialStatus;
@@ -432,7 +455,8 @@ export type FuncaoExpedienteHorarioPreset =
   | 'ORGAO_DIAS_UTEIS'
   | 'SEG_SEX_07_19'
   | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
-  | 'JORNADA_24X72';
+  | 'JORNADA_24X72'
+  | 'GUARDA_COPOM_12X36';
 
 export interface FuncaoOption {
   id: number;

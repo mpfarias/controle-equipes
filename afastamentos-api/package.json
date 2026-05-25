@@ -10,7 +10,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "free:port": "node scripts/free-api-port.cjs",
-    "prestart:dev": "npm run free:port",
+    "prestart:dev": "npm run free:port && npm run prisma:generate",
     "start:dev": "npm run build && concurrently -k -n build,api -c yellow,cyan \"nest build --watch\" \"nodemon --signal SIGTERM --delay 900ms --watch dist --ext js --exec \\\"node scripts/run-api-dist-safe.cjs\\\"\"",
     "prestart:debug": "npm run free:port",
     "start:debug": "nest start --debug --watch",
@@ -30,11 +30,13 @@
     "verificar:contagem": "ts-node scripts/verificar-contagem-policiais.ts",
     "find:duplicatas": "ts-node scripts/find-duplicate-matriculas.ts",
     "backfill:troca-turnos": "ts-node scripts/backfill-troca-servico-turnos.ts",
+    "migrar:sis-copom-mulher": "ts-node scripts/migrar-sis-copom-mulher.ts",
     "remove:funcoes-lowercase": "ts-node scripts/remove-funcoes-lowercase.ts",
     "update:matricula": "node update-matricula.js",
     "fix:nivel": "node fix-nivel-migration.js",
     "db:setup": "npm run prisma:generate && npm run prisma:migrate && npm run prisma:seed",
-    "setup": "npm install && npm run db:setup"
+    "setup": "npm install && npm run db:setup",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

@@ -1,0 +1,9 @@
+{
+  "npm.packageManager": "npm",
+  "npm.exclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/orion-mulher-web/**"
+  ],
+  "files.eol": "\n"
+}

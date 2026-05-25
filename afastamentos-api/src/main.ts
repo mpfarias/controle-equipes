@@ -51,12 +51,16 @@ async function bootstrap() {
     'http://localhost:5183', // Vite dev Órion Jurídico
     'http://localhost:5184', // Vite dev Órion Patrimônio
     'http://localhost:5185', // Vite dev Órion Mulher
+    'http://localhost:5186', // Vite dev Órion Agenda
+    'http://localhost:5187', // Vite dev Órion Operações
     'http://localhost:4173', // Vite preview SAD
     'http://localhost:4180', // Vite preview Suporte
     'http://localhost:4182',
     'http://localhost:4183',
     'http://localhost:4184',
     'http://localhost:4185',
+    'http://localhost:4186',
+    'http://localhost:4187',
     'http://127.0.0.1:5173',
     'http://127.0.0.1:5174',
     'http://127.0.0.1:5180',
@@ -64,12 +68,16 @@ async function bootstrap() {
     'http://127.0.0.1:5183',
     'http://127.0.0.1:5184',
     'http://127.0.0.1:5185',
+    'http://127.0.0.1:5186',
+    'http://127.0.0.1:5187',
     'http://127.0.0.1:4173',
     'http://127.0.0.1:4180',
     'http://127.0.0.1:4182',
     'http://127.0.0.1:4183',
     'http://127.0.0.1:4184',
     'http://127.0.0.1:4185',
+    'http://127.0.0.1:4186',
+    'http://127.0.0.1:4187',
     'https://afastamentos-web-wjeog.ondigitalocean.app',
   ];
 

@@ -1,0 +1,46 @@
+COPOM Mulher — sisCopomMulher (só web, pasta "sistema")
+=====================================================
+
+NÃO precisa refazer o projeto do zero. Siga por ordem:
+
+1) PostgreSQL a correr (porta 5432) e base criada (ex.: copom_mulher).
+
+2) Ficheiro .env nesta pasta (copie de .env.example):
+   - DATABASE_URL=... (utilizador, senha, host, nome da base)
+   - AUTH_SECRET=... (pelo menos 16 caracteres)
+
+3) Na pasta "sistema", no terminal:
+   npm ci
+   npm run build
+   npm run servidor:b
+
+4) Quando aparecer "Servidor no ar", o Windows deve abrir o browser sozinho (login).
+   Se não abrir, use manualmente:
+   http://localhost:3001/login
+   http://127.0.0.1:3001/login
+   Para desligar a abertura automática: no .env ponha OPEN_BROWSER=0
+
+5) Só para testar no PC sem modo produção (mais simples):
+   npm run pc
+   Depois: http://127.0.0.1:3001
+
+Login após seed: rafael (ou rafael@copom-mulher.df)  senha: 123  — perfil administrador master
+
+Excel (só quando quiser importar — o sistema normal usa só PostgreSQL):
+  · No browser, como administrador: menu "Importar Excel" (/app/admin/importar-excel).
+  · Em linha de comandos na pasta sistema (substitui importações Excel anteriores):
+      npm run import:excel:refresh
+  · Ou: npx tsx scripts/reimport-excel.ts "C:\caminho\para\FormularioViolenciaDomestica (respostas).xlsx"
+  · Coloque o ficheiro em sistema/data/ ou defina EXCEL_PATH no .env para o modo "usar servidor".
+
+Arquitetura (MVC adaptado ao Next.js):
+  · Views: src/app/… (páginas e componentes React)
+  · Controllers: src/server/controllers/… + rotas src/app/api/…
+  · Services (modelo de negócio / dados): src/server/services/… e Prisma em prisma/schema.prisma
+
+Performance / debug: na pasta sistema use `npm run dev` — força NODE_ENV=development, ativa **Turbopack** (compilação
+e hot reload mais rápidos após a primeira carga). Evite `next dev` com NODE_ENV=production na mesma consola.
+Login: usa Server Action (cookie no servidor); não depende de fetch + redirect no cliente.
+
+Se o browser não abrir nada: veja no terminal se há ERRO antes de "Servidor no ar"
+(Postgres desligado é a causa mais comum).

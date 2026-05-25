@@ -79,6 +79,7 @@ export class PoliciaisController {
       : undefined;
     const orderByAllowed =
       orderBy === 'nome' ||
+      orderBy === 'postoGraduacao' ||
       orderBy === 'matricula' ||
       orderBy === 'equipe' ||
       orderBy === 'status' ||
@@ -86,7 +87,7 @@ export class PoliciaisController {
       orderBy === 'dataDesligamento';
     if (orderBy && !orderByAllowed) {
       throw new BadRequestException(
-        'O orderBy deve ser nome, matricula, equipe, status, funcao ou dataDesligamento.',
+        'O orderBy deve ser nome, postoGraduacao, matricula, equipe, status, funcao ou dataDesligamento.',
       );
     }
     const orderDirAllowed = orderDir === 'asc' || orderDir === 'desc';
@@ -139,7 +140,14 @@ export class PoliciaisController {
       funcaoId: !funcaoIdsParsed?.length ? funcaoIdParsed : undefined,
       funcaoIds: funcaoIdsParsed?.length ? funcaoIdsParsed : undefined,
       orderBy: orderByAllowed
-        ? (orderBy as 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento')
+        ? (orderBy as
+            | 'nome'
+            | 'postoGraduacao'
+            | 'matricula'
+            | 'equipe'
+            | 'status'
+            | 'funcao'
+            | 'dataDesligamento')
         : undefined,
       orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
       mesPrevisaoFerias: mesPrevisaoParsed,
@@ -205,6 +213,22 @@ export class PoliciaisController {
   @Get('ferias-programadas-atrasadas-sem-afastamento')
   getFeriasProgramadasAtrasadasSemAfastamento(@Query('equipe') equipe?: string) {
     return this.policiaisService.findPoliciaisComFeriasAtrasadasSemAfastamento(equipe ?? undefined);
+  }
+
+  @Get('postos-graduacao')
+  listPostosGraduacao() {
+    return this.policiaisService.listPostosGraduacao();
+  }
+
+  @Get('quadros')
+  listQuadros(@Query('postoGraduacaoId') postoGraduacaoId?: string) {
+    const id =
+      postoGraduacaoId != null && postoGraduacaoId !== ''
+        ? Number.parseInt(postoGraduacaoId, 10)
+        : undefined;
+    return this.policiaisService.listQuadros(
+      id != null && !Number.isNaN(id) ? id : undefined,
+    );
   }
 
   @Get('status')

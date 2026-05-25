@@ -1,0 +1,76 @@
+================================================================================
+COPOM Mulher — URLs de teste (operador no web; vítima no app Android)
+================================================================================
+
+Regra de negócio: pânico e carga de dados operacionais da vítima **só** na
+aplicação instalada, com o cabeçalho `X-Copom-Client: copom-vitima-native`.
+A rota pública `/mobile-vitima` no browser mostra **apenas mensagem
+institucional** (não substitui o app).
+
+O servidor de desenvolvimento (Next) ouve em 0.0.0.0, porta 3001 (ver
+sistema/scripts/next-dev.cjs). Substitua SEU_IP pelo IPv4 do PC na mesma Wi-Fi
+que o telemóvel (comando: ipconfig no Windows).
+
+--- Páginas de ajuda — só em NODE_ENV=development ---
+
+  http://127.0.0.1:3001/teste-chrome
+  (ou http://localhost:3001/teste-chrome)
+  — duas URLs (operador + informativo) sem misturar cookies. Em produção, 404.
+
+  http://127.0.0.1:3001/simulador-celular
+  — moldura de telemóvel + iframe (ex. /mobile-vitima) para ver no ecrã do PC.
+  Em produção, 404.
+
+--- Arranque (web + app Expo recomendado para teste completo) ---
+
+  Na raiz do repositório:
+    npm run parar:dev
+    npm run dev:web
+  para só o Next; ou:
+    npm run dev:tudo
+  (Next 3001 + Metro Expo 8095). Em Windows pode usar iniciar-teste.ps1
+  (duas janelas: web + Expo).
+
+  Opcional: iniciar-teste-web.ps1 (só levanta o web na 3001)
+
+--- Saúde da API ---
+
+  PC:   http://127.0.0.1:3001/api/health
+  Rede: http://SEU_IP:3001/api/health
+  (resposta JSON: ok, t)
+
+--- Operador (login) / Central COPOM Mulher ---
+
+  PC:   http://127.0.0.1:3001/login
+  Rede: http://SEU_IP:3001/login
+
+  Após entrar (perfil com permissão):
+  - Área:      http://127.0.0.1:3001/app/dashboard
+  - Central:   http://127.0.0.1:3001/app/central-vitima
+    (o mesmo com http://SEU_IP:3001/... a partir de outro PC na LAN)
+
+--- Vítima: app Android (Expo / APK), não o browser operacional ---
+
+  1) Gere o link/código na ficha de ocorrência (painel mobile no backoffice).
+  2) No projeto `mobile-vitima`, defina a URL do servidor, por ex.:
+     http://SEU_IP:3001
+  3) Introduza o **código de ativação** e carregue os dados; envie localização
+     e, se necessário, **PÂNICO** (só o app nativo é aceite pelo servidor).
+
+  A página pública (sem operação):
+    http://SEU_IP:3001/mobile-vitima
+  serve só para explicar que o canal vítima é a app. Não use o browser em
+  alternativa à app.
+
+  NÃO use /app/mobile-vitima (isso redireciona automaticamente para /mobile-vitima).
+
+--- Observações ---
+
+  * Firewall: permita TCP 3001 a entrar para a subnet da LAN, se o telemóvel
+    não alcançar a API. Se usar Expo na LAN, veja README em mobile-vitima
+    (porta 8095, Metro).
+  * Geolocalização no app: permissões de localização; em produção use HTTPS no
+    servidor.
+  * Detalhe de compilação e emulador: `mobile-vitima/README.md`.
+
+================================================================================

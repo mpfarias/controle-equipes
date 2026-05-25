@@ -8,6 +8,8 @@ import type {
   EquipeOption,
   FuncaoOption,
   PolicialStatus,
+  PostoGraduacaoOption,
+  QuadroOption,
   ProcessFileResponse,
   Usuario,
 } from '../../types';
@@ -21,6 +23,7 @@ import {
   funcoesParaSelecao,
   resolveEquipeParaPolicial,
 } from '../../constants';
+import { quadrosParaPosto } from '../../constants/quadro';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
@@ -33,9 +36,14 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Checkbox,
   Button,
   Typography,
+  Grid,
+  Paper,
+  Divider,
+  Stack,
+  FormControlLabel,
+  Checkbox,
 } from '@mui/material';
 
 const formFieldSx = {
@@ -50,7 +58,26 @@ const formFieldSx = {
     },
     '& input, & textarea': { padding: '10px 12px' },
   },
+  '& .MuiInputLabel-outlined': {
+    color: 'text.secondary',
+  },
+  '& .MuiInputLabel-outlined.MuiInputLabel-shrink': {
+    bgcolor: 'var(--card-bg, var(--mui-palette-background-paper, #1e1e1e))',
+    px: 0.5,
+  },
+  '& .MuiSelect-select': {
+    display: 'flex',
+    alignItems: 'center',
+  },
 };
+
+function rotuloSelectVazio(texto: string) {
+  return (
+    <Typography component="span" variant="body2" sx={{ color: 'text.secondary' }}>
+      {texto}
+    </Typography>
+  );
+}
 
 /** Na importação em lote: não aplicar equipe em massa (motorista continua fora do lote). */
 function policialModalSemColunaEquipe(
@@ -100,6 +127,8 @@ export function PoliciaisSection({
   onChanged,
 }: PoliciaisSectionProps) {
   const initialForm = {
+    postoGraduacaoId: undefined as number | undefined,
+    quadroId: undefined as number | undefined,
     nome: '',
     matricula: '',
     cpf: '',
@@ -115,6 +144,8 @@ export function PoliciaisSection({
   };
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
+  const [postosGraduacao, setPostosGraduacao] = useState<PostoGraduacaoOption[]>([]);
+  const [quadros, setQuadros] = useState<QuadroOption[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -176,6 +207,24 @@ export function PoliciaisSection({
       setEquipes(data);
     } catch (err) {
       console.error('Erro ao carregar equipes:', err);
+    }
+  }, []);
+
+  const carregarPostosGraduacao = useCallback(async () => {
+    try {
+      const data = await api.listPostosGraduacao();
+      setPostosGraduacao(data);
+    } catch (err) {
+      console.error('Erro ao carregar postos/graduação:', err);
+    }
+  }, []);
+
+  const carregarQuadros = useCallback(async () => {
+    try {
+      const data = await api.listQuadros();
+      setQuadros(data);
+    } catch (err) {
+      console.error('Erro ao carregar quadros:', err);
     }
   }, []);
 
@@ -260,7 +309,9 @@ export function PoliciaisSection({
     void carregarPoliciais();
     void carregarFuncoes();
     void carregarEquipes();
-  }, [carregarPoliciais, carregarFuncoes, carregarEquipes]);
+    void carregarPostosGraduacao();
+    void carregarQuadros();
+  }, [carregarPoliciais, carregarFuncoes, carregarEquipes, carregarPostosGraduacao, carregarQuadros]);
 
   const equipesAtivas = useMemo(() => {
     return [...equipes]
@@ -371,6 +422,8 @@ export function PoliciaisSection({
       const emailEnvio = form.email.trim() || undefined;
 
       await api.createPolicial({
+        postoGraduacaoId: form.postoGraduacaoId!,
+        quadroId: form.quadroId!,
         nome,
         matricula,
         status: form.status,
@@ -457,6 +510,14 @@ export function PoliciaisSection({
     const nome = form.nome.trim();
     const matricula = form.matricula.trim();
 
+    if (!form.postoGraduacaoId) {
+      setError('Selecione o posto/graduação.');
+      return;
+    }
+    if (!form.quadroId) {
+      setError('Selecione o quadro.');
+      return;
+    }
     if (!nome || !matricula) {
       setError('Informe nome e matrícula.');
       return;
@@ -652,6 +713,45 @@ export function PoliciaisSection({
     }
   };
 
+  const postoSelecionadoForm = useMemo(
+    () =>
+      form.postoGraduacaoId != null
+        ? postosGraduacao.find((p) => p.id === form.postoGraduacaoId)
+        : undefined,
+    [form.postoGraduacaoId, postosGraduacao],
+  );
+
+  const quadrosDisponiveisForm = useMemo(
+    () => quadrosParaPosto(quadros, postoSelecionadoForm),
+    [quadros, postoSelecionadoForm],
+  );
+
+  const funcaoSelecionadaForm = useMemo(
+    () => (form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : null),
+    [form.funcaoId, funcoes],
+  );
+
+  const mostrarEquipeForm = funcaoSelecionadaForm
+    ? !funcaoOcultaCampoEquipe(funcaoSelecionadaForm)
+    : false;
+  const equipeObrigatoriaForm = funcaoSelecionadaForm
+    ? funcaoEquipeObrigatoriaNoFormulario(funcaoSelecionadaForm)
+    : false;
+  const isMotoristaDiaForm =
+    funcaoSelecionadaForm?.nome.toUpperCase().includes('MOTORISTA DE DIA') ?? false;
+  const equipesDisponiveisForm = useMemo(() => {
+    let list =
+      currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
+        ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
+        : equipesDisponiveisCadastro;
+    if (isMotoristaDiaForm) {
+      list = list.filter((option) => option.nome !== 'E');
+    }
+    return list;
+  }, [currentUser.equipe, currentUser.nivel?.nome, equipesDisponiveisCadastro, isMotoristaDiaForm]);
+
+  const mostrarFase12x36Form = funcaoRequerFase12x36Expediente(funcaoSelecionadaForm ?? undefined);
+
   const handleConfirmReativar = async () => {
     if (!reativarModal.policial) {
       return;
@@ -669,6 +769,8 @@ export function PoliciaisSection({
       
       // Atualizar os dados do policial reativado com os novos dados do formulário
       await api.updatePolicial(reativarModal.policial.id, {
+        postoGraduacaoId: form.postoGraduacaoId,
+        quadroId: form.quadroId,
         nome: form.nome.trim(),
         status: form.status,
         funcaoId: form.funcaoId,
@@ -703,11 +805,17 @@ export function PoliciaisSection({
 
   return (
     <section>
-      <div className="section-header">
-        <div>
-          <h2>Cadastrar Policial</h2>
-        </div>
-        <div>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        justifyContent="space-between"
+        alignItems={{ sm: 'center' }}
+        spacing={2}
+        sx={{ mb: 2 }}
+      >
+        <Typography variant="h5" component="h2" sx={{ fontWeight: 600, m: 0 }}>
+          Cadastrar Policial
+        </Typography>
+        <Box>
           <input
             ref={fileInputRef}
             type="file"
@@ -715,15 +823,11 @@ export function PoliciaisSection({
             onChange={handleFileSelect}
             style={{ display: 'none' }}
           />
-          <Button
-            variant="outlined"
-            onClick={handleFileButtonClick}
-            sx={{ textTransform: 'none' }}
-          >
+          <Button variant="outlined" onClick={handleFileButtonClick} sx={{ textTransform: 'none' }}>
             Cadastrar de PDF
           </Button>
-        </div>
-      </div>
+        </Box>
+      </Stack>
 
       {error && (
         <div className="feedback error">
@@ -752,416 +856,490 @@ export function PoliciaisSection({
         </div>
       )}
 
-      <Box
-        component="form"
-        onSubmit={handleSubmit}
-        noValidate
-        sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
-      >
-        <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' } }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="nome-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              Nome
-            </Typography>
-            <TextField
-              id="nome-input"
-              fullWidth
-              required
-              size="small"
-              variant="outlined"
-              value={form.nome}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, nome: e.target.value.toUpperCase() }))
-              }
-              placeholder="2º SGT JOÃO PEREIRA DA SILVA"
-              sx={formFieldSx}
-            />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
-              <Checkbox
-                checked={form.status === 'COMISSIONADO'}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    status: e.target.checked ? 'COMISSIONADO' : 'ATIVO',
-                    ...(e.target.checked ? {} : { matriculaComissionadoGdf: '', dataPosse: '' }),
-                  }))
-                }
-                size="small"
-              />
-              <Typography component="span" sx={{ fontSize: '0.95rem' }}>
-                Comissionado
+      <Box component="form" onSubmit={handleSubmit} noValidate>
+        <Paper
+          variant="outlined"
+          sx={{
+            p: { xs: 2, sm: 2.5 },
+            borderRadius: 2,
+            borderColor: 'var(--border-soft, rgba(0,0,0,0.12))',
+            bgcolor: 'var(--card-bg, transparent)',
+          }}
+        >
+          <Stack spacing={3}>
+            <Stack spacing={2}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                Identificação
               </Typography>
-            </Box>
-          </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="matricula-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              Matrícula
-            </Typography>
-            <TextField
-              id="matricula-input"
-              fullWidth
-              required
-              size="small"
-              variant="outlined"
-              value={form.matricula}
-              onChange={(e) => {
-                const value = e.target.value.replace(/[^0-9xX]/g, '').toUpperCase();
-                setForm((prev) => ({ ...prev, matricula: value }));
-                if (matriculaTimeoutRef.current) clearTimeout(matriculaTimeoutRef.current);
-                if (!value.trim()) {
-                  setMatriculaError(null);
-                  return;
-                }
-                matriculaTimeoutRef.current = setTimeout(() => validateMatricula(value), 300);
-              }}
-              placeholder="Matrícula"
-              error={!!matriculaError}
-              helperText={matriculaError}
-              sx={formFieldSx}
-            />
-            {form.status === 'COMISSIONADO' && (
-              <>
-                <TextField
-                  fullWidth
-                  size="small"
-                  variant="outlined"
-                  label="Matrícula Comissionado (GDF)"
-                  value={form.matriculaComissionadoGdf}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      matriculaComissionadoGdf: e.target.value.replace(/[^0-9xX]/g, '').toUpperCase(),
-                    }))
-                  }
-                  placeholder="Matrícula Comissionado (GDF)"
-                  sx={{ mt: 1, ...formFieldSx }}
-                />
-                <Box sx={{ mt: 1 }}>
-                  <Typography component="label" htmlFor="data-posse-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-                    Data de posse
-                  </Typography>
-                  <TextField
-                    id="data-posse-input"
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <FormControl fullWidth size="small" required sx={formFieldSx}>
+                    <InputLabel id="posto-graduacao-label" shrink>
+                      Posto/Graduação
+                    </InputLabel>
+                    <Select
+                      labelId="posto-graduacao-label"
+                      label="Posto/Graduação"
+                      value={form.postoGraduacaoId != null ? String(form.postoGraduacaoId) : ''}
+                      onChange={(e) => {
+                        const v = String(e.target.value);
+                        const novoPostoId = v === '' ? undefined : Number(v);
+                        setForm((prev) => ({
+                          ...prev,
+                          postoGraduacaoId: novoPostoId,
+                          quadroId: undefined,
+                        }));
+                      }}
+                    >
+                      <MenuItem value="">
+                        <em>Selecione</em>
+                      </MenuItem>
+                      {postosGraduacao.map((p) => (
+                        <MenuItem key={p.id} value={String(p.id)}>
+                          {p.sigla}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <FormControl
                     fullWidth
                     size="small"
-                    variant="outlined"
-                    type="date"
-                    value={form.dataPosse}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, dataPosse: e.target.value }))
-                    }
-                    InputLabelProps={{ shrink: true }}
-                    sx={{ mt: 0.5, ...formFieldSx }}
-                  />
-                </Box>
-              </>
-            )}
-          </Box>
-
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="cpf-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              CPF
-            </Typography>
-            <TextField
-              id="cpf-input"
-              fullWidth
-              size="small"
-              variant="outlined"
-              value={form.cpf}
-              onChange={(e) => {
-                setForm((prev) => ({ ...prev, cpf: maskCpf(e.target.value) }));
-                if (cpfError) setCpfError(null);
-              }}
-              onBlur={() => {
-                const digits = cpfToDigits(form.cpf);
-                if (digits.length === 11 && !validarCpf(form.cpf)) {
-                  setCpfError('CPF inválido (dígitos verificadores incorretos).');
-                } else if (digits.length > 0 && digits.length !== 11) {
-                  setCpfError('CPF deve conter 11 dígitos.');
-                } else {
-                  setCpfError(null);
-                }
-              }}
-              placeholder="000.000.000-00"
-              inputProps={{ maxLength: 14 }}
-              error={!!cpfError}
-              helperText={cpfError}
-              sx={formFieldSx}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="telefone-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              Telefone
-            </Typography>
-            <TextField
-              id="telefone-input"
-              fullWidth
-              size="small"
-              variant="outlined"
-              value={form.telefone}
-              onChange={(e) => {
-                setForm((prev) => ({ ...prev, telefone: maskTelefone(e.target.value) }));
-                if (telefoneError) setTelefoneError(null);
-              }}
-              onBlur={() => {
-                const digits = telefoneToDigits(form.telefone);
-                if (digits.length > 0 && digits.length !== 11) {
-                  setTelefoneError('Telefone deve conter 11 dígitos.');
-                } else {
-                  setTelefoneError(null);
-                }
-              }}
-              placeholder="(00)00000-0000"
-              inputProps={{ maxLength: 14 }}
-              error={!!telefoneError}
-              helperText={telefoneError}
-              sx={formFieldSx}
-            />
-          </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="data-nascimento-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              Data de nascimento
-            </Typography>
-            <TextField
-              id="data-nascimento-input"
-              fullWidth
-              size="small"
-              variant="outlined"
-              type="date"
-              value={form.dataNascimento}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, dataNascimento: e.target.value }))
-              }
-              InputLabelProps={{ shrink: true }}
-              sx={formFieldSx}
-            />
-          </Box>
-
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="email-input" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              E-mail
-            </Typography>
-            <TextField
-              id="email-input"
-              fullWidth
-              size="small"
-              variant="outlined"
-              type="email"
-              value={form.email}
-              onChange={(e) => {
-                setForm((prev) => ({ ...prev, email: e.target.value }));
-                if (emailError) setEmailError(null);
-              }}
-              onBlur={() => {
-                const v = form.email.trim();
-                if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
-                  setEmailError('E-mail inválido.');
-                } else {
-                  setEmailError(null);
-                }
-              }}
-              placeholder="email@exemplo.com"
-              error={!!emailError}
-              helperText={emailError}
-              sx={formFieldSx}
-            />
-          </Box>
-          <Box />
-
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="funcao-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              Função
-            </Typography>
-            <FormControl fullWidth size="small" variant="outlined" error={!!funcaoError} sx={formFieldSx}>
-              <Select
-                id="funcao-select"
-                value={form.funcaoId ?? ''}
-                displayEmpty
-                renderValue={(v) => {
-                  if (!v) return 'Selecione uma função';
-                  const f = funcoesOrdenadas.find((x) => x.id === v);
-                  return f ? formatNome(f.nome) : 'Selecione uma função';
-                }}
-                onChange={(e) => {
-                  const novoFuncaoId = e.target.value ? Number(e.target.value) : undefined;
-                  const funcaoSelecionada = funcoes.find((f) => f.id === novoFuncaoId);
-                  if (novoFuncaoId) validateFuncao(novoFuncaoId);
-                  else setFuncaoError(null);
-                  if (funcaoSelecionada) {
-                    const isMotoristaDia = funcaoSelecionada.nome.toUpperCase().includes('MOTORISTA DE DIA');
-                    const oculta = funcaoOcultaCampoEquipe(funcaoSelecionada);
-                    const manterFase = funcaoRequerFase12x36Expediente(funcaoSelecionada);
-                    setForm((prev) => ({
-                      ...prev,
-                      funcaoId: novoFuncaoId,
-                      equipe: oculta ? undefined : isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe,
-                      expediente12x36Fase: manterFase ? prev.expediente12x36Fase : undefined,
-                    }));
-                  } else {
-                    setForm((prev) => ({ ...prev, funcaoId: novoFuncaoId, expediente12x36Fase: undefined }));
-                  }
-                }}
-                MenuProps={{ sx: { zIndex: 1500 } }}
-              >
-                <MenuItem value="">
-                  <em>Selecione uma função</em>
-                </MenuItem>
-                {funcoesOrdenadas.map((funcao) => (
-                  <MenuItem key={funcao.id} value={funcao.id}>
-                    {formatNome(funcao.nome)}
-                  </MenuItem>
-                ))}
-              </Select>
-              {funcaoError && (
-                <Typography variant="caption" sx={{ color: 'error.main', mt: 0.5, display: 'block' }}>
-                  {funcaoError}
-                </Typography>
-              )}
-            </FormControl>
-          </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-            <Typography component="label" htmlFor="status-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-              Status
-            </Typography>
-            <FormControl fullWidth required size="small" variant="outlined" sx={formFieldSx}>
-              <Select
-                id="status-select"
-                value={form.status}
-                renderValue={(v) => POLICIAL_STATUS_OPTIONS_FORM.find((o) => o.value === v)?.label ?? v}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    status: e.target.value as PolicialStatus,
-                  }))
-                }
-                MenuProps={{ sx: { zIndex: 1500 } }}
-              >
-                {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Box>
-
-          {(() => {
-            const funcaoSelecionada = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : null;
-            const mostrarEquipe = funcaoSelecionada ? !funcaoOcultaCampoEquipe(funcaoSelecionada) : false;
-            const equipeObrigatoria = funcaoSelecionada ? funcaoEquipeObrigatoriaNoFormulario(funcaoSelecionada) : false;
-            const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') ?? false;
-            const equipesDisponiveis = (() => {
-              let list =
-                currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
-                  ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
-                  : equipesDisponiveisCadastro;
-              if (isMotoristaDia) list = list.filter((option) => option.nome !== 'E');
-              return list;
-            })();
-
-            if (!mostrarEquipe) return null;
-            return (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, gridColumn: { md: '1 / -1' } }}>
-                <Typography component="label" htmlFor="equipe-select" sx={{ fontSize: '0.9rem', color: 'text.secondary' }}>
-                  Equipe
-                </Typography>
-                <FormControl
-                  fullWidth
-                  required={equipeObrigatoria}
-                  size="small"
-                  variant="outlined"
-                  sx={{ ...formFieldSx, maxWidth: { md: 400 } }}
-                >
-                  <Select
-                    id="equipe-select"
-                    value={form.equipe ?? ''}
-                    displayEmpty
-                    renderValue={(v) => {
-                      if (!v) {
-                        return equipeObrigatoria ? 'Selecione uma equipe' : 'Sem equipe (opcional)';
-                      }
-                      return formatNome(v);
-                    }}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        equipe: e.target.value ? (e.target.value as Equipe) : undefined,
-                      }))
-                    }
-                    MenuProps={{ sx: { zIndex: 1500 } }}
+                    required
+                    disabled={!form.postoGraduacaoId}
+                    sx={formFieldSx}
                   >
-                    <MenuItem value="">
-                      <em>Selecione uma equipe</em>
-                    </MenuItem>
-                    {equipesDisponiveis.map((option) => (
-                      <MenuItem key={option.id} value={option.nome}>
-                        {formatNome(option.nome)}
+                    <InputLabel id="quadro-select-label" shrink>
+                      Quadro
+                    </InputLabel>
+                    <Select
+                      id="quadro-select"
+                      labelId="quadro-select-label"
+                      label="Quadro"
+                      value={form.quadroId != null ? String(form.quadroId) : ''}
+                      displayEmpty
+                      renderValue={(v) => {
+                        if (!v) {
+                          return rotuloSelectVazio(
+                            form.postoGraduacaoId ? 'Selecione o quadro' : 'Selecione o posto antes',
+                          );
+                        }
+                        const q = quadrosDisponiveisForm.find((x) => x.id === Number(v));
+                        return q ? q.sigla : rotuloSelectVazio('Selecione o quadro');
+                      }}
+                      onChange={(e) => {
+                        const v = String(e.target.value);
+                        setForm((prev) => ({
+                          ...prev,
+                          quadroId: v === '' ? undefined : Number(v),
+                        }));
+                      }}
+                      MenuProps={{ sx: { zIndex: 1500 } }}
+                    >
+                      <MenuItem value="">
+                        <em>Selecione</em>
                       </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              </Box>
-            );
-          })()}
-          {(() => {
-            const funcaoSel = form.funcaoId ? funcoes.find((f) => f.id === form.funcaoId) : undefined;
-            if (!funcaoRequerFase12x36Expediente(funcaoSel)) return null;
-            return (
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, gridColumn: { md: '1 / -1' } }}>
-                <FormControl
-                  fullWidth
-                  required
-                  size="small"
-                  variant="outlined"
-                  sx={{ ...formFieldSx, maxWidth: { md: 400 } }}
-                >
-                  <InputLabel id="cad-policial-fase-12x36-label">Fase 12×36 (semana ISO)</InputLabel>
-                  <Select
-                    labelId="cad-policial-fase-12x36-label"
-                    label="Fase 12×36 (semana ISO)"
-                    value={form.expediente12x36Fase ?? ''}
-                    displayEmpty
-                    renderValue={(v) => {
-                      if (!v) return 'Selecione par ou ímpar';
-                      return v === 'PAR' ? 'Semanas pares' : 'Semanas ímpares';
-                    }}
+                      {quadrosDisponiveisForm.map((q) => (
+                        <MenuItem key={q.id} value={String(q.id)}>
+                          {q.sigla}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TextField
+                    id="nome-input"
+                    label="Nome completo"
+                    fullWidth
+                    required
+                    size="small"
+                    value={form.nome}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, nome: e.target.value.toUpperCase() }))
+                    }
+                    placeholder="JOÃO PEREIRA DA SILVA"
+                    sx={formFieldSx}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <TextField
+                    id="matricula-input"
+                    label="Matrícula"
+                    fullWidth
+                    required
+                    size="small"
+                    value={form.matricula}
                     onChange={(e) => {
-                      const v = e.target.value;
-                      setForm((prev) => ({
-                        ...prev,
-                        expediente12x36Fase: v === 'PAR' || v === 'IMPAR' ? v : undefined,
-                      }));
+                      const value = e.target.value.replace(/[^0-9xX]/g, '').toUpperCase();
+                      setForm((prev) => ({ ...prev, matricula: value }));
+                      if (matriculaTimeoutRef.current) clearTimeout(matriculaTimeoutRef.current);
+                      if (!value.trim()) {
+                        setMatriculaError(null);
+                        return;
+                      }
+                      matriculaTimeoutRef.current = setTimeout(() => validateMatricula(value), 300);
                     }}
-                    MenuProps={{ sx: { zIndex: 1500 } }}
-                  >
-                    <MenuItem value="">
-                      <em>Selecione par ou ímpar</em>
-                    </MenuItem>
-                    <MenuItem value="PAR">Semanas pares</MenuItem>
-                    <MenuItem value="IMPAR">Semanas ímpares</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
-            );
-          })()}
-        </Box>
+                    error={!!matriculaError}
+                    helperText={matriculaError}
+                    sx={formFieldSx}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={form.status === 'COMISSIONADO'}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            status: e.target.checked ? 'COMISSIONADO' : 'ATIVO',
+                            ...(e.target.checked ? {} : { matriculaComissionadoGdf: '', dataPosse: '' }),
+                          }))
+                        }
+                        size="small"
+                      />
+                    }
+                    label="Comissionado (GDF)"
+                  />
+                </Grid>
+                {form.status === 'COMISSIONADO' && (
+                  <Grid size={{ xs: 12 }}>
+                    <Box
+                      sx={{
+                        p: 2,
+                        borderRadius: 1,
+                        border: '1px dashed',
+                        borderColor: 'divider',
+                        bgcolor: 'action.hover',
+                      }}
+                    >
+                      <Grid container spacing={2}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Matrícula comissionado (GDF)"
+                            value={form.matriculaComissionadoGdf}
+                            onChange={(e) =>
+                              setForm((prev) => ({
+                                ...prev,
+                                matriculaComissionadoGdf: e.target.value
+                                  .replace(/[^0-9xX]/g, '')
+                                  .toUpperCase(),
+                              }))
+                            }
+                            sx={formFieldSx}
+                          />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                          <TextField
+                            fullWidth
+                            size="small"
+                            label="Data de posse"
+                            type="date"
+                            value={form.dataPosse}
+                            onChange={(e) =>
+                              setForm((prev) => ({ ...prev, dataPosse: e.target.value }))
+                            }
+                            slotProps={{ inputLabel: { shrink: true } }}
+                            sx={formFieldSx}
+                          />
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  </Grid>
+                )}
+              </Grid>
+            </Stack>
 
-        <Box sx={{ mt: 1 }}>
-          <Button
-            type="submit"
-            variant="contained"
-            disabled={submitting}
-            sx={{
-              textTransform: 'none',
-              bgcolor: 'var(--sentinela-blue)',
-              '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
-            }}
-          >
-            {submitting ? 'Salvando...' : 'Cadastrar policial'}
-          </Button>
-        </Box>
+            <Divider />
+
+            <Stack spacing={2}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                Contato e dados pessoais
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <TextField
+                    id="cpf-input"
+                    label="CPF"
+                    fullWidth
+                    size="small"
+                    value={form.cpf}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, cpf: maskCpf(e.target.value) }));
+                      if (cpfError) setCpfError(null);
+                    }}
+                    onBlur={() => {
+                      const digits = cpfToDigits(form.cpf);
+                      if (digits.length === 11 && !validarCpf(form.cpf)) {
+                        setCpfError('CPF inválido (dígitos verificadores incorretos).');
+                      } else if (digits.length > 0 && digits.length !== 11) {
+                        setCpfError('CPF deve conter 11 dígitos.');
+                      } else {
+                        setCpfError(null);
+                      }
+                    }}
+                    placeholder="000.000.000-00"
+                    slotProps={{ htmlInput: { maxLength: 14 } }}
+                    error={!!cpfError}
+                    helperText={cpfError}
+                    sx={formFieldSx}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <TextField
+                    id="telefone-input"
+                    label="Telefone"
+                    fullWidth
+                    size="small"
+                    value={form.telefone}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, telefone: maskTelefone(e.target.value) }));
+                      if (telefoneError) setTelefoneError(null);
+                    }}
+                    onBlur={() => {
+                      const digits = telefoneToDigits(form.telefone);
+                      if (digits.length > 0 && digits.length !== 11) {
+                        setTelefoneError('Telefone deve conter 11 dígitos.');
+                      } else {
+                        setTelefoneError(null);
+                      }
+                    }}
+                    placeholder="(00)00000-0000"
+                    slotProps={{ htmlInput: { maxLength: 14 } }}
+                    error={!!telefoneError}
+                    helperText={telefoneError}
+                    sx={formFieldSx}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <TextField
+                    id="data-nascimento-input"
+                    label="Data de nascimento"
+                    fullWidth
+                    size="small"
+                    type="date"
+                    value={form.dataNascimento}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, dataNascimento: e.target.value }))
+                    }
+                    slotProps={{ inputLabel: { shrink: true } }}
+                    sx={formFieldSx}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <TextField
+                    id="email-input"
+                    label="E-mail"
+                    fullWidth
+                    size="small"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => {
+                      setForm((prev) => ({ ...prev, email: e.target.value }));
+                      if (emailError) setEmailError(null);
+                    }}
+                    onBlur={() => {
+                      const v = form.email.trim();
+                      if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+                        setEmailError('E-mail inválido.');
+                      } else {
+                        setEmailError(null);
+                      }
+                    }}
+                    placeholder="email@exemplo.com"
+                    error={!!emailError}
+                    helperText={emailError}
+                    sx={formFieldSx}
+                  />
+                </Grid>
+              </Grid>
+            </Stack>
+
+            <Divider />
+
+            <Stack spacing={2}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                Função e lotação
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <FormControl fullWidth size="small" required error={!!funcaoError} sx={formFieldSx}>
+                    <InputLabel id="funcao-select-label" shrink>
+                      Função
+                    </InputLabel>
+                    <Select
+                      id="funcao-select"
+                      labelId="funcao-select-label"
+                      label="Função"
+                      value={form.funcaoId ?? ''}
+                      displayEmpty
+                      renderValue={(v) => {
+                        if (!v) return rotuloSelectVazio('Selecione uma função');
+                        const f = funcoesOrdenadas.find((x) => x.id === v);
+                        return f ? formatNome(f.nome) : rotuloSelectVazio('Selecione uma função');
+                      }}
+                      onChange={(e) => {
+                        const novoFuncaoId = e.target.value ? Number(e.target.value) : undefined;
+                        const funcaoSel = funcoes.find((f) => f.id === novoFuncaoId);
+                        if (novoFuncaoId) validateFuncao(novoFuncaoId);
+                        else setFuncaoError(null);
+                        if (funcaoSel) {
+                          const isMot = funcaoSel.nome.toUpperCase().includes('MOTORISTA DE DIA');
+                          const oculta = funcaoOcultaCampoEquipe(funcaoSel);
+                          const manterFase = funcaoRequerFase12x36Expediente(funcaoSel);
+                          setForm((prev) => ({
+                            ...prev,
+                            funcaoId: novoFuncaoId,
+                            equipe: oculta ? undefined : isMot && prev.equipe === 'E' ? undefined : prev.equipe,
+                            expediente12x36Fase: manterFase ? prev.expediente12x36Fase : undefined,
+                          }));
+                        } else {
+                          setForm((prev) => ({ ...prev, funcaoId: novoFuncaoId, expediente12x36Fase: undefined }));
+                        }
+                      }}
+                      MenuProps={{ sx: { zIndex: 1500 } }}
+                    >
+                      <MenuItem value="">
+                        <em>Selecione uma função</em>
+                      </MenuItem>
+                      {funcoesOrdenadas.map((funcao) => (
+                        <MenuItem key={funcao.id} value={funcao.id}>
+                          {formatNome(funcao.nome)}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    {funcaoError ? (
+                      <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75, display: 'block' }}>
+                        {funcaoError}
+                      </Typography>
+                    ) : null}
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <FormControl fullWidth required size="small" sx={formFieldSx}>
+                    <InputLabel id="status-select-label" shrink>
+                      Status
+                    </InputLabel>
+                    <Select
+                      id="status-select"
+                      labelId="status-select-label"
+                      label="Status"
+                      value={form.status}
+                      renderValue={(v) => POLICIAL_STATUS_OPTIONS_FORM.find((o) => o.value === v)?.label ?? v}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          status: e.target.value as PolicialStatus,
+                        }))
+                      }
+                      MenuProps={{ sx: { zIndex: 1500 } }}
+                    >
+                      {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                {mostrarEquipeForm && (
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <FormControl fullWidth required={equipeObrigatoriaForm} size="small" sx={formFieldSx}>
+                      <InputLabel id="equipe-select-label" shrink>
+                        Equipe
+                      </InputLabel>
+                      <Select
+                        id="equipe-select"
+                        labelId="equipe-select-label"
+                        label="Equipe"
+                        value={form.equipe ?? ''}
+                        displayEmpty
+                        renderValue={(v) => {
+                          if (!v) {
+                            return rotuloSelectVazio(equipeObrigatoriaForm ? 'Selecione a equipe' : 'Sem equipe');
+                          }
+                          return formatNome(v);
+                        }}
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            equipe: e.target.value ? (e.target.value as Equipe) : undefined,
+                          }))
+                        }
+                        MenuProps={{ sx: { zIndex: 1500 } }}
+                      >
+                        <MenuItem value="">
+                          <em>Selecione</em>
+                        </MenuItem>
+                        {equipesDisponiveisForm.map((option) => (
+                          <MenuItem key={option.id} value={option.nome}>
+                            {formatNome(option.nome)}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                )}
+                {mostrarFase12x36Form && (
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <FormControl fullWidth required size="small" sx={formFieldSx}>
+                      <InputLabel id="cad-policial-fase-12x36-label" shrink>
+                        Fase 12×36
+                      </InputLabel>
+                      <Select
+                        labelId="cad-policial-fase-12x36-label"
+                        label="Fase 12×36"
+                        value={form.expediente12x36Fase ?? ''}
+                        displayEmpty
+                        renderValue={(v) => {
+                          if (!v) return rotuloSelectVazio('Par ou ímpar');
+                          return v === 'PAR' ? 'Semanas pares' : 'Semanas ímpares';
+                        }}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setForm((prev) => ({
+                            ...prev,
+                            expediente12x36Fase: v === 'PAR' || v === 'IMPAR' ? v : undefined,
+                          }));
+                        }}
+                        MenuProps={{ sx: { zIndex: 1500 } }}
+                      >
+                        <MenuItem value="">
+                          <em>Selecione</em>
+                        </MenuItem>
+                        <MenuItem value="PAR">Semanas pares</MenuItem>
+                        <MenuItem value="IMPAR">Semanas ímpares</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                )}
+              </Grid>
+            </Stack>
+
+            <Divider />
+
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={submitting}
+                sx={{
+                  minWidth: 200,
+                  textTransform: 'none',
+                  bgcolor: 'var(--sentinela-blue)',
+                  '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
+                }}
+              >
+                {submitting ? 'Salvando...' : 'Cadastrar policial'}
+              </Button>
+            </Box>
+          </Stack>
+        </Paper>
       </Box>
-
               {/* Modal de Validação de Policiais Extraídos */}
       {validacaoModal.open && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">

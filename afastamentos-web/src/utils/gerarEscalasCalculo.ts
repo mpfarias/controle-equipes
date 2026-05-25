@@ -9,6 +9,7 @@ import type {
 import { ESCALA_MOTORISTA_DIA } from '../constants/escalaMotoristasDia';
 import type { EscalaParsed } from './escalaParametros';
 import { comparePorPatenteENome } from './sortPoliciais';
+import { formatLinhaAssinaturaCmtUpm } from './formatUsuarioExibicao';
 import {
   ESCALA_DIA_FIM,
   ESCALA_DIA_INICIO,
@@ -26,8 +27,17 @@ import {
 import { indiceOrdenacaoBloco, type BlocoEscalaId, type EscalaCabecalhoFormulario } from './escalaBlocos';
 import { policialFuncaoBloqueiaEscalasEOperacoes } from './funcaoSupervisorDeDia';
 import { policialPossuiRestricaoCadastrada } from './policialRestricao';
+import { montarCandidatosSuperiorDeDia } from './superiorDeDiaEscala';
+import {
+  montarCandidatosSvgVoluntario,
+  resumoSvgVoluntarioConfig,
+  type SvgEscalaConfig,
+} from './svgEscalaVoluntario';
 
-export type TipoServicoGerar = 'OPERACIONAL' | 'EXPEDIENTE' | 'MOTORISTAS';
+export type TipoServicoGerar = 'OPERACIONAL' | 'EXPEDIENTE' | 'MOTORISTAS' | 'SVG';
+
+export type { SvgEscalaConfig, SvgEscalaLinhaVoluntario } from './svgEscalaVoluntario';
+export { calcularEquipeMotoristasDia, calcularEquipesOperacionalDia } from './escalaEquipesCalculo';
 
 export type LinhaEscalaGeradaDraft = {
   lista: 'DISPONIVEL' | 'AFASTADO';
@@ -57,9 +67,21 @@ export type EscalaGeradaDraftPayload = {
   cabecalhoFormulario?: EscalaCabecalhoFormulario;
   /** Cabeçalho por bloco (impressão definitiva). */
   cabecalhoPorBloco?: Partial<Record<string, EscalaCabecalhoFormulario>>;
+  /** Preenchido na modal antes da geração quando o tipo SVG está marcado. */
+  svgVoluntario?: SvgEscalaConfig;
+  /** Nome exibido na assinatura do Cmt UPM (opcional; senão, busca na linha com função CMT UPM). */
+  assinaturaCmtUpmNome?: string;
 };
 
-const ORDEM_TIPO_SERVICO: TipoServicoGerar[] = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS'];
+const ORDEM_TIPO_SERVICO: TipoServicoGerar[] = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS', 'SVG'];
+
+/** Tipos incluídos em «Gerar escala total». */
+export const TIPOS_ESCALA_TOTAL: TipoServicoGerar[] = [
+  'OPERACIONAL',
+  'EXPEDIENTE',
+  'MOTORISTAS',
+  'SVG',
+];
 
 /** Ordenação por função: índices 0–10 = ordem definida; 500 = demais (vai após os ranqueados). */
 const FUNCAO_ESCALA_ORDEM_DESCONHECIDO = 500;
@@ -111,8 +133,31 @@ export function indiceFuncaoOrdenacaoEscala(funcaoNome: string | null | undefine
 
   if (f.includes('EXPEDIENTE') && f.includes('ADM')) return 9;
   if (f.includes('ANALISTA')) return 10;
+  if (f.includes('GUARDA') && f.includes('COPOM')) return 11;
 
   return FUNCAO_ESCALA_ORDEM_DESCONHECIDO;
+}
+
+/** Nome bruto do CMT UPM nas linhas da escala (campo `nome` do policial). */
+export function resolverNomeBrutoCmtUpmNasLinhasEscala(
+  linhas: LinhaEscalaGeradaDraft[],
+): string | null {
+  for (const l of linhas) {
+    if (l.lista !== 'DISPONIVEL') continue;
+    if (indiceFuncaoOrdenacaoEscala(l.funcaoNome) !== 0) continue;
+    const n = (l.nome ?? '').trim();
+    if (n) return n;
+  }
+  return null;
+}
+
+/** Texto sob a linha de assinatura: "NOME COMPLETO - TC QOPM". */
+export function resolverLinhaAssinaturaCmtUpm(
+  linhas: LinhaEscalaGeradaDraft[],
+  nomeOverride?: string | null,
+): string {
+  const bruto = (nomeOverride ?? '').trim() || resolverNomeBrutoCmtUpmNasLinhasEscala(linhas) || '';
+  return bruto ? formatLinhaAssinaturaCmtUpm(bruto) : '';
 }
 
 /** Função primeiro (CMT UPM / SubCMT etc.), depois mesmo critério das listas do sistema (patente no nome + status + nome). */
@@ -173,38 +218,7 @@ function detalheAfastamentoTexto(af: Afastamento): string {
   return [motivo, sei].filter(Boolean).join(' · ');
 }
 
-const DATA_MIN_CALENDARIO = new Date(2026, 0, 1);
-
-export function calcularEquipesOperacionalDia(
-  ano: number,
-  mes: number,
-  dia: number,
-  escala: EscalaParsed,
-): { equipeDia: string; equipeNoite: string } | null {
-  const dataAtual = new Date(ano, mes, dia);
-  if (dataAtual.getTime() < DATA_MIN_CALENDARIO.getTime()) return null;
-  const dataInicio = escala.dataInicioEquipes;
-  const sequencia = escala.sequenciaEquipes;
-  const n = sequencia.length;
-  if (n === 0) return null;
-  const diffTime = dataAtual.getTime() - dataInicio.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  const posicaoDia = ((diffDays % n) + n) % n;
-  const posicaoNoite = (posicaoDia - 1 + n) % n;
-  return { equipeDia: sequencia[posicaoDia], equipeNoite: sequencia[posicaoNoite] };
-}
-
-export function calcularEquipeMotoristasDia(ano: number, mes: number, dia: number, escala: EscalaParsed): string | null {
-  const dataAtual = new Date(ano, mes, dia);
-  if (dataAtual.getTime() < DATA_MIN_CALENDARIO.getTime()) return null;
-  const seq = escala.sequenciaMotoristas;
-  const nm = seq.length;
-  if (nm === 0) return null;
-  const diffTime = dataAtual.getTime() - escala.dataInicioMotoristas.getTime();
-  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  if (diffDays < 0) return null;
-  return seq[diffDays % nm];
-}
+import { calcularEquipeMotoristasDia, calcularEquipesOperacionalDia } from './escalaEquipesCalculo';
 
 /** Escala operacional / motoristas: todos os status do cadastro, exceto desativado. */
 function policialElegivelEscala(p: Policial): boolean {
@@ -294,11 +308,65 @@ function turnoServicoTroca(
 }
 
 /**
- * Alinha **Gerar escala** operacional com **Troca de serviço**:
- * - Base: `policial.equipe` (cadastro permanente) vs `equipeDia` / `equipeNoite` do dia.
- * - Troca ATIVA (não concluída): nas datas/turnos do registro de troca, o plantão segue a **equipe de origem do parceiro**
- *   (A no dia de A usa `equipeOrigemB`; B no dia de B usa `equipeOrigemA`), sem alterar o cadastro do policial.
+ * Alinha **Gerar escala** operacional com **Troca de serviço** (troca mútua):
+ * - Base: `policial.equipe` (cadastro) vs equipe de serviço do dia.
+ * - No dia/turno de cada policial na troca: A cumpre na equipe de origem de B (`equipeOrigemB`) e B na de A (`equipeOrigemA`);
+ *   quem cede o plantão naquela equipe **não** aparece na escala — só o parceiro que entra.
  */
+function aplicarEventoMutuoTrocaServico(
+  p: Policial,
+  dataIso: string,
+  eq: { equipeDia: string; equipeNoite: string },
+  turnos: { diurno: boolean; noturno: boolean },
+  t: TrocaServicoAtivaListaItem,
+  dataEvento: string,
+  turnoEvento: 'DIURNO' | 'NOTURNO',
+  eventoAtivo: boolean,
+  diurno: boolean,
+  noturno: boolean,
+): { diurno: boolean; noturno: boolean } {
+  if (!eventoAtivo || dataIso !== dataEvento) return { diurno, noturno };
+
+  const pid = Number(p.id);
+  const idA = Number(t.policialA.id);
+  const idB = Number(t.policialB.id);
+  const oa = normEqEscala(t.equipeOrigemA);
+  const ob = normEqEscala(t.equipeOrigemB);
+  const eqD = normEqEscala(eq.equipeDia);
+  const eqN = normEqEscala(eq.equipeNoite);
+
+  const aplicarNoTurno = (turno: 'DIURNO' | 'NOTURNO', eqSlot: string, isDiurno: boolean) => {
+    if (turnoEvento !== turno) return;
+    if (isDiurno ? !turnos.diurno : !turnos.noturno) return;
+
+    if (pid === idA) {
+      if (oa !== '' && oa === eqSlot) {
+        if (isDiurno) diurno = false;
+        else noturno = false;
+      }
+      if (ob !== '' && ob === eqSlot) {
+        if (isDiurno) diurno = true;
+        else noturno = true;
+      }
+    }
+    if (pid === idB) {
+      if (ob !== '' && ob === eqSlot) {
+        if (isDiurno) diurno = false;
+        else noturno = false;
+      }
+      if (oa !== '' && oa === eqSlot) {
+        if (isDiurno) diurno = true;
+        else noturno = true;
+      }
+    }
+  };
+
+  if (turnos.diurno) aplicarNoTurno('DIURNO', eqD, true);
+  if (turnos.noturno) aplicarNoTurno('NOTURNO', eqN, false);
+
+  return { diurno, noturno };
+}
+
 function aplicarTrocasServicoOperacional(
   p: Policial,
   dataIso: string,
@@ -308,66 +376,42 @@ function aplicarTrocasServicoOperacional(
 ): { diurno: boolean; noturno: boolean } {
   const eqD = normEqEscala(eq.equipeDia);
   const eqN = normEqEscala(eq.equipeNoite);
-  const pid = Number(p.id);
 
   let diurno = Boolean(turnos.diurno && normEqEscala(p.equipe) === eqD);
   let noturno = Boolean(turnos.noturno && normEqEscala(p.equipe) === eqN);
 
   const overlay = trocas.filter((t) => t.status !== 'CONCLUIDA');
 
-  const idA = (t: TrocaServicoAtivaListaItem) => Number(t.policialA.id);
-  const idB = (t: TrocaServicoAtivaListaItem) => Number(t.policialB.id);
-
   for (const t of overlay) {
     const dA = ymdTrocaServico(t.dataServicoA);
     const dB = ymdTrocaServico(t.dataServicoB);
-    const oa = normEqEscala(t.equipeOrigemA);
-    const ob = normEqEscala(t.equipeOrigemB);
     const ta = turnoServicoTroca(t, 'A');
     const tb = turnoServicoTroca(t, 'B');
 
-    if (turnos.diurno) {
-      if (pid === idB(t) && !t.restauradoB && dA === dataIso && ta === 'DIURNO' && ob !== '' && ob === eqD) {
-        diurno = false;
-      }
-      if (pid === idA(t) && !t.restauradoA && dB === dataIso && tb === 'DIURNO' && oa !== '' && oa === eqD) {
-        diurno = false;
-      }
-    }
-    if (turnos.noturno) {
-      if (pid === idB(t) && !t.restauradoB && dA === dataIso && ta === 'NOTURNO' && ob !== '' && ob === eqN) {
-        noturno = false;
-      }
-      if (pid === idA(t) && !t.restauradoA && dB === dataIso && tb === 'NOTURNO' && oa !== '' && oa === eqN) {
-        noturno = false;
-      }
-    }
-  }
-
-  for (const t of overlay) {
-    const dA = ymdTrocaServico(t.dataServicoA);
-    const dB = ymdTrocaServico(t.dataServicoB);
-    const oa = normEqEscala(t.equipeOrigemA);
-    const ob = normEqEscala(t.equipeOrigemB);
-    const ta = turnoServicoTroca(t, 'A');
-    const tb = turnoServicoTroca(t, 'B');
-
-    if (turnos.diurno) {
-      if (pid === idA(t) && !t.restauradoA && dA === dataIso && ta === 'DIURNO' && ob !== '' && ob === eqD) {
-        diurno = true;
-      }
-      if (pid === idB(t) && !t.restauradoB && dB === dataIso && tb === 'DIURNO' && oa !== '' && oa === eqD) {
-        diurno = true;
-      }
-    }
-    if (turnos.noturno) {
-      if (pid === idA(t) && !t.restauradoA && dA === dataIso && ta === 'NOTURNO' && ob !== '' && ob === eqN) {
-        noturno = true;
-      }
-      if (pid === idB(t) && !t.restauradoB && dB === dataIso && tb === 'NOTURNO' && oa !== '' && oa === eqN) {
-        noturno = true;
-      }
-    }
+    ({ diurno, noturno } = aplicarEventoMutuoTrocaServico(
+      p,
+      dataIso,
+      eq,
+      turnos,
+      t,
+      dA,
+      ta,
+      !t.restauradoA,
+      diurno,
+      noturno,
+    ));
+    ({ diurno, noturno } = aplicarEventoMutuoTrocaServico(
+      p,
+      dataIso,
+      eq,
+      turnos,
+      t,
+      dB,
+      tb,
+      !t.restauradoB,
+      diurno,
+      noturno,
+    ));
   }
 
   return { diurno, noturno };
@@ -390,6 +434,8 @@ function policialEstaEmTrocaServicoNoTurno(params: {
     const tB = turnoServicoTroca(t, 'B');
     if (policialId === idA && !t.restauradoA && dA === dataIso && tA === turno) return true;
     if (policialId === idB && !t.restauradoB && dB === dataIso && tB === turno) return true;
+    if (policialId === idB && !t.restauradoA && dA === dataIso && tA === turno) return true;
+    if (policialId === idA && !t.restauradoB && dB === dataIso && tB === turno) return true;
   }
   return false;
 }
@@ -431,6 +477,7 @@ export function montarPayloadGerarEscalas(
     operacionalTurnos?: OperacionalTurnosOpcao;
     /** Trocas ATIVA (e em andamento): ajusta quem entra no operacional conforme data/turno do registro. */
     trocasServicoAtivas?: TrocaServicoAtivaListaItem[];
+    svgVoluntario?: SvgEscalaConfig;
   },
 ): EscalaGeradaDraftPayload {
   const [y, m, d] = dataIso.split('-').map(Number);
@@ -483,6 +530,7 @@ export function montarPayloadGerarEscalas(
       resumo += `. Período contínuo: das ${ESCALA_DIA_INICIO} da data da escala até as ${ESCALA_NOITE_FIM} do dia seguinte.`;
     }
     resumo += ' Policiais na função motorista não entram nesta lista (use o tipo Motoristas).';
+    resumo += ' Superior de dia: mesma rotação 12×24 das equipes, bloco próprio na impressão.';
 
     const trocasOverlay = opts.trocasServicoAtivas ?? [];
 
@@ -531,6 +579,16 @@ export function montarPayloadGerarEscalas(
         });
       }
     }
+
+    for (const sup of montarCandidatosSuperiorDeDia(policiais, y, m - 1, d, escala, turnos)) {
+      candidatos.push({
+        policial: sup.policial,
+        horarioServico: sup.horarioServico,
+        equipeLabel: sup.equipeLabel,
+        blocoEscala: sup.blocoEscala,
+      });
+    }
+
     return montarLinhasFinais(dataIso, tipo, resumo, candidatos, afastamentos, dataRef);
   }
 
@@ -559,6 +617,22 @@ export function montarPayloadGerarEscalas(
       });
     }
     return montarLinhasFinais(dataIso, tipo, resumo, candidatos, afastamentos, dataRef);
+  }
+
+  if (tipo === 'SVG') {
+    const config = opts.svgVoluntario;
+    if (!config?.linhas.length) {
+      return {
+        dataEscala: dataIso,
+        tipoServico: tipo,
+        resumoEquipes: 'SVG — configure os policiais e horários na modal antes de gerar.',
+        linhas: [],
+      };
+    }
+    const candidatosSvg = montarCandidatosSvgVoluntario(policiais, config);
+    const resumo = resumoSvgVoluntarioConfig(config);
+    const payload = montarLinhasFinais(dataIso, tipo, resumo, candidatosSvg, afastamentos, dataRef);
+    return { ...payload, svgVoluntario: config };
   }
 
   // EXPEDIENTE — horário por policial/dia (regras em expedienteEscalaRegras.ts)
@@ -741,6 +815,8 @@ export function labelTipoServicoUm(tipo: TipoServicoGerar | string): string {
       return 'Expediente';
     case 'MOTORISTAS':
       return `Motoristas (${ESCALA_MOTORISTA_DIA})`;
+    case 'SVG':
+      return 'SVG';
     case 'EXTRAORDINARIA':
       return 'Escala extraordinária';
     default:
@@ -776,6 +852,7 @@ export function montarPayloadGerarEscalasCombinado(
     trocasServicoAtivas?: TrocaServicoAtivaListaItem[];
     /** Momento da geração (aba de edição / impressão). */
     dataGeracaoIso?: string;
+    svgVoluntario?: SvgEscalaConfig;
   },
 ): EscalaGeradaDraftPayload {
   const tipos = ORDEM_TIPO_SERVICO.filter((t) => tiposSelecionados.includes(t));
@@ -825,6 +902,7 @@ export function montarPayloadGerarEscalasCombinado(
     resumoEquipes: resumos.join('\n\n'),
     linhas,
     dataGeracaoIso: opts.dataGeracaoIso,
+    svgVoluntario: opts.svgVoluntario,
   };
 }
 

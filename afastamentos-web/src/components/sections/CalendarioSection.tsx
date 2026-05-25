@@ -31,6 +31,11 @@ import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
 import { imprimirListaPoliciaisCalendarioModal } from '../../utils/calendarioModalPrint';
 import { funcaoNomeIndicaSuperiorDeDia } from '../../utils/funcaoSupervisorDeDia';
+import {
+  carregarMapaSuperioresPorEquipe,
+  resolverSuperioresDeDiaNaData,
+  type SuperiorDeDiaTurno,
+} from '../../utils/superiorDeDiaEscala';
 
 interface CalendarioSectionProps {
   currentUser: Usuario;
@@ -66,7 +71,13 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   const [policiaisModal, setPoliciaisModal] = useState<Policial[]>([]);
   const [loadingModal, setLoadingModal] = useState(false);
   const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
-  const [funcoesSuperiorDiaIds, setFuncoesSuperiorDiaIds] = useState<number[]>([]);
+  const [superioresPorEquipe, setSuperioresPorEquipe] = useState<Partial<Record<Equipe, Policial>>>({});
+  const [superiorModalDetalhes, setSuperiorModalDetalhes] = useState<{
+    diurno: SuperiorDeDiaTurno | null;
+    noturno: SuperiorDeDiaTurno | null;
+  } | null>(null);
+  const [modalOrigem, setModalOrigem] = useState<'superior' | 'equipe' | 'motorista' | null>(null);
+  const [funcaoSuperiorIds, setFuncaoSuperiorIds] = useState<number[]>([]);
 
   // Gerar lista de anos (a partir de 2026 até 5 anos no futuro)
   const anosDisponiveis = useMemo(() => {
@@ -224,7 +235,12 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
         const idsSuperior = funcoesAtivas
           .filter((f) => funcaoNomeIndicaSuperiorDeDia(f.nome))
           .map((f) => f.id);
-        setFuncoesSuperiorDiaIds(idsSuperior);
+        setFuncaoSuperiorIds(idsSuperior);
+        const mapa = await carregarMapaSuperioresPorEquipe(
+          (params) => api.listPoliciaisPaginated(params),
+          idsSuperior,
+        );
+        setSuperioresPorEquipe(mapa);
       } catch (error) {
         console.error('Erro ao carregar funções de escala:', error);
       }
@@ -234,6 +250,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
 
   // Abrir modal com motoristas de dia escalados conforme a equipe do dia na escala 24×72
   const handleMotoristasClick = async (dia: number) => {
+    setSuperiorModalDetalhes(null);
+    setModalOrigem('motorista');
     setModalOpen(true);
     setLoadingModal(true);
     const dataAtual = new Date(anoSelecionado, mesSelecionado, dia);
@@ -279,6 +297,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
 
   // Função para abrir modal com policiais da equipe
   const handleEquipeClick = async (equipe: Equipe, periodo: 'dia' | 'noite', dia: number) => {
+    setSuperiorModalDetalhes(null);
+    setModalOrigem('equipe');
     setModalOpen(true);
     setLoadingModal(true);
     setModalTitle(`Equipe ${formatEquipeLabel(equipe)} - ${periodo === 'dia' ? 'Dia' : 'Noite'} (${dia}/${mesSelecionado + 1}/${anoSelecionado})`);
@@ -330,6 +350,8 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
   };
 
   const handleSuperiorDiaClick = async (dia: number) => {
+    setSuperiorModalDetalhes(null);
+    setModalOrigem('superior');
     setModalOpen(true);
     setLoadingModal(true);
     const dataAtual = new Date(anoSelecionado, mesSelecionado, dia);
@@ -337,20 +359,22 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
     setModalTitle(`Superior de dia — ${dataStr}`);
 
     try {
-      if (funcoesSuperiorDiaIds.length === 0) {
-        setPoliciaisModal([]);
-        return;
+      let mapa = superioresPorEquipe;
+      if (Object.keys(mapa).length === 0) {
+        mapa = await carregarMapaSuperioresPorEquipe(
+          (params) => api.listPoliciaisPaginated(params),
+          funcaoSuperiorIds,
+        );
+        setSuperioresPorEquipe(mapa);
       }
 
-      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
-        page: 1,
-        pageSize: 1000,
-        funcaoIds: funcoesSuperiorDiaIds,
-        includeAfastamentos: false,
-        includeRestricoes: false,
-      };
-      const data = await api.listPoliciaisPaginated(params);
-      const superiores = data.Policiales.filter((p) => p.status !== 'DESATIVADO');
+      const escalados = resolverSuperioresDeDiaNaData(
+        mapa,
+        anoSelecionado,
+        mesSelecionado,
+        dia,
+        escala,
+      );
 
       const dataBusca = `${anoSelecionado}-${String(mesSelecionado + 1).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
       const afastamentos = await api.listAfastamentos({
@@ -360,13 +384,21 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       });
       const afastamentosAtivos = filtrarAfastamentosNaData(afastamentos, dataAtual);
       const idsAfastados = new Set(afastamentosAtivos.map((af) => af.policialId));
-      const superioresDisponiveis = superiores.filter((p) => !idsAfastados.has(p.id));
 
-      setModalTitle(`Superior de dia — ${dataStr}`);
-      setPoliciaisModal(sortPorPatenteENome(superioresDisponiveis));
+      const detalhes = {
+        diurno: escalados.diurno && !idsAfastados.has(escalados.diurno.policial.id) ? escalados.diurno : null,
+        noturno: escalados.noturno && !idsAfastados.has(escalados.noturno.policial.id) ? escalados.noturno : null,
+      };
+      setSuperiorModalDetalhes(detalhes);
+
+      const lista: Policial[] = [];
+      if (detalhes.diurno) lista.push(detalhes.diurno.policial);
+      if (detalhes.noturno) lista.push(detalhes.noturno.policial);
+      setPoliciaisModal(sortPorPatenteENome(lista));
     } catch (error) {
       console.error('Erro ao carregar superior de dia:', error);
       setPoliciaisModal([]);
+      setSuperiorModalDetalhes({ diurno: null, noturno: null });
     } finally {
       setLoadingModal(false);
     }
@@ -793,7 +825,11 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
       {/* Modal de Policiais da Equipe */}
       <Dialog
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => {
+          setModalOpen(false);
+          setSuperiorModalDetalhes(null);
+          setModalOrigem(null);
+        }}
         maxWidth="md"
         fullWidth
       >
@@ -837,8 +873,29 @@ export function CalendarioSection({ currentUser: _currentUser }: CalendarioSecti
             </Box>
           ) : policiaisModal.length === 0 ? (
             <Typography variant="body2" sx={{ p: 2, textAlign: 'center', color: 'text.secondary' }}>
-              Nenhum policial encontrado nesta equipe.
+              {modalOrigem === 'superior'
+                ? 'Nenhum superior de dia escalado nesta data. Verifique se os MAJs estão cadastrados com função «Superior de dia» e equipe (A–E).'
+                : 'Nenhum policial encontrado nesta equipe.'}
             </Typography>
+          ) : modalOrigem === 'superior' && superiorModalDetalhes ? (
+            <List>
+              {superiorModalDetalhes.diurno && (
+                <ListItem key={`sup-d-${superiorModalDetalhes.diurno.policial.id}`}>
+                  <ListItemText
+                    primary={`${superiorModalDetalhes.diurno.policial.nome} — diurno (07h às 19h)`}
+                    secondary={`Equipe ${formatEquipeLabel(superiorModalDetalhes.diurno.equipe)} · Matrícula: ${formatMatricula(superiorModalDetalhes.diurno.policial.matricula)}`}
+                  />
+                </ListItem>
+              )}
+              {superiorModalDetalhes.noturno && (
+                <ListItem key={`sup-n-${superiorModalDetalhes.noturno.policial.id}`}>
+                  <ListItemText
+                    primary={`${superiorModalDetalhes.noturno.policial.nome} — noturno (19h às 07h)`}
+                    secondary={`Equipe ${formatEquipeLabel(superiorModalDetalhes.noturno.equipe)} · Matrícula: ${formatMatricula(superiorModalDetalhes.noturno.policial.matricula)}`}
+                  />
+                </ListItem>
+              )}
+            </List>
           ) : (
             <List>
               {policiaisModal.map((policial) => (

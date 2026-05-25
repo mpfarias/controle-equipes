@@ -1,0 +1,848 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Painéis do app são claros; "dark" aqui fazia inputs/texto nativos ilegíveis em alguns navegadores. */
+  color-scheme: light;
+  --glass-border: rgba(255, 255, 255, 0.22);
+  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-bg-strong: rgba(255, 255, 255, 0.12);
+  --glass-highlight: rgba(255, 255, 255, 0.45);
+  --shine-duration: 1.15s;
+  --aurora-cycle: 18s;
+  --mesh-cycle: 22s;
+}
+
+html {
+  height: 100%;
+  scroll-behavior: smooth;
+  overflow: hidden;
+}
+
+body {
+  @apply antialiased;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* ——— Aurora base ——— */
+.aurora-base {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 120% 80% at 50% -20%, #2e1064 0%, transparent 55%),
+    radial-gradient(ellipse 90% 70% at 100% 0%, #4c1d95 0%, transparent 50%),
+    linear-gradient(165deg, #030712 0%, #0f0720 35%, #1a0a2e 65%, #0c1222 100%);
+}
+
+.aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  opacity: 0.55;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+}
+
+.aurora-blob--a {
+  width: min(58vw, 520px);
+  height: min(58vw, 520px);
+  left: -12%;
+  top: 10%;
+  background: radial-gradient(circle at 30% 30%, #f472b6, #db2777 45%, transparent 70%);
+  animation: aurora-drift-a var(--aurora-cycle) ease-in-out infinite;
+}
+
+.aurora-blob--b {
+  width: min(50vw, 480px);
+  height: min(50vw, 480px);
+  right: -8%;
+  top: 22%;
+  background: radial-gradient(circle at 70% 40%, #a78bfa, #7c3aed 50%, transparent 72%);
+  animation: aurora-drift-b calc(var(--aurora-cycle) * 1.12) ease-in-out infinite;
+}
+
+.aurora-blob--c {
+  width: min(70vw, 640px);
+  height: min(45vw, 420px);
+  left: 18%;
+  bottom: -12%;
+  background: radial-gradient(circle at 50% 50%, #22d3ee, #0ea5e9 42%, transparent 68%);
+  animation: aurora-drift-c calc(var(--aurora-cycle) * 0.95) ease-in-out infinite;
+  opacity: 0.42;
+}
+
+.aurora-blob--d {
+  width: min(45vw, 380px);
+  height: min(45vw, 380px);
+  right: 22%;
+  bottom: 18%;
+  background: radial-gradient(circle at 50% 50%, #fb7185, #e11d48 40%, transparent 65%);
+  animation: aurora-drift-d calc(var(--aurora-cycle) * 1.08) ease-in-out infinite;
+  opacity: 0.38;
+}
+
+@keyframes aurora-drift-a {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    opacity: 0.5;
+  }
+  33% {
+    transform: translate(6%, -4%) scale(1.12) rotate(6deg);
+    opacity: 0.72;
+  }
+  66% {
+    transform: translate(-4%, 5%) scale(0.94) rotate(-4deg);
+    opacity: 0.58;
+  }
+}
+
+@keyframes aurora-drift-b {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+    opacity: 0.52;
+  }
+  40% {
+    transform: translate(-7%, 6%) scale(1.08) rotate(-8deg);
+    opacity: 0.78;
+  }
+  70% {
+    transform: translate(5%, -3%) scale(0.92) rotate(5deg);
+    opacity: 0.5;
+  }
+}
+
+@keyframes aurora-drift-c {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.38;
+  }
+  50% {
+    transform: translate(-5%, -8%) scale(1.15);
+    opacity: 0.55;
+  }
+}
+
+@keyframes aurora-drift-d {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.35;
+  }
+  45% {
+    transform: translate(8%, 4%) scale(1.1);
+    opacity: 0.52;
+  }
+}
+
+/* Mesh gradient overlay — richer, slow sweep */
+.aurora-mesh {
+  position: absolute;
+  inset: -20%;
+  background: conic-gradient(
+    from 180deg at 50% 50%,
+    rgba(236, 72, 153, 0.22) 0deg,
+    rgba(139, 92, 246, 0.2) 72deg,
+    rgba(14, 165, 233, 0.18) 160deg,
+    rgba(244, 114, 182, 0.2) 240deg,
+    rgba(99, 102, 241, 0.18) 320deg,
+    rgba(236, 72, 153, 0.22) 360deg
+  );
+  opacity: 0.55;
+  animation: mesh-spin var(--mesh-cycle) linear infinite;
+  mix-blend-mode: screen;
+}
+
+@keyframes mesh-spin {
+  0% {
+    transform: rotate(0deg) scale(1.15);
+  }
+  100% {
+    transform: rotate(360deg) scale(1.15);
+  }
+}
+
+/* Subtle grid + vignette */
+.aurora-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 85% 75% at 50% 45%, black 20%, transparent 75%);
+  opacity: 0.45;
+}
+
+.aurora-noise {
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+/* ——— Glass panels ——— */
+@layer components {
+  .glass-panel {
+    @apply relative overflow-hidden rounded-3xl border shadow-2xl;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.06) 100%);
+    border-color: var(--glass-border);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset, 0 25px 80px -20px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(22px) saturate(160%);
+    -webkit-backdrop-filter: blur(22px) saturate(160%);
+  }
+
+  .glass-panel--soft {
+    @apply relative overflow-x-hidden overflow-y-auto rounded-3xl border shadow-xl;
+    background: linear-gradient(165deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.52) 100%);
+    border-color: rgba(255, 255, 255, 0.55);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset, 0 20px 60px -25px rgba(15, 23, 42, 0.35);
+    backdrop-filter: blur(28px) saturate(170%);
+    -webkit-backdrop-filter: blur(28px) saturate(170%);
+  }
+
+  .glass-nav {
+    @apply relative flex flex-col overflow-hidden rounded-3xl border shadow-2xl;
+    background: linear-gradient(160deg, rgba(15, 23, 42, 0.45) 0%, rgba(15, 23, 42, 0.25) 100%);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06) inset, 0 20px 50px -20px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+  }
+
+  /* Fast professional shine on edges */
+  .shine-sweep {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 38%,
+      rgba(255, 255, 255, 0.55) 50%,
+      transparent 62%,
+      transparent 100%
+    );
+    width: 55%;
+    transform: translateX(-140%) skewX(-14deg);
+    animation: shine-sweep var(--shine-duration) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    mix-blend-mode: overlay;
+  }
+
+  .shine-border-wrap {
+    @apply relative rounded-3xl p-px;
+    background: linear-gradient(
+      120deg,
+      rgba(244, 114, 182, 0.85),
+      rgba(167, 139, 250, 0.75),
+      rgba(56, 189, 248, 0.8),
+      rgba(244, 114, 182, 0.85)
+    );
+    background-size: 300% 300%;
+    animation: border-flow 4s ease infinite;
+    box-shadow: 0 0 40px -8px rgba(236, 72, 153, 0.35), 0 0 60px -12px rgba(139, 92, 246, 0.25);
+  }
+
+  .text-gradient-brand {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(120deg, #fce7f3 0%, #f9a8d4 25%, #e9d5ff 55%, #a5f3fc 85%, #fce7f3 100%);
+    background-size: 200% auto;
+    animation: text-shimmer 5s ease infinite;
+  }
+
+  /* Dashboard — cartões dos gráficos: borda em gradiente animado + brilho + ambiente suave */
+  .dashboard-chart-card {
+    position: relative;
+    padding: 1px;
+    border-radius: 1rem;
+    background: linear-gradient(
+      125deg,
+      #f472b6 0%,
+      #c084fc 18%,
+      #818cf8 36%,
+      #38bdf8 54%,
+      #a78bfa 72%,
+      #fb7185 88%,
+      #f472b6 100%
+    );
+    background-size: 340% 340%;
+    animation: dashboard-chart-border-flow 9s ease-in-out infinite;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35) inset, 0 10px 40px -12px rgba(236, 72, 153, 0.42),
+      0 24px 56px -20px rgba(99, 102, 241, 0.28);
+  }
+
+  .dashboard-chart-card__inner {
+    position: relative;
+    overflow: hidden;
+    border-radius: calc(1rem - 1px);
+    background: linear-gradient(168deg, rgba(255, 255, 255, 0.96) 0%, rgba(253, 242, 248, 0.88) 42%, rgba(245, 243, 255, 0.9) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5) inset, 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+    backdrop-filter: blur(18px) saturate(165%);
+    -webkit-backdrop-filter: blur(18px) saturate(165%);
+  }
+
+  .dashboard-chart-card__ambient {
+    position: absolute;
+    inset: -35%;
+    pointer-events: none;
+    background: radial-gradient(ellipse 70% 55% at 20% 15%, rgba(244, 114, 182, 0.22), transparent 52%),
+      radial-gradient(ellipse 65% 50% at 85% 75%, rgba(129, 140, 248, 0.2), transparent 48%),
+      radial-gradient(ellipse 50% 45% at 50% 50%, rgba(56, 189, 248, 0.12), transparent 55%);
+    opacity: 0.85;
+    animation: dashboard-chart-ambient 12s ease-in-out infinite;
+    mix-blend-mode: multiply;
+  }
+
+  .dashboard-chart-card__shine {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(
+      108deg,
+      transparent 0%,
+      transparent 40%,
+      rgba(255, 255, 255, 0.72) 50%,
+      transparent 60%,
+      transparent 100%
+    );
+    width: 65%;
+    transform: translateX(-155%) skewX(-11deg);
+    animation: dashboard-chart-shine 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    mix-blend-mode: overlay;
+  }
+
+  .dashboard-chart-card__title {
+    background-image: linear-gradient(105deg, #86198f 0%, #6d28d9 35%, #4f46e5 65%, #0e7490 100%);
+    background-size: 200% auto;
+    animation: dashboard-title-shimmer 6.5s ease-in-out infinite;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* App vítima — barra de pânico com espelho de vidro */
+  .panic-glass-dock {
+    @apply relative isolate overflow-hidden border-t border-white/20 px-3 py-3;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(15, 23, 42, 0.55) 28%, rgba(15, 23, 42, 0.82) 100%);
+    backdrop-filter: blur(40px) saturate(200%);
+    -webkit-backdrop-filter: blur(40px) saturate(200%);
+    box-shadow:
+      0 -20px 50px -12px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .panic-glass-dock__mirror-veil {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.06) 22%,
+      transparent 45%
+    );
+    opacity: 0.85;
+    mix-blend-mode: soft-light;
+  }
+
+  .panic-glass-dock__mirror-edge {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.12) 0%,
+      transparent 18%,
+      transparent 82%,
+      rgba(255, 255, 255, 0.1) 100%
+    );
+  }
+
+  .panic-glass-mirror-wrap {
+    @apply relative rounded-2xl p-px;
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.65) 0%,
+      rgba(251, 113, 133, 0.55) 35%,
+      rgba(244, 63, 94, 0.75) 55%,
+      rgba(255, 255, 255, 0.45) 100%
+    );
+    box-shadow: 0 0 48px -6px rgba(244, 63, 94, 0.55), 0 0 80px -16px rgba(219, 39, 119, 0.35),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+
+  .panic-glass-mirror {
+    @apply relative w-full overflow-hidden rounded-[calc(1rem-1px)] px-3 py-3.5 text-xs font-semibold tracking-wide sm:text-sm;
+    min-height: 3.25rem;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1px 0 rgba(0, 0, 0, 0.15);
+  }
+
+  .panic-glass-mirror:hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: brightness(1.04);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 12px 32px -8px rgba(244, 63, 94, 0.65);
+  }
+
+  .panic-glass-mirror:active:not(:disabled) {
+    transform: translateY(0) scale(0.985);
+  }
+
+  .panic-glass-mirror:disabled {
+    @apply cursor-not-allowed opacity-60;
+    filter: grayscale(0.15);
+  }
+
+  .panic-glass-mirror__base {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(145deg, #ef4444 0%, #dc2626 38%, #be123c 72%, #9f1239 100%);
+    opacity: 0.92;
+  }
+
+  .panic-glass-mirror__glass {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      165deg,
+      rgba(255, 255, 255, 0.55) 0%,
+      rgba(255, 255, 255, 0.18) 32%,
+      rgba(255, 255, 255, 0.04) 58%,
+      rgba(255, 255, 255, 0.28) 100%
+    );
+    backdrop-filter: blur(18px) saturate(210%);
+    -webkit-backdrop-filter: blur(18px) saturate(210%);
+    box-shadow:
+      inset 0 2px 6px rgba(255, 255, 255, 0.45),
+      inset 0 -4px 10px rgba(0, 0, 0, 0.14);
+  }
+
+  .panic-glass-mirror__mirror-sheet {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      125deg,
+      rgba(255, 255, 255, 0.35) 0%,
+      transparent 42%,
+      rgba(255, 255, 255, 0.08) 58%,
+      rgba(255, 255, 255, 0.22) 100%
+    );
+    opacity: 0.75;
+    mix-blend-mode: screen;
+  }
+
+  .panic-glass-mirror__reflection {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      118deg,
+      transparent 0%,
+      transparent 32%,
+      rgba(255, 255, 255, 0.75) 48%,
+      rgba(255, 255, 255, 0.35) 52%,
+      transparent 68%,
+      transparent 100%
+    );
+    width: 70%;
+    transform: translateX(-150%) skewX(-16deg);
+    animation: panic-glass-mirror-shine 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    mix-blend-mode: overlay;
+  }
+
+  .panic-glass-mirror__reflection--slow {
+    width: 55%;
+    opacity: 0.45;
+    animation: panic-glass-mirror-shine 4.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    animation-delay: 1.2s;
+    mix-blend-mode: soft-light;
+  }
+
+  .panic-glass-mirror__specular {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(ellipse 85% 45% at 50% -5%, rgba(255, 255, 255, 0.55), transparent 58%);
+    opacity: 0.9;
+  }
+
+  .panic-glass-mirror__label {
+    @apply relative z-10 block whitespace-nowrap text-white;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 24px rgba(255, 255, 255, 0.25);
+  }
+
+  /* Simulador — iPhone 15 Pro Max (430×932 lógico, ecrã = caixa exterior) */
+  .iphone-pro-max {
+    @apply relative mx-auto shrink-0;
+    width: min(410px, calc(100vw - 3rem));
+    aspect-ratio: 430 / 932;
+    border-radius: 2.85rem;
+    overflow: hidden;
+    background: #000;
+    box-shadow:
+      0 0 0 10px #3a3a3c,
+      0 0 0 12px #1a1a1c,
+      0 0 0 13px rgba(255, 255, 255, 0.1),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+      0 40px 90px -20px rgba(0, 0, 0, 0.75),
+      0 12px 32px -8px rgba(0, 0, 0, 0.55);
+  }
+
+  .iphone-pro-max__btn {
+    @apply pointer-events-none absolute z-40 rounded-sm;
+    background: linear-gradient(180deg, #5c5c60 0%, #2a2a2c 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.5);
+  }
+
+  .iphone-pro-max__btn--silent {
+    left: -13px;
+    top: 22%;
+    width: 3px;
+    height: 28px;
+  }
+
+  .iphone-pro-max__btn--vol-up {
+    left: -13px;
+    top: 30%;
+    width: 3px;
+    height: 52px;
+  }
+
+  .iphone-pro-max__btn--vol-down {
+    left: -13px;
+    top: 42%;
+    width: 3px;
+    height: 52px;
+  }
+
+  .iphone-pro-max__btn--power {
+    right: -13px;
+    top: 34%;
+    width: 3px;
+    height: 78px;
+  }
+
+  .iphone-pro-max__screen {
+    @apply absolute inset-0 overflow-hidden bg-black;
+    border-radius: 2.85rem;
+  }
+
+  .iphone-pro-max__screen iframe {
+    @apply absolute inset-0 z-0 block h-full w-full max-w-none border-0;
+    margin: 0;
+    padding: 0;
+    background: #020617;
+  }
+
+  html.mobile-vitima-iphone-embed,
+  body.mobile-vitima-iphone-embed,
+  body.mobile-vitima-iphone-embed > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden;
+  }
+
+  .mobile-vitima-in-iphone {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    height: 100dvh;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  .mobile-vitima-in-iphone__scroll {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 3rem 0 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+
+  .mobile-vitima-in-iphone .glass-panel,
+  .mobile-vitima-in-iphone .glass-panel--soft,
+  .mobile-vitima-in-iphone form,
+  .mobile-vitima-in-iphone header {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    margin-right: 0;
+    box-sizing: border-box;
+    border-radius: 0;
+  }
+
+  .mobile-vitima-in-iphone .glass-panel:first-of-type {
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+  }
+
+  .mobile-vitima-in-iphone .panic-glass-dock {
+    left: 0;
+    right: 0;
+    width: 100%;
+    margin: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .simulador-celular-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100dvh;
+    width: 100%;
+  }
+
+  .iphone-pro-max__island {
+    @apply pointer-events-none absolute left-1/2 top-3 z-30 -translate-x-1/2;
+    width: 126px;
+    height: 37px;
+    border-radius: 999px;
+    background: #000;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 2px rgba(255, 255, 255, 0.04);
+  }
+
+  .iphone-pro-max__island-lens {
+    @apply absolute rounded-full bg-slate-900;
+    width: 12px;
+    height: 12px;
+    right: 24px;
+    top: 50%;
+    transform: translateY(-50%);
+    box-shadow: inset 0 0 4px rgba(99, 102, 241, 0.35);
+  }
+
+  .iphone-pro-max__home-bar {
+    @apply pointer-events-none absolute bottom-2 left-1/2 z-30 -translate-x-1/2 rounded-full;
+    width: 134px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.25);
+  }
+
+  .iphone-pro-max__glare {
+    @apply pointer-events-none absolute inset-0 z-20 rounded-[2.85rem];
+    background: linear-gradient(
+      125deg,
+      rgba(255, 255, 255, 0.14) 0%,
+      transparent 38%,
+      transparent 62%,
+      rgba(255, 255, 255, 0.06) 100%
+    );
+  }
+}
+
+@keyframes shine-sweep {
+  0% {
+    transform: translateX(-160%) skewX(-14deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(260%) skewX(-14deg);
+    opacity: 0;
+  }
+}
+
+@keyframes border-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes text-shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes dashboard-chart-border-flow {
+  0%,
+  100% {
+    background-position: 0% 40%;
+  }
+  50% {
+    background-position: 100% 60%;
+  }
+}
+
+@keyframes dashboard-chart-ambient {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate(4%, -3%) scale(1.06);
+    opacity: 0.95;
+  }
+}
+
+@keyframes dashboard-chart-shine {
+  0% {
+    transform: translateX(-165%) skewX(-11deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(220%) skewX(-11deg);
+    opacity: 0;
+  }
+}
+
+@keyframes dashboard-title-shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Primary CTA — gradient + fast inner shine */
+.btn-aurora {
+  @apply relative overflow-hidden rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-lg;
+  background: linear-gradient(120deg, #db2777 0%, #9333ea 45%, #2563eb 100%);
+  background-size: 200% auto;
+  animation: btn-gradient-shift 3.5s ease infinite;
+  box-shadow: 0 0 24px -4px rgba(219, 39, 119, 0.55), 0 0 40px -8px rgba(147, 51, 234, 0.35);
+}
+
+.btn-aurora::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 35%,
+    rgba(255, 255, 255, 0.65) 50%,
+    transparent 65%,
+    transparent 100%
+  );
+  transform: translateX(-130%) skewX(-12deg);
+  animation: btn-shine calc(var(--shine-duration) * 0.85) cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  pointer-events: none;
+}
+
+.btn-aurora:disabled {
+  opacity: 0.55;
+  animation: none;
+}
+
+.btn-aurora:disabled::after {
+  animation: none;
+}
+
+@keyframes btn-gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes btn-shine {
+  0% {
+    transform: translateX(-140%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+  }
+}
+
+@keyframes panic-glass-mirror-shine {
+  0% {
+    transform: translateX(-165%) skewX(-16deg);
+    opacity: 0;
+  }
+  14% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(240%) skewX(-16deg);
+    opacity: 0;
+  }
+}
+
+/* Inputs on dark / glass login */
+.input-glass {
+  @apply w-full rounded-xl border px-3 py-2.5 text-sm text-slate-900 outline-none transition;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+}
+
+.input-glass:focus {
+  border-color: rgba(236, 72, 153, 0.65);
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.25) inset;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .aurora-blob,
+  .aurora-mesh,
+  .shine-sweep,
+  .shine-border-wrap,
+  .text-gradient-brand,
+  .btn-aurora,
+  .btn-aurora::after,
+  .dashboard-chart-card,
+  .dashboard-chart-card__ambient,
+  .dashboard-chart-card__shine,
+  .dashboard-chart-card__title {
+    animation: none !important;
+  }
+
+  .panic-glass-mirror__reflection {
+    animation: none !important;
+  }
+
+  .panic-glass-mirror__reflection--slow {
+    animation: none !important;
+  }
+
+  .aurora-blob {
+    will-change: auto;
+  }
+}

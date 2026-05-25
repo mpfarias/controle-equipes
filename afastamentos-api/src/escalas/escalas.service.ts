@@ -165,23 +165,8 @@ export class EscalasService {
   }
 
   async createEscalaGerada(dto: CreateEscalaGeradaDto, actor: { id: number; nome: string }) {
-    const idsLinhas = [...new Set(dto.linhas.map((l) => l.policialId))];
-    if (idsLinhas.length > 0) {
-      const policiaisLinha = await this.prisma.policial.findMany({
-        where: { id: { in: idsLinhas } },
-        select: { id: true, nome: true, matricula: true, funcao: { select: { nome: true } } },
-      });
-      for (const po of policiaisLinha) {
-        if (funcaoNomeIndicaSuperiorDeDia(po.funcao?.nome)) {
-          throw new BadRequestException(
-            `Não é permitido incluir na escala o policial «${po.nome}» (${po.matricula.trim()}), função Superior de dia.`,
-          );
-        }
-      }
-    }
-
     const dataEscala = new Date(`${dto.dataEscala}T12:00:00.000Z`);
-    const ordem = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS', 'EXTRAORDINARIA'] as const;
+    const ordem = ['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS', 'SVG', 'EXTRAORDINARIA'] as const;
     const set = new Set(dto.tipoServico.split(',').map((s) => s.trim()).filter(Boolean));
     const tipoServico = ordem.filter((t) => set.has(t)).join(',');
     const incluiExtraordinaria = set.has('EXTRAORDINARIA');

@@ -1,6 +1,6 @@
 import { getExpedienteHorario } from '../constants/svgRegras';
 import type { EscalaGeradaDraftPayload, LinhaEscalaGeradaDraft } from './gerarEscalasCalculo';
-import { formatarDataBr } from './gerarEscalasCalculo';
+import { formatarDataBr, resolverLinhaAssinaturaCmtUpm } from './gerarEscalasCalculo';
 import { relogioParaLabel } from './expedienteEscalaRegras';
 import { formatarMatriculaExibicao } from './inputUtils';
 import {
@@ -9,6 +9,7 @@ import {
   rotuloHorarioApartirDeServico,
   tituloBlocoEscalaComLinhas,
   normalizarBlocoEscalaImpressao,
+  normalizarBlocoLinhaEscala,
   type BlocoEscalaId,
   type EscalaCabecalhoFormulario,
 } from './escalaBlocos';
@@ -81,6 +82,12 @@ function horarioCabecalhoBlocoImpressao(blocoId: BlocoEscalaId, dataIso: string)
       return '07h às 13h';
     case 'EQUIPE_DIURNA_07':
       return '07h às 19h';
+    case 'SUPERIOR_DE_DIA_DIURNO':
+      return '07h às 19h';
+    case 'SUPERIOR_DE_DIA_NOTURNO':
+      return '19h às 07h';
+    case 'SUPERIOR_DE_DIA':
+      return '07h às 19h / 19h às 07h';
     case 'EQUIPE_NOTURNA_19_07':
       return '19h às 07h';
     case 'MOTORISTAS':
@@ -134,7 +141,8 @@ function linhasCorpoPoliciais(
       })
       .join('');
   }
-  const mostrarHorarioLinha = blocoNorm === 'EXP_DIFERENCIADO' || blocoNorm === 'ESCALA_EXTRAORDINARIA';
+  const mostrarHorarioLinha =
+    blocoNorm === 'EXP_DIFERENCIADO' || blocoNorm === 'ESCALA_EXTRAORDINARIA';
   return rows
     .map((r) => {
       const emTroca = linhaEmTrocaServico(r.horarioServico);
@@ -297,8 +305,7 @@ export function buildEscalaGeradaPrintHtml(
     porBloco.set(id, []);
   }
   for (const l of disp) {
-    const raw = (l.blocoEscala ?? 'EXP_DIFERENCIADO') as BlocoEscalaId;
-    const id = normalizarBlocoEscalaImpressao(raw);
+    const id = normalizarBlocoLinhaEscala(l);
     const arr = porBloco.get(id);
     if (arr) arr.push(l);
     else porBloco.set(id, [l]);
@@ -348,6 +355,16 @@ export function buildEscalaGeradaPrintHtml(
     draft.tipoServico === 'EXTRAORDINARIA' && (draft.resumoEquipes ?? '').trim()
       ? `<div class="resumo-escala-extra-doc">${escHtml(draft.resumoEquipes.trim())}</div>`
       : '';
+
+  const linhaNomeCmtUpm = resolverLinhaAssinaturaCmtUpm(
+    draft.linhas,
+    draft.assinaturaCmtUpmNome,
+  );
+  const secAssinaturaCmtUpm = `<section class="assinatura-cmt-upm" aria-label="Assinatura do Cmt UPM">
+    <div class="assinatura-campo" role="presentation"></div>
+    <p class="assinatura-nome-posto">${linhaNomeCmtUpm ? escHtml(linhaNomeCmtUpm) : '&nbsp;'}</p>
+    <p class="assinatura-chefe-copom">Chefe do COPOM</p>
+  </section>`;
 
   /** Evita fechar a tag &lt;script&gt; se algum texto contiver "&lt;/script". */
   const payloadLiteral = JSON.stringify(draft).replace(/<\//g, '<\\/');
@@ -506,6 +523,32 @@ export function buildEscalaGeradaPrintHtml(
   }
   .obs td { background: transparent; min-height: 24px; vertical-align: top; white-space: normal; }
   .obs-conteudo { margin-top: 4px; font-size: 0.85rem; white-space: normal; line-height: 1.25; }
+  .assinatura-cmt-upm {
+    margin: 32px auto 8px;
+    padding-top: 8px;
+    max-width: 420px;
+    page-break-inside: avoid;
+    text-align: center;
+  }
+  .assinatura-cmt-upm .assinatura-campo {
+    border-bottom: 1px solid #222;
+    min-height: 52px;
+    margin: 0 0 10px;
+  }
+  .assinatura-cmt-upm .assinatura-nome-posto {
+    margin: 0 0 6px;
+    font-size: 0.88rem;
+    line-height: 1.4;
+    text-align: center;
+  }
+  .assinatura-cmt-upm .assinatura-chefe-copom {
+    margin: 0;
+    font-size: 0.88rem;
+    font-weight: 700;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
   .muted { color: #666; font-style: italic; }
   .badge-troca-servico {
     display: inline-block;
@@ -643,6 +686,13 @@ export function buildEscalaGeradaPrintHtml(
     .obs-conteudo { font-size: 8.5pt; margin-top: 1mm; }
     /* Mantém linha de tabela inteira; bloco pode dividir entre páginas (menos folhas em branco). */
     .escala-bloco tr { break-inside: avoid; page-break-inside: avoid; }
+    .assinatura-cmt-upm {
+      margin-top: 8mm;
+      max-width: 75mm;
+    }
+    .assinatura-cmt-upm .assinatura-campo { min-height: 14mm; margin-bottom: 3mm; }
+    .assinatura-cmt-upm .assinatura-nome-posto { font-size: 9pt; }
+    .assinatura-cmt-upm .assinatura-chefe-copom { font-size: 9pt; }
   }
 </style>
 </head>
@@ -673,6 +723,7 @@ export function buildEscalaGeradaPrintHtml(
   <div class="conteudo-principal">
   ${secoesBlocos.join('\n')}
   ${secAfast}
+  ${secAssinaturaCmtUpm}
   </div>
   </div>
 

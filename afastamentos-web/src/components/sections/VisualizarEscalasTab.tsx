@@ -1049,9 +1049,10 @@ export function VisualizarEscalasTab({ currentUser, permissoes }: VisualizarEsca
                   </>
                 ) : (
                   <>
-                    Ajuste data e horário (turno 12×24) para cada policial. O cadastro de equipe não muda; após o fim do
-                    turno informado (diurno: 19h do dia; noturno: 07h do dia seguinte, Brasília), o lado correspondente da
-                    troca é encerrado no registro.
+                    Informe a data de serviço de cada policial (podem ser dias diferentes). Na escala de cada data, só quem
+                    entra na equipe do parceiro é listado; quem cede o plantão na própria equipe não aparece. O cadastro de
+                    equipe não muda. Após o fim do turno (diurno: 19h; noturno: 07h do dia seguinte, Brasília), o lado é
+                    encerrado no registro.
                   </>
                 )}
               </Typography>

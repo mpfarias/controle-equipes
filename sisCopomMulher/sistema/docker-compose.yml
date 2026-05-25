@@ -1,0 +1,79 @@
+# Na pasta `sistema`: `docker compose up --build -d`
+# Aplicação: http://localhost:3001  ·  Login (após seed): rafael / 123
+# Altere AUTH_SECRET e as senhas de Postgres antes de expor à Internet.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: copom
+      POSTGRES_PASSWORD: copom_mulher_pg
+      POSTGRES_DB: copom_mulher
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - max_connections=100
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - wal_buffers=16MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - max_wal_size=1GB
+      - -c
+      - min_wal_size=256MB
+      - -c
+      - default_statistics_target=100
+    volumes:
+      - copom_mulher_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copom -d copom_mulher"]
+      interval: 4s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://copom:copom_mulher_pg@postgres:5432/copom_mulher?schema=public&connection_limit=10&pool_timeout=20
+      AUTH_SECRET: troque_esta_chave_por_uma_string_longa_e_aleatoria
+      PORT: "3001"
+      HOST: "0.0.0.0"
+      OPEN_BROWSER: "0"
+      NODE_ENV: production
+      NODE_OPTIONS: "--max-old-space-size=1024"
+      UV_THREADPOOL_SIZE: "8"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  copom_mulher_pg:

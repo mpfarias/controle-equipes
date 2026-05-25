@@ -19,7 +19,7 @@ import { getUrlOrionJuridico } from './constants/orionJuridico';
 import { getUrlOrionQualidade } from './constants/orionQualidade';
 import { getUrlOrionPatrimonio } from './constants/orionPatrimonio';
 import { getUrlOrionMulher } from './constants/orionMulher';
-import { getUrlOrionAssessoria } from './constants/orionAssessoria';
+import { getUrlOrionAgenda } from './constants/orionAgenda';
 import { getUrlOrionOperacoes } from './constants/orionOperacoes';
 import { getUrlOrionSuporte } from './constants/orionSuporte';
 import {
@@ -35,6 +35,11 @@ import {
   rotuloAbaPrincipalSAD,
 } from './utils/browserTitleSAD';
 import { formatMatricula } from './utils/dateUtils';
+import {
+  formatUsuarioSaudacaoCompleta,
+  iniciaisUsuario,
+  primeiroNomeUsuario,
+} from './utils/formatUsuarioExibicao';
 import {
   Avatar,
   Badge,
@@ -77,7 +82,7 @@ import {
   SISTEMA_ID_ORION_JURIDICO,
   SISTEMA_ID_ORION_PATRIMONIO,
   SISTEMA_ID_ORION_MULHER,
-  SISTEMA_ID_ORION_ASSESSORIA,
+  SISTEMA_ID_ORION_AGENDA,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
   writeSistemaSessao,
@@ -192,7 +197,7 @@ export default function App() {
       return;
     }
     const ctx = tituloPainelDetalhe ?? rotuloAbaPrincipalSAD(activeTab);
-    const primeiroNome = currentUser.nome.split(' ').filter(Boolean)[0];
+    const primeiroNome = primeiroNomeUsuario(currentUser.nome);
     document.title = formatDocumentTitleSAD(ctx, { primeiroNomeUsuario: primeiroNome });
   }, [currentUser, authView, aguardandoEscolhaSistema, activeTab, tituloPainelDetalhe]);
 
@@ -440,8 +445,8 @@ export default function App() {
       navegarComHandoffJwt(getUrlOrionMulher());
       return;
     }
-    if (sistemaId === SISTEMA_ID_ORION_ASSESSORIA) {
-      navegarComHandoffJwt(getUrlOrionAssessoria());
+    if (sistemaId === SISTEMA_ID_ORION_AGENDA || sistemaId === 'ORION_ASSESSORIA') {
+      navegarComHandoffJwt(getUrlOrionAgenda());
       return;
     }
     if (sistemaId !== SISTEMA_ID_APP_ATUAL) {
@@ -465,12 +470,6 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  const getIniciaisUsuario = (nome: string): string => {
-    const partes = nome.trim().split(/\s+/).filter(Boolean);
-    if (partes.length === 0) return '?';
-    if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
-    return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
-  };
 
   const openFotoModal = () => {
     setAvatarMenuAnchor(null);
@@ -686,9 +685,11 @@ export default function App() {
     return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_MULHER);
   }, [currentUser]);
 
-  const usuarioPodeOrionAssessoria = useMemo(() => {
+  const usuarioPodeOrionAgenda = useMemo(() => {
     if (!currentUser) return false;
-    return listaDestinosPosLogin(currentUser).includes(SISTEMA_ID_ORION_ASSESSORIA);
+    return listaDestinosPosLogin(currentUser).some(
+      (id) => id === SISTEMA_ID_ORION_AGENDA || id === 'ORION_ASSESSORIA',
+    );
   }, [currentUser]);
 
   const usuarioPodeOrionOperacoes = useMemo(() => {
@@ -998,7 +999,8 @@ export default function App() {
         </div>
         <div className="header-actions">
           <span>
-            {currentUser.nome} — {formatMatricula(currentUser.matricula)}
+            {formatUsuarioSaudacaoCompleta(currentUser.nome)} —{' '}
+            {formatMatricula(currentUser.matricula)}
           </span>
           {usuarioPodeAcessarOrionSuporte ? (
             <Tooltip
@@ -1078,12 +1080,12 @@ export default function App() {
               </IconButton>
             </Tooltip>
           ) : null}
-          {usuarioPodeOrionAssessoria ? (
-            <Tooltip title="Órion Assessoria — abrir em nova aba">
+          {usuarioPodeOrionAgenda ? (
+            <Tooltip title="Órion Agenda — abrir em nova aba">
               <IconButton
                 size="small"
-                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionAssessoria())}
-                aria-label="Abrir Órion Assessoria"
+                onClick={() => abrirNovaAbaComHandoffJwt(getUrlOrionAgenda())}
+                aria-label="Abrir Órion Agenda"
                 sx={{ color: 'var(--text-primary)' }}
               >
                 <AssignmentInd sx={{ fontSize: 24 }} />
@@ -1120,7 +1122,7 @@ export default function App() {
                   fontSize: '1rem',
                 }}
               >
-                {getIniciaisUsuario(currentUser.nome)}
+                {iniciaisUsuario(currentUser.nome)}
               </Avatar>
             </IconButton>
           </Tooltip>
@@ -1185,15 +1187,15 @@ export default function App() {
                 Órion Mulher
               </MenuItem>
             ) : null}
-            {usuarioPodeOrionAssessoria ? (
+            {usuarioPodeOrionAgenda ? (
               <MenuItem
                 onClick={() => {
                   setAvatarMenuAnchor(null);
-                  abrirNovaAbaComHandoffJwt(getUrlOrionAssessoria());
+                  abrirNovaAbaComHandoffJwt(getUrlOrionAgenda());
                 }}
               >
                 <AssignmentInd sx={{ mr: 1.5, fontSize: 20 }} />
-                Órion Assessoria
+                Órion Agenda
               </MenuItem>
             ) : null}
             {usuarioPodeOrionJuridico ? (

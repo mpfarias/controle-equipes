@@ -6,8 +6,43 @@ datasource db {
   provider = "postgresql"
 }
 
+model PostoGraduacao {
+  id        Int        @id @default(autoincrement())
+  sigla     String     @unique @db.VarChar(40)
+  ordem     Int        @unique
+  ativo     Boolean    @default(true)
+  policiais Policial[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("posto_graduacao")
+}
+
+enum QuadroGrupo {
+  OFICIAL
+  PRACA
+}
+
+model Quadro {
+  id        Int         @id @default(autoincrement())
+  sigla     String      @unique @db.VarChar(20)
+  grupo     QuadroGrupo
+  ordem     Int
+  ativo     Boolean     @default(true)
+  policiais Policial[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([grupo, ordem])
+  @@map("quadro")
+}
+
 model Policial {
   id                         Int                        @id @default(autoincrement())
+  postoGraduacaoId           Int?
+  postoGraduacao             PostoGraduacao?            @relation(fields: [postoGraduacaoId], references: [id], onDelete: SetNull)
+  quadroId                   Int?
+  quadro                     Quadro?                    @relation(fields: [quadroId], references: [id], onDelete: SetNull)
   nome                       String
   matricula                  String                     @unique
   cpf                        String?
@@ -46,6 +81,8 @@ model Policial {
   desativadoEm               DateTime?
   contagemEscalaExtra        PolicialContagemEscalaExtra?
   expediente12x36Fase        PolicialExpediente12x36Fase?
+  orionAgendaCompromissos    OrionAgendaCompromisso[]
+  orionAgendaParticipacoes   OrionAgendaCompromissoParticipante[]
 }
 
 model StatusPolicial {
@@ -143,6 +180,8 @@ enum FuncaoExpedienteHorarioPreset {
   SEG_SEX_07_19
   SEG_SEX_12X36_SEMANA_ALTERNADA
   JORNADA_24X72
+  /** Guarda COPOM: 12×36 seg–sex (seg/qua/sex × ter/qui, alternância quinzenal). */
+  GUARDA_COPOM_12X36
 }
 
 /** Complemento ao preset 12×36 semanal (semana ISO par vs ímpar), por policial. */
@@ -206,6 +245,14 @@ model Usuario {
   qualidadeRegistrosCriados QualidadeRegistro[] @relation("QualidadeRegistroAutor")
   /** Bens cadastrados no módulo Órion Patrimônio. */
   patrimonioBensCriados PatrimonioBem[] @relation("PatrimonioBemAutor")
+  /** Compromissos da agenda do Órion Agenda. */
+  orionAgendaCompromissosCriados OrionAgendaCompromisso[] @relation("OrionAgendaAutor")
+  /** Órion Mulher — ocorrências e central da vítima. */
+  mulherOcorrenciasCriadas     MulherOcorrencia[]         @relation("MulherOcorrenciaAutor")
+  mulherOcorrenciasAtualizadas MulherOcorrencia[]         @relation("MulherOcorrenciaEditor")
+  mulherTelemetriaAcks         MulherTelemetriaMobile[]   @relation("MulherTelemetriaAck")
+  mulherVitimaPanicoAcks       MulherVitimaPanicoMobile[] @relation("MulherVitimaPanicoAck")
+  mulherOperadorPerfil         MulherOperadorPerfil?
 }
 
 enum AfastamentoStatus {
@@ -590,4 +637,282 @@ model ErrorReport {
   @@index([usuarioId])
   @@index([status])
   @@map("errorReport")
+}
+
+/** Tipo de compromisso na agenda (Órion Agenda). */
+enum OrionAgendaTipo {
+  REUNIAO
+  PALESTRA
+  PRAZO
+  AUDIENCIA
+  OUTRO
+}
+
+enum OrionAgendaStatus {
+  AGENDADO
+  CONCLUIDO
+  CANCELADO
+}
+
+/**
+ * Compromisso da agenda institucional (reuniões, prazos, audiências).
+ * Acesso restrito a quem tem `ORION_AGENDA` em sistemasPermitidos.
+ */
+model OrionAgendaCompromisso {
+  id                Int               @id @default(autoincrement())
+  titulo            String            @db.VarChar(300)
+  descricao         String?           @db.Text
+  dataInicio        DateTime
+  dataFim           DateTime?
+  diaInteiro        Boolean           @default(false)
+  local             String?           @db.VarChar(300)
+  tipo              OrionAgendaTipo   @default(REUNIAO)
+  status            OrionAgendaStatus @default(AGENDADO)
+  policialId        Int?
+  policial          Policial?         @relation(fields: [policialId], references: [id], onDelete: SetNull)
+  responsavelNome   String?           @db.VarChar(200)
+  criadoPorId       Int
+  criadoPor         Usuario           @relation("OrionAgendaAutor", fields: [criadoPorId], references: [id])
+  criadoPorNome     String            @db.VarChar(200)
+  atualizadoPorId   Int?
+  atualizadoPorNome String?           @db.VarChar(200)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  participantes     OrionAgendaCompromissoParticipante[]
+
+  @@index([dataInicio])
+  @@index([status])
+  @@index([criadoPorId])
+  @@index([policialId])
+  @@map("orion_agenda_compromisso")
+}
+
+model OrionAgendaCompromissoParticipante {
+  id            Int                    @id @default(autoincrement())
+  compromissoId Int
+  compromisso   OrionAgendaCompromisso @relation(fields: [compromissoId], references: [id], onDelete: Cascade)
+  policialId    Int
+  policial      Policial               @relation(fields: [policialId], references: [id], onDelete: Cascade)
+  policialNome  String                 @db.VarChar(200)
+  ordem         Int                    @default(0)
+
+  @@unique([compromissoId, policialId])
+  @@index([compromissoId])
+  @@index([policialId])
+  @@map("orion_agenda_compromisso_participante")
+}
+
+// ─── Órion Mulher (integração sisCopomMulher) ───────────────────────────────
+
+enum MulherOperadorPerfilEnum {
+  ADMINISTRADOR
+  ATENDENTE
+  CONSULTA
+}
+
+enum MulherOrigemOcorrencia {
+  SISTEMA
+  IMPORTACAO_EXCEL
+}
+
+enum MulherTelemetriaKind {
+  LOCATION
+  PANIC
+}
+
+enum MulherVitimaPanicEncaminhamento {
+  VIATURA_DESPACHADA
+  CONTATO_TELEFONE
+  ALERTA_FALSO
+  DADOS_INCOMPATIVEIS
+  LOCALIZACAO_NAO_ENCONTRADA
+}
+
+enum MulherVitimaPanicFinalizacao {
+  RESOLVIDO_NO_LOCAL
+  ENCAMINHADA_DELEGACIA
+  AVERIGUADA_NADA_CONSTATADO
+  TCO_NO_LOCAL
+  ORIENTACAO_PARTES
+}
+
+/** Perfil operacional no Órion Mulher (complementa `ORION_MULHER` em sistemasPermitidos). */
+model MulherOperadorPerfil {
+  id        Int                      @id @default(autoincrement())
+  usuarioId Int                      @unique
+  usuario   Usuario                  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  perfil    MulherOperadorPerfilEnum @default(ATENDENTE)
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@map("mulher_operador_perfil")
+}
+
+model MulherAuditoria {
+  id          String   @id @default(cuid())
+  usuarioId   Int?
+  usuarioNome String?  @db.VarChar(200)
+  acao        String   @db.VarChar(120)
+  entidade    String   @db.VarChar(80)
+  entidadeId  String?  @db.VarChar(80)
+  detalhes    String?  @db.Text
+  ip          String?  @db.VarChar(64)
+  userAgent   String?  @db.VarChar(500)
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([usuarioId])
+  @@map("mulher_auditoria")
+}
+
+model MulherOcorrencia {
+  id        String                 @id @default(cuid())
+  origem    MulherOrigemOcorrencia @default(SISTEMA)
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+
+  criadoPorId     Int?
+  criadoPor       Usuario? @relation("MulherOcorrenciaAutor", fields: [criadoPorId], references: [id], onDelete: SetNull)
+  atualizadoPorId Int?
+  atualizadoPor   Usuario? @relation("MulherOcorrenciaEditor", fields: [atualizadoPorId], references: [id], onDelete: SetNull)
+
+  faseAtual Int     @default(1)
+  concluida Boolean @default(false)
+
+  carimboDataHora          DateTime?
+  nomeVitima               String?
+  enderecoVitima           String?
+  telefoneVitima           String?
+  telefoneVitimaSecundario String?
+  cpfVitima                String?
+  dataNascimentoVitima     DateTime?
+  genitoraVitima           String?
+  pontoReferencia          String?
+
+  dataHoraOcorrencia  DateTime?
+  regiaoAdministrativa String?
+  historicoOcorrencia  String? @db.Text
+
+  nomeAgressor             String?
+  enderecoAgressor         String?
+  parentescoAgressorVitima String?
+  tipoAmeacaAgressao       String?
+  agressorEnvolvimento     String?
+  idadeAgressor            String?
+
+  nomeDenunciante     String?
+  enderecoDenunciante String?
+  telefoneDenunciante String?
+
+  comandanteViatura      String?
+  responsavelAtendimento String?
+  encaminhamentoDetalhes String? @db.Text
+
+  desfecho            String?
+  registrouBoDp       String?
+  numeroOcorrenciaCad String?
+
+  linksMobile MulherOcorrenciaLinkMobile[]
+
+  @@index([regiaoAdministrativa])
+  @@index([nomeVitima])
+  @@index([nomeAgressor])
+  @@index([dataHoraOcorrencia])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([origem])
+  @@map("mulher_ocorrencia")
+}
+
+model MulherOcorrenciaLinkMobile {
+  id           String         @id @default(cuid())
+  ocorrenciaId String
+  ocorrencia   MulherOcorrencia @relation(fields: [ocorrenciaId], references: [id], onDelete: Cascade)
+  tokenHash    String         @unique
+  label        String?
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  lastSeenAt   DateTime?
+  createdAt    DateTime       @default(now())
+  criadoPorId  Int?
+
+  eventos MulherTelemetriaMobile[]
+
+  @@index([ocorrenciaId])
+  @@map("mulher_ocorrencia_link_mobile")
+}
+
+model MulherTelemetriaMobile {
+  id               String                   @id @default(cuid())
+  linkId           String
+  link             MulherOcorrenciaLinkMobile @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  kind             MulherTelemetriaKind
+  latitude         Float
+  longitude        Float
+  accuracyM        Float?
+  altitude         Float?
+  speed            Float?
+  heading          Float?
+  deviceInfo       String?
+  createdAt        DateTime                 @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById Int?
+  acknowledgedBy   Usuario?                 @relation("MulherTelemetriaAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([linkId, createdAt])
+  @@index([kind, createdAt])
+  @@map("mulher_telemetria_mobile")
+}
+
+model MulherVitimaCadastroMobile {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  telefoneDigits String
+
+  nomeVitima         String?
+  idade              String?
+  cpf                String?
+  identidade         String?
+  medidaProtetiva    String?
+  enderecoResidencia String?
+  latitude           Float?
+  longitude          Float?
+  accuracyM          Float?
+
+  nomeAgressor     String?
+  enderecoAgressor String?
+
+  fotoVitimaNome   String?
+  fotoAgressorNome String?
+
+  panicos MulherVitimaPanicoMobile[]
+
+  @@index([telefoneDigits, createdAt])
+  @@map("mulher_vitima_cadastro_mobile")
+}
+
+model MulherVitimaPanicoMobile {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cadastroId String?
+  cadastro   MulherVitimaCadastroMobile? @relation(fields: [cadastroId], references: [id], onDelete: Cascade)
+
+  telefoneDigits String
+  latitude       Float
+  longitude      Float
+  accuracyM      Float?
+
+  encaminhamento MulherVitimaPanicEncaminhamento?
+  finalizacao    MulherVitimaPanicFinalizacao?
+
+  acknowledgedAt   DateTime?
+  acknowledgedById Int?
+  acknowledgedBy   Usuario? @relation("MulherVitimaPanicoAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([telefoneDigits, createdAt])
+  @@map("mulher_vitima_panico_mobile")
 }

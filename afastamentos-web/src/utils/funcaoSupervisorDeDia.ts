@@ -1,8 +1,8 @@
 import type { Policial, Usuario } from '../types';
 
 /**
- * Função «Superior de dia» (cadastro em Gestão): não participa de escalas nem de Órion Operações (ocorrências).
- * Critério: nome normalizado contém o trecho «superior de dia» (com ou sem sufixo após hífen/espaço).
+ * Função «Superior de dia»: não entra nas equipes operacionais nem em Órion Operações.
+ * Entra na geração de escalas no bloco «Superior de dia» (rotação 12×24 por equipe).
  */
 export function funcaoNomeIndicaSuperiorDeDia(nomeFuncao: string | null | undefined): boolean {
   const f = (nomeFuncao ?? '')

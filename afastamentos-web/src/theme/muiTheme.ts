@@ -218,6 +218,20 @@ export const muiTheme = createTheme({
             backgroundColor: 'rgba(107, 155, 196, 0.08)',
           },
         },
+        text: {
+          color: designTokens.accentMuted,
+          '&:hover': {
+            color: designTokens.textPrimary,
+            backgroundColor: 'rgba(107, 155, 196, 0.12)',
+          },
+        },
+        textPrimary: {
+          color: designTokens.accentMuted,
+          '&:hover': {
+            color: designTokens.textPrimary,
+            backgroundColor: 'rgba(107, 155, 196, 0.12)',
+          },
+        },
       },
     },
     MuiTableHead: {

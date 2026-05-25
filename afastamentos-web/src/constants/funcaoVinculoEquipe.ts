@@ -1,10 +1,27 @@
-import type { Equipe, FuncaoOption } from '../types';
+import type { Equipe, FuncaoExpedienteHorarioPreset, FuncaoOption } from '../types';
 
 /** Função com expediente 12×36 (semanas ISO alternadas); exige fase PAR/IMPAR no cadastro do policial. */
 export function funcaoRequerFase12x36Expediente(
   f: Pick<FuncaoOption, 'escalaExpediente' | 'expedienteHorarioPreset'> | undefined,
 ): boolean {
-  return f?.escalaExpediente === true && f?.expedienteHorarioPreset === 'SEG_SEX_12X36_SEMANA_ALTERNADA';
+  const p = f?.expedienteHorarioPreset;
+  return (
+    f?.escalaExpediente === true &&
+    (p === 'SEG_SEX_12X36_SEMANA_ALTERNADA' || p === 'GUARDA_COPOM_12X36')
+  );
+}
+
+/** Rótulo da fase PAR/IMPAR na visualização ou no formulário do policial. */
+export function labelFase12x36Policial(
+  fase: 'PAR' | 'IMPAR',
+  preset?: FuncaoExpedienteHorarioPreset | null,
+): string {
+  if (preset === 'GUARDA_COPOM_12X36') {
+    return fase === 'PAR'
+      ? 'PAR — seg/qua/sex na semana de referência (18/05/2026)'
+      : 'IMPAR — ter/qui na semana de referência (18/05/2026)';
+  }
+  return fase === 'PAR' ? 'Semanas ISO pares' : 'Semanas ISO ímpares';
 }
 
 /** Funções que historicamente não usam equipe (mantido até todos os registros usarem `vinculoEquipe`). */
@@ -15,7 +32,8 @@ export function funcaoOcultaCampoEquipe(f: Pick<FuncaoOption, 'nome' | 'vinculoE
   return (
     u.includes('EXPEDIENTE ADM') ||
     u.includes('CMT UPM') ||
-    u.includes('SUBCMT UPM')
+    u.includes('SUBCMT UPM') ||
+    (u.includes('GUARDA') && u.includes('COPOM'))
   );
 }
 

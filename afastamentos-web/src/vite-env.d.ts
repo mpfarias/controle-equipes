@@ -17,8 +17,8 @@ interface ImportMetaEnv {
   readonly VITE_ORION_PATRIMONIO_PORT?: string;
   readonly VITE_ORION_MULHER_URL?: string;
   readonly VITE_ORION_MULHER_PORT?: string;
-  readonly VITE_ORION_ASSESSORIA_URL?: string;
-  readonly VITE_ORION_ASSESSORIA_PORT?: string;
+  readonly VITE_ORION_AGENDA_URL?: string;
+  readonly VITE_ORION_AGENDA_PORT?: string;
 }
 
 interface ImportMeta {

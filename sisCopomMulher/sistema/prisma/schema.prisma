@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMINISTRADOR
+  ATENDENTE
+  CONSULTA
+}
+
+enum OrigemOcorrencia {
+  SISTEMA
+  IMPORTACAO_EXCEL
+}
+
+/// Localização periódica ou botão de pânico enviado pelo app da vítima
+enum MobileTelemetryKind {
+  LOCATION
+  PANIC
+}
+
+/// Encaminhamento dado pela central ao acionamento de pânico (app vítima por telefone).
+enum VitimaPanicEncaminhamento {
+  VIATURA_DESPACHADA
+  CONTATO_TELEFONE
+  ALERTA_FALSO
+  DADOS_INCOMPATIVEIS
+  LOCALIZACAO_NAO_ENCONTRADA
+}
+
+/// Desfecho / finalização do atendimento ao pânico.
+enum VitimaPanicFinalizacao {
+  RESOLVIDO_NO_LOCAL
+  ENCAMINHADA_DELEGACIA
+  AVERIGUADA_NADA_CONSTATADO
+  TCO_NO_LOCAL
+  ORIENTACAO_PARTES
+}
+
+model User {
+  id           String    @id @default(cuid())
+  nomeCompleto String
+  email        String    @unique
+  cpf          String?
+  telefone     String?
+  matricula    String?
+  lotacao      String?
+  cargo        String?
+  ativo        Boolean   @default(true)
+  /// Se true, o utilizador só acede a alterar senha até definir uma nova (ex.: senha provisória 123456).
+  mustChangePassword Boolean @default(false)
+  senhaHash    String
+  role         UserRole
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs            AuditLog[]   @relation("AuditActor")
+  ocorrenciasCriadas   Occurrence[] @relation("OccurrenceAuthor")
+  ocorrenciasAtualizadas Occurrence[] @relation("OccurrenceEditor")
+  mobileTelemetryAcks  MobileTelemetryEvent[] @relation("MobileTelemetryAck")
+  vitimaPanicOperacoes VictimMobilePanic[] @relation("VitimaPanicAck")
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation("AuditActor", fields: [userId], references: [id], onDelete: SetNull)
+  acao        String
+  entidade    String
+  entidadeId  String?
+  detalhes    String?
+  ip          String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+}
+
+/// Campos alinhados ao Excel (Formularioviolenciadomestica.xls / export Google Forms .xlsx)
+model Occurrence {
+  id        String @id @default(cuid())
+  origem    OrigemOcorrencia @default(SISTEMA)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdById String?
+  createdBy   User?   @relation("OccurrenceAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?   @relation("OccurrenceEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  /// 1 = atendimento inicial, 2 = encaminhamento, 3 = desfecho final (última fase salva)
+  faseAtual   Int     @default(1)
+  concluida   Boolean @default(false)
+
+  carimboDataHora          DateTime?
+  nomeVitima               String?
+  enderecoVitima           String?
+  telefoneVitima           String?
+  telefoneVitimaSecundario String?
+  cpfVitima                String?
+  dataNascimentoVitima     DateTime?
+  genitoraVitima           String?
+  pontoReferencia          String?
+
+  dataHoraOcorrencia       DateTime?
+  regiaoAdministrativa     String?
+  historicoOcorrencia      String?
+
+  nomeAgressor             String?
+  enderecoAgressor         String?
+  parentescoAgressorVitima String?
+  tipoAmeacaAgressao       String?
+  agressorEnvolvimento     String?
+  idadeAgressor            String?
+
+  nomeDenunciante          String?
+  enderecoDenunciante      String?
+  telefoneDenunciante      String?
+
+  /// Fase 2 — encaminhamento (complementar ao formulário)
+  comandanteViatura        String?
+  responsavelAtendimento   String?
+  encaminhamentoDetalhes   String?
+
+  /// Fase 3 — desfecho
+  desfecho                 String?
+  registrouBoDp            String?
+  numeroOcorrenciaCad      String?
+
+  mobileLinks OccurrenceMobileLink[]
+
+  @@index([regiaoAdministrativa])
+  @@index([nomeVitima])
+  @@index([genitoraVitima])
+  @@index([nomeAgressor])
+  @@index([tipoAmeacaAgressao])
+  @@index([desfecho])
+  @@index([numeroOcorrenciaCad])
+  @@index([dataHoraOcorrencia])
+  @@index([createdAt])
+  @@index([updatedAt(sort: Desc)], map: "occurrence_updated_at_desc_idx")
+  @@index([updatedAt])
+  @@index([origem])
+  @@index([origem, createdAt])
+  @@index([numeroOcorrenciaCad, updatedAt(sort: Desc)], map: "occurrence_cad_updated_desc_idx")
+  @@index([regiaoAdministrativa, updatedAt(sort: Desc)], map: "occurrence_regiao_updated_desc_idx")
+  @@index([nomeVitima, updatedAt(sort: Desc)], map: "occurrence_vitima_updated_desc_idx")
+  @@index([nomeAgressor, updatedAt(sort: Desc)], map: "occurrence_agressor_updated_desc_idx")
+}
+
+/// Token de ativação do app móvel da vítima (mostrado uma vez ao operador; guardamos só o hash).
+model OccurrenceMobileLink {
+  id           String    @id @default(cuid())
+  occurrenceId String
+  occurrence   Occurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  label        String?
+  expiresAt    DateTime?
+  revokedAt    DateTime?
+  lastSeenAt   DateTime?
+  createdAt    DateTime  @default(now())
+  createdById  String?
+
+  events MobileTelemetryEvent[]
+
+  @@index([occurrenceId])
+  @@index([createdAt])
+}
+
+model MobileTelemetryEvent {
+  id               String             @id @default(cuid())
+  linkId           String
+  link             OccurrenceMobileLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  kind             MobileTelemetryKind
+  latitude         Float
+  longitude        Float
+  accuracyM        Float?
+  altitude         Float?
+  speed            Float?
+  heading          Float?
+  deviceInfo       String?
+  createdAt        DateTime           @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?              @relation("MobileTelemetryAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([linkId, createdAt])
+  @@index([kind, createdAt])
+}
+
+/// Cadastro enviado pelo aplicativo da vítima (chave operacional: telefone normalizado).
+model VictimMobileCadastro {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  telefoneDigits String
+
+  nomeVitima         String?
+  idade              String?
+  cpf                String?
+  identidade         String?
+  medidaProtetiva    String?
+  enderecoResidencia String?
+  latitude           Float?
+  longitude          Float?
+  accuracyM          Float?
+
+  nomeAgressor     String?
+  enderecoAgressor String?
+
+  fotoVitimaNome    String?
+  fotoAgressorNome  String?
+
+  panics VictimMobilePanic[]
+
+  @@index([telefoneDigits, createdAt])
+  @@index([createdAt])
+}
+
+/// Pânico enviado pelo app, vinculado ao telefone e opcionalmente ao último cadastro.
+model VictimMobilePanic {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cadastroId String?
+  cadastro   VictimMobileCadastro? @relation(fields: [cadastroId], references: [id], onDelete: Cascade)
+
+  telefoneDigits String
+  latitude       Float
+  longitude      Float
+  accuracyM      Float?
+
+  encaminhamento VitimaPanicEncaminhamento?
+  finalizacao    VitimaPanicFinalizacao?
+
+  acknowledgedAt   DateTime?
+  acknowledgedById String?
+  acknowledgedBy   User?   @relation("VitimaPanicAck", fields: [acknowledgedById], references: [id], onDelete: SetNull)
+
+  @@index([telefoneDigits, createdAt])
+  @@index([createdAt])
+}
+

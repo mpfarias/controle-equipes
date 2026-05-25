@@ -1,4 +1,14 @@
-import type { LoginInput, Usuario } from './types';
+import type {
+  LoginInput,
+  MulherDashboardStats,
+  MulherExcelImportResult,
+  MulherOcorrenciaCompleta,
+  MulherOcorrenciasListaResposta,
+  MulherVitimaCadastroMobile,
+  MulherVitimaPanicoMobile,
+  OrionMulherSessao,
+  Usuario,
+} from './types';
 import {
   gravarAcessoIdSession,
   gravarTokenSession,
@@ -15,7 +25,7 @@ const isEnvLocalhost =
   apiUrlFromEnv?.includes('localhost') || apiUrlFromEnv?.includes('127.0.0.1');
 const isBrowserRemoteHost =
   window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-const API_URL =
+export const API_URL =
   isBrowserRemoteHost && isEnvLocalhost ? fallbackApiUrl : apiUrlFromEnv ?? fallbackApiUrl;
 
 export function getToken(): string | null {
@@ -90,15 +100,10 @@ export const api = {
   async login(payload: LoginInput): Promise<{ accessToken: string; usuario: Usuario; acessoId?: number }> {
     const response = await request<{ accessToken: string; usuario: Usuario; acessoId?: number }>(
       '/auth/login',
-      {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      },
+      { method: 'POST', body: JSON.stringify(payload) },
     );
     setToken(response.accessToken);
-    if (response.acessoId) {
-      setAcessoId(response.acessoId);
-    }
+    if (response.acessoId) setAcessoId(response.acessoId);
     return response;
   },
 
@@ -120,5 +125,105 @@ export const api = {
 
   async getMe(): Promise<Usuario> {
     return request<Usuario>('/auth/me');
+  },
+
+  async getSessaoModulo(): Promise<OrionMulherSessao> {
+    return request<OrionMulherSessao>('/orion-mulher/v1/sessao');
+  },
+
+  async getDashboardStats(params?: { from?: string; to?: string }): Promise<MulherDashboardStats> {
+    const q = new URLSearchParams();
+    if (params?.from) q.set('from', params.from);
+    if (params?.to) q.set('to', params.to);
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return request<MulherDashboardStats>(`/orion-mulher/v1/dashboard/stats${suffix}`);
+  },
+
+  async listOcorrencias(params?: {
+    page?: number;
+    q?: string;
+    id?: string;
+    cad?: string;
+  }): Promise<MulherOcorrenciasListaResposta> {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.q) q.set('q', params.q);
+    if (params?.id) q.set('id', params.id);
+    if (params?.cad) q.set('cad', params.cad);
+    const suffix = q.toString() ? `?${q.toString()}` : '';
+    return request<MulherOcorrenciasListaResposta>(`/orion-mulher/v1/ocorrencias${suffix}`);
+  },
+
+  async getOcorrencia(id: string): Promise<MulherOcorrenciaCompleta> {
+    return request<MulherOcorrenciaCompleta>(`/orion-mulher/v1/ocorrencias/${encodeURIComponent(id)}`);
+  },
+
+  async createOcorrencia(body: Record<string, unknown>): Promise<{ occurrence: MulherOcorrenciaCompleta }> {
+    return request('/orion-mulher/v1/ocorrencias', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async updateOcorrencia(
+    id: string,
+    body: Record<string, unknown>,
+  ): Promise<{ occurrence: MulherOcorrenciaCompleta }> {
+    return request(`/orion-mulher/v1/ocorrencias/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async deleteOcorrencia(id: string): Promise<{ ok: boolean }> {
+    return request(`/orion-mulher/v1/ocorrencias/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  async listCentralCadastros(limit = 100): Promise<MulherVitimaCadastroMobile[]> {
+    return request<MulherVitimaCadastroMobile[]>(
+      `/orion-mulher/v1/central/vitima-cadastros?limit=${limit}`,
+    );
+  },
+
+  async listCentralPanico(limit = 100): Promise<MulherVitimaPanicoMobile[]> {
+    return request<MulherVitimaPanicoMobile[]>(
+      `/orion-mulher/v1/central/vitima-panicos?limit=${limit}`,
+    );
+  },
+
+  async patchCentralPanico(
+    id: string,
+    body: Record<string, unknown>,
+  ): Promise<MulherVitimaPanicoMobile> {
+    return request(`/orion-mulher/v1/central/vitima-panicos/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async importExcel(opts: {
+    mode: 'replace' | 'append';
+    file?: File;
+    useEnvPath?: boolean;
+  }): Promise<MulherExcelImportResult> {
+    if (opts.useEnvPath && !opts.file) {
+      const fd = new FormData();
+      fd.set('mode', opts.mode);
+      fd.set('useEnvPath', 'true');
+      return request<MulherExcelImportResult>('/orion-mulher/v1/import/excel', {
+        method: 'POST',
+        body: fd,
+      });
+    }
+    if (!opts.file) {
+      throw new Error('Arquivo não informado.');
+    }
+    const fd = new FormData();
+    fd.set('mode', opts.mode);
+    fd.set('file', opts.file);
+    return request<MulherExcelImportResult>('/orion-mulher/v1/import/excel', {
+      method: 'POST',
+      body: fd,
+    });
   },
 };

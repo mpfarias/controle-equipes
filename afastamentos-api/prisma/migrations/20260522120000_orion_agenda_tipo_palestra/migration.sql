@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "OrionAgendaTipo" ADD VALUE IF NOT EXISTS 'PALESTRA';

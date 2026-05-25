@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Policial } from '../../types';
 import {
   Alert,
   Box,
@@ -24,9 +25,12 @@ import {
   labelTipoServicoUm,
   montarPayloadGerarEscalasCombinado,
   nomeFuncaoIndicaExpedienteAdministrativo,
+  TIPOS_ESCALA_TOTAL,
   type LinhaEscalaGeradaDraft,
+  type SvgEscalaConfig,
   type TipoServicoGerar,
 } from '../../utils/gerarEscalasCalculo';
+import { SvgEscalaVoluntarioDialog } from '../escalas/SvgEscalaVoluntarioDialog';
 import { ESCALA_DEFINITIVA_RENDER_MESSAGE, writeEscalaGeradaEditorWindow } from '../../utils/escalaGeradaEditor';
 import {
   ESCALA_GERADA_SALVAR_MESSAGE,
@@ -67,11 +71,12 @@ async function carregarTodosPoliciaisAtivos(): Promise<import('../../types').Pol
   return all;
 }
 
-function tiposMarcados(op: boolean, exp: boolean, mot: boolean): TipoServicoGerar[] {
+function tiposMarcados(op: boolean, exp: boolean, mot: boolean, svg: boolean): TipoServicoGerar[] {
   const t: TipoServicoGerar[] = [];
   if (op) t.push('OPERACIONAL');
   if (exp) t.push('EXPEDIENTE');
   if (mot) t.push('MOTORISTAS');
+  if (svg) t.push('SVG');
   return t;
 }
 
@@ -107,17 +112,33 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
   const [tipoOperacional, setTipoOperacional] = useState(false);
   const [tipoExpediente, setTipoExpediente] = useState(false);
   const [tipoMotoristas, setTipoMotoristas] = useState(false);
+  const [tipoSvg, setTipoSvg] = useState(false);
   const [operacionalDiurno, setOperacionalDiurno] = useState(false);
   const [operacionalNoturno, setOperacionalNoturno] = useState(false);
   const [dataEscala, setDataEscala] = useState(hojeIsoLocal);
   const [loading, setLoading] = useState(false);
   const [loadingTotal, setLoadingTotal] = useState(false);
+  const [semSvgEscalaTotal, setSemSvgEscalaTotal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [funcaoMotoristaId, setFuncaoMotoristaId] = useState<number | null>(null);
   const [funcoesAtivas, setFuncoesAtivas] = useState<FuncaoOption[]>([]);
   const printWinRef = useRef<Window | null>(null);
+  const pendingGeracaoRef = useRef<{
+    tipos: TipoServicoGerar[];
+    operacionalTurnos?: { diurno: boolean; noturno: boolean };
+    loadingFlag: 'gerar' | 'total';
+  } | null>(null);
 
-  const tipos = tiposMarcados(tipoOperacional, tipoExpediente, tipoMotoristas);
+  const [svgModalOpen, setSvgModalOpen] = useState(false);
+  const [svgModalLoading, setSvgModalLoading] = useState(false);
+  const [policiaisParaSvg, setPoliciaisParaSvg] = useState<Policial[]>([]);
+
+  const tipos = tiposMarcados(tipoOperacional, tipoExpediente, tipoMotoristas, tipoSvg);
+
+  const tiposEscalaTotal = useMemo(
+    () => (semSvgEscalaTotal ? TIPOS_ESCALA_TOTAL.filter((t) => t !== 'SVG') : [...TIPOS_ESCALA_TOTAL]),
+    [semSvgEscalaTotal],
+  );
 
   const podeGerarMotoristas = useMemo(() => {
     return funcoesAtivas.some(
@@ -201,7 +222,11 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
     return () => window.removeEventListener('message', onMessage);
   }, [handleSalvarFromPrint]);
 
-  const gerarEscala = async (tiposSelecionados: TipoServicoGerar[], operacionalTurnos?: { diurno: boolean; noturno: boolean }) => {
+  const gerarEscala = async (
+    tiposSelecionados: TipoServicoGerar[],
+    operacionalTurnos?: { diurno: boolean; noturno: boolean },
+    svgVoluntario?: SvgEscalaConfig,
+  ) => {
     setError(null);
 
     const win = openEscalaGeradaBlankWindow();
@@ -264,6 +289,7 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
           operacionalTurnos,
           trocasServicoAtivas,
           dataGeracaoIso: new Date().toISOString(),
+          svgVoluntario: tiposSelecionados.includes('SVG') ? svgVoluntario : undefined,
         },
       );
 
@@ -280,23 +306,73 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
     }
   };
 
+  const abrirModalSvgSeNecessario = async (
+    tiposSelecionados: TipoServicoGerar[],
+    operacionalTurnos: { diurno: boolean; noturno: boolean } | undefined,
+    loadingFlag: 'gerar' | 'total',
+  ): Promise<boolean> => {
+    if (!tiposSelecionados.includes('SVG')) return false;
+    pendingGeracaoRef.current = { tipos: tiposSelecionados, operacionalTurnos, loadingFlag };
+    setSvgModalOpen(true);
+    setSvgModalLoading(true);
+    try {
+      const lista = await carregarTodosPoliciaisAtivos();
+      setPoliciaisParaSvg(lista.filter((p) => p.status !== 'DESATIVADO'));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Erro ao carregar policiais para o SVG.');
+      pendingGeracaoRef.current = null;
+      setSvgModalOpen(false);
+      return true;
+    } finally {
+      setSvgModalLoading(false);
+    }
+    return true;
+  };
+
+  const handleSvgModalConfirm = async (config: SvgEscalaConfig) => {
+    const pending = pendingGeracaoRef.current;
+    setSvgModalOpen(false);
+    pendingGeracaoRef.current = null;
+    if (!pending) return;
+
+    if (pending.loadingFlag === 'total') {
+      setLoadingTotal(true);
+    } else {
+      setLoading(true);
+    }
+    try {
+      await gerarEscala(pending.tipos, pending.operacionalTurnos, config);
+    } finally {
+      if (pending.loadingFlag === 'total') {
+        setLoadingTotal(false);
+      } else {
+        setLoading(false);
+      }
+    }
+  };
+
+  const handleSvgModalClose = () => {
+    setSvgModalOpen(false);
+    pendingGeracaoRef.current = null;
+    setLoading(false);
+    setLoadingTotal(false);
+  };
+
   const handleGerar = async () => {
-    setLoading(true);
+    setError(null);
     if (tipos.length === 0) {
       setError('Marque ao menos um tipo de serviço.');
-      setLoading(false);
       return;
     }
     if (tipoOperacional && !operacionalDiurno && !operacionalNoturno) {
       setError('Com Operacional marcado, escolha ao menos um turno: Diurno e/ou Noturno.');
-      setLoading(false);
       return;
     }
+    const turnos = tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined;
+    if (await abrirModalSvgSeNecessario(tipos, turnos, 'gerar')) return;
+    setLoading(true);
     try {
-      await gerarEscala(
-        tipos,
-        tipoOperacional ? { diurno: operacionalDiurno, noturno: operacionalNoturno } : undefined,
-      );
+      await gerarEscala(tipos, turnos);
     } finally {
       setLoading(false);
     }
@@ -314,9 +390,13 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
   const controlesDesabilitados = !podeEditar;
   const handleGerarEscalaTotal = async () => {
     if (!podeEditar || !dataEscala) return;
+    setError(null);
+    if (await abrirModalSvgSeNecessario(tiposEscalaTotal, { diurno: true, noturno: true }, 'total')) {
+      return;
+    }
     setLoadingTotal(true);
     try {
-      await gerarEscala(['OPERACIONAL', 'EXPEDIENTE', 'MOTORISTAS'], { diurno: true, noturno: true });
+      await gerarEscala(tiposEscalaTotal, { diurno: true, noturno: true });
     } finally {
       setLoadingTotal(false);
     }
@@ -335,7 +415,9 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         (cabeçalho com selects, troca de policial/função). Os horários das linhas são automáticos (regras do sistema).
         Use <strong>Gerar escala definitiva</strong> na aba para obter o documento final (imprimir / salvar).{' '}
         <strong>Cancelar</strong> na aba de edição fecha sem salvar. Quem entra em cada tipo (operacional, expediente,
-        motoristas) é definido por função em <strong>Gestão do sistema → Funções</strong> (participação na escala).
+        motoristas, SVG) é definido por função em <strong>Gestão do sistema → Funções</strong> (participação na escala).
+        Com <strong>SVG</strong> marcado (ou em escala total), abre-se antes uma modal para informar policiais e horários
+        voluntários (8h, início em hora cheia).
       </Typography>
 
       {error && (
@@ -396,11 +478,23 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
                   }
                   label={labelTipoServicoUm('MOTORISTAS')}
                 />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={tipoSvg}
+                      onChange={(_, v) => setTipoSvg(v)}
+                      size="small"
+                      disabled={controlesDesabilitados}
+                    />
+                  }
+                  label={labelTipoServicoUm('SVG')}
+                />
               </FormGroup>
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block', lineHeight: 1.5 }}>
                 <strong>Operacional:</strong> escala das equipes <strong>12×24</strong> (turnos dia/noite).{' '}
                 <strong>Motoristas:</strong> escala de motorista de dia <strong>{ESCALA_MOTORISTA_DIA}</strong> (rodízio
-                próprio, distinto do operacional).
+                próprio, distinto do operacional). <strong>SVG:</strong> turnos 10h–18h, 15h–23h e 20h–04h (regras em
+                definição).
               </Typography>
             </FormControl>
           </Grid>
@@ -513,7 +607,18 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
       >
         <Stack spacing={1.5}>
           <Typography variant="subtitle2">Escala total</Typography>
-          <Box>
+          <Typography variant="caption" color="text.secondary" display="block">
+            Gera operacional (diurno e noturno), expediente, motoristas ({ESCALA_MOTORISTA_DIA})
+            {semSvgEscalaTotal ? '' : ' e SVG'} na mesma data.
+          </Typography>
+          <Box
+            sx={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              alignItems: 'center',
+              gap: 2,
+            }}
+          >
             <Button
               variant="contained"
               size="medium"
@@ -522,6 +627,29 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
             >
               {loadingTotal ? <CircularProgress size={22} color="inherit" /> : 'Gerar escala total'}
             </Button>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={0.5}
+              component="label"
+              sx={{
+                m: 0,
+                flexShrink: 0,
+                cursor: controlesDesabilitados ? 'default' : 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <Checkbox
+                checked={semSvgEscalaTotal}
+                onChange={(_, v) => setSemSvgEscalaTotal(v)}
+                size="small"
+                disabled={controlesDesabilitados}
+                sx={{ p: 0.5 }}
+              />
+              <Typography variant="body2" component="span" sx={{ lineHeight: 1.2 }}>
+                Sem SVG
+              </Typography>
+            </Stack>
           </Box>
         </Stack>
       </Paper>
@@ -533,6 +661,13 @@ export function GerarEscalasTab({ escalaParsed, permissoes }: GerarEscalasTabPro
         </Alert>
       )}
 
+      <SvgEscalaVoluntarioDialog
+        open={svgModalOpen}
+        loadingPoliciais={svgModalLoading}
+        policiais={policiaisParaSvg}
+        onClose={handleSvgModalClose}
+        onConfirm={(config) => void handleSvgModalConfirm(config)}
+      />
     </Stack>
   );
 }

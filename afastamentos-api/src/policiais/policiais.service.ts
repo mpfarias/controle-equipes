@@ -12,6 +12,7 @@ import { CreateRestricaoMedicaDto } from './dto/create-restricao-medica.dto';
 import { UpdateRestricaoMedicaDto } from './dto/update-restricao-medica.dto';
 import { CreateStatusDto } from './dto/create-status.dto';
 import { UpdateStatusDto } from './dto/update-status.dto';
+import { grupoQuadroPorOrdemPosto } from './quadro-grupo.util';
 import * as bcrypt from 'bcryptjs';
 import { funcaoNomeIndicaSuperiorDeDia } from '../common/funcao-supervisor-dia';
 
@@ -553,11 +554,78 @@ export class PoliciaisService {
     }
   }
 
+  private async assertPostoGraduacaoAtivo(postoGraduacaoId: number): Promise<void> {
+    const posto = await this.prisma.postoGraduacao.findFirst({
+      where: { id: postoGraduacaoId, ativo: true },
+    });
+    if (!posto) {
+      throw new BadRequestException('Posto/Graduação inválido ou inativo.');
+    }
+  }
+
+  private async assertQuadroParaPosto(postoGraduacaoId: number, quadroId: number): Promise<void> {
+    const [posto, quadro] = await Promise.all([
+      this.prisma.postoGraduacao.findFirst({
+        where: { id: postoGraduacaoId, ativo: true },
+      }),
+      this.prisma.quadro.findFirst({
+        where: { id: quadroId, ativo: true },
+      }),
+    ]);
+    if (!posto) {
+      throw new BadRequestException('Posto/Graduação inválido ou inativo.');
+    }
+    if (!quadro) {
+      throw new BadRequestException('Quadro inválido ou inativo.');
+    }
+    const grupoEsperado = grupoQuadroPorOrdemPosto(posto.ordem);
+    if (quadro.grupo !== grupoEsperado) {
+      throw new BadRequestException(
+        'O quadro selecionado não é compatível com o posto/graduação informado.',
+      );
+    }
+  }
+
+  async listQuadros(postoGraduacaoId?: number): Promise<
+    { id: number; sigla: string; grupo: string; ordem: number; ativo: boolean }[]
+  > {
+    if (postoGraduacaoId != null) {
+      const posto = await this.prisma.postoGraduacao.findFirst({
+        where: { id: postoGraduacaoId, ativo: true },
+      });
+      if (!posto) {
+        throw new BadRequestException('Posto/Graduação inválido ou inativo.');
+      }
+      const grupo = grupoQuadroPorOrdemPosto(posto.ordem);
+      return this.prisma.quadro.findMany({
+        where: { ativo: true, grupo },
+        orderBy: { ordem: 'asc' },
+        select: { id: true, sigla: true, grupo: true, ordem: true, ativo: true },
+      });
+    }
+    return this.prisma.quadro.findMany({
+      where: { ativo: true },
+      orderBy: [{ grupo: 'asc' }, { ordem: 'asc' }],
+      select: { id: true, sigla: true, grupo: true, ordem: true, ativo: true },
+    });
+  }
+
+  async listPostosGraduacao(): Promise<
+    { id: number; sigla: string; ordem: number; ativo: boolean; createdAt: Date; updatedAt: Date }[]
+  > {
+    return this.prisma.postoGraduacao.findMany({
+      where: { ativo: true },
+      orderBy: { ordem: 'asc' },
+    });
+  }
+
   async create(
     data: Omit<CreatePolicialDto, 'responsavelId'>,
     responsavelId?: number,
   ): Promise<PolicialResponse> {
     const actor = await this.audit.resolveActor(responsavelId);
+    await this.assertPostoGraduacaoAtivo(data.postoGraduacaoId);
+    await this.assertQuadroParaPosto(data.postoGraduacaoId, data.quadroId);
     const matriculaNormalizada = this.sanitizeMatricula(data.matricula);
 
     if (data.funcaoId) {
@@ -637,6 +705,8 @@ export class PoliciaisService {
 
     const created = await this.prisma.policial.create({
       data: {
+        postoGraduacao: { connect: { id: data.postoGraduacaoId } },
+        quadro: { connect: { id: data.quadroId } },
         nome: this.sanitizeNome(data.nome),
         matricula: matriculaNormalizada,
         cpf: cpfDigits ?? null,
@@ -657,7 +727,14 @@ export class PoliciaisService {
         updatedById: actor?.id ?? null,
         updatedByName: actor?.nome ?? null,
       },
-      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        status: true,
+        postoGraduacao: true,
+        quadro: true,
+      },
     });
 
     await this.audit.record({
@@ -683,7 +760,14 @@ export class PoliciaisService {
     statuses?: string[];
     funcaoId?: number;
     funcaoIds?: number[];
-    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento';
+    orderBy?:
+      | 'nome'
+      | 'postoGraduacao'
+      | 'matricula'
+      | 'equipe'
+      | 'status'
+      | 'funcao'
+      | 'dataDesligamento';
     orderDir?: 'asc' | 'desc';
     /** Filtro para previsão de férias: só retorna policiais com férias programadas neste mês/ano */
     mesPrevisaoFerias?: number;
@@ -733,10 +817,14 @@ export class PoliciaisService {
       funcao?: boolean;
       restricaoMedica?: boolean;
       status?: boolean;
+      postoGraduacao?: boolean;
+      quadro?: boolean;
       ferias?: { where: { ano: number }; orderBy: { id: 'asc' | 'desc' }; take: number };
     } = {
       funcao: true,
       status: true,
+      postoGraduacao: true,
+      quadro: true,
       ferias: { where: { ano: anoFeriasInclude }, orderBy: { id: 'desc' }, take: 1 },
     };
     if (includeAfastamentos === true) {
@@ -781,9 +869,11 @@ export class PoliciaisService {
           ? { status: { nome: dir } }
           : orderBy === 'funcao'
             ? { funcao: { nome: dir } }
-            : orderBy
-              ? ({ [orderBy]: dir } as Prisma.PolicialOrderByWithRelationInput)
-              : { nome: 'asc' };
+            : orderBy === 'postoGraduacao'
+              ? { postoGraduacao: { ordem: dir } }
+              : orderBy
+                ? ({ [orderBy]: dir } as Prisma.PolicialOrderByWithRelationInput)
+                : { nome: 'asc' };
 
     // Se não fornecer paginação, retornar todos (incluindo desativados)
     if (page === undefined && pageSize === undefined) {
@@ -897,6 +987,18 @@ export class PoliciaisService {
           valorA = ((a as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
           valorB = ((b as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
           break;
+        case 'postoGraduacao': {
+          const ordemA =
+            (a as { postoGraduacao?: { ordem?: number } }).postoGraduacao?.ordem ?? 9999;
+          const ordemB =
+            (b as { postoGraduacao?: { ordem?: number } }).postoGraduacao?.ordem ?? 9999;
+          if (ordemA !== ordemB) {
+            return dir === 'asc' ? ordemA - ordemB : ordemB - ordemA;
+          }
+          valorA = a.nome.toUpperCase();
+          valorB = b.nome.toUpperCase();
+          break;
+        }
         default:
           valorA = a.nome.toUpperCase();
           valorB = b.nome.toUpperCase();
@@ -974,6 +1076,8 @@ export class PoliciaisService {
         funcao: true, 
         restricaoMedica: true,
         status: true,
+        postoGraduacao: true,
+        quadro: true,
         ferias: { orderBy: [{ ano: 'desc' }, { id: 'desc' }] },
         restricoesMedicasHistorico: {
           include: { restricaoMedica: true },
@@ -1377,6 +1481,22 @@ export class PoliciaisService {
       updatedByName: actor?.nome ?? null,
     };
 
+    if (data.postoGraduacaoId !== undefined) {
+      await this.assertPostoGraduacaoAtivo(data.postoGraduacaoId);
+      updateData.postoGraduacao = { connect: { id: data.postoGraduacaoId } };
+    }
+
+    if (data.quadroId !== undefined) {
+      const postoId = data.postoGraduacaoId ?? before.postoGraduacaoId;
+      if (postoId == null) {
+        throw new BadRequestException('Informe o posto/graduação antes do quadro.');
+      }
+      await this.assertQuadroParaPosto(postoId, data.quadroId);
+      updateData.quadro = { connect: { id: data.quadroId } };
+    } else if (data.postoGraduacaoId !== undefined && before.quadroId != null) {
+      await this.assertQuadroParaPosto(data.postoGraduacaoId, before.quadroId);
+    }
+
     if (data.nome !== undefined) {
       updateData.nome = this.sanitizeNome(data.nome);
     }
@@ -1483,7 +1603,14 @@ export class PoliciaisService {
     const updated = await this.prisma.policial.update({
       where: { id },
       data: updateData,
-      include: { afastamentos: true, funcao: true, restricaoMedica: true, status: true },
+      include: {
+        afastamentos: true,
+        funcao: true,
+        restricaoMedica: true,
+        status: true,
+        postoGraduacao: true,
+        quadro: true,
+      },
     });
 
     await this.audit.record({
@@ -1503,6 +1630,8 @@ export class PoliciaisService {
         funcao: true,
         restricaoMedica: true,
         status: true,
+        postoGraduacao: true,
+        quadro: true,
         ferias: { where: { ano: anoFeriasResposta }, orderBy: { id: 'desc' }, take: 1 },
       },
     });

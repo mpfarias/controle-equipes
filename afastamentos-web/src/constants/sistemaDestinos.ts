@@ -6,7 +6,7 @@ import { getUrlOrionQualidade } from './orionQualidade';
 import { getUrlOrionJuridico } from './orionJuridico';
 import { getUrlOrionPatrimonio } from './orionPatrimonio';
 import { getUrlOrionMulher } from './orionMulher';
-import { getUrlOrionAssessoria } from './orionAssessoria';
+import { getUrlOrionAgenda } from './orionAgenda';
 import { getUrlOrionOperacoes } from './orionOperacoes';
 
 /** Este front (Órion / SAD) — permanece na SPA ao escolher. */
@@ -20,7 +20,7 @@ export const SISTEMA_ID_ORION_QUALIDADE = 'ORION_QUALIDADE' as const;
 export const SISTEMA_ID_ORION_JURIDICO = 'ORION_JURIDICO' as const;
 export const SISTEMA_ID_ORION_PATRIMONIO = 'ORION_PATRIMONIO' as const;
 export const SISTEMA_ID_ORION_MULHER = 'ORION_MULHER' as const;
-export const SISTEMA_ID_ORION_ASSESSORIA = 'ORION_ASSESSORIA' as const;
+export const SISTEMA_ID_ORION_AGENDA = 'ORION_AGENDA' as const;
 
 export type DestinoSistema =
   | { tipo: 'interno' }
@@ -51,8 +51,8 @@ export function getSistemaDestino(sistemaId: string): DestinoSistema {
     const url = getUrlOrionMulher();
     return { tipo: 'orion-handoff', url, configurado: Boolean(url) };
   }
-  if (sistemaId === SISTEMA_ID_ORION_ASSESSORIA) {
-    const url = getUrlOrionAssessoria();
+  if (sistemaId === SISTEMA_ID_ORION_AGENDA || sistemaId === 'ORION_ASSESSORIA') {
+    const url = getUrlOrionAgenda();
     return { tipo: 'orion-handoff', url, configurado: Boolean(url) };
   }
   if (sistemaId === 'OPERACOES') {
@@ -86,8 +86,8 @@ export function labelSistema(sistemaId: string): string {
   if (sistemaId === SISTEMA_ID_ORION_MULHER) {
     return 'Órion Mulher';
   }
-  if (sistemaId === SISTEMA_ID_ORION_ASSESSORIA) {
-    return 'Órion Assessoria';
+  if (sistemaId === SISTEMA_ID_ORION_AGENDA || sistemaId === 'ORION_ASSESSORIA') {
+    return 'Órion Agenda';
   }
   return SISTEMAS_EXTERNOS_OPTIONS.find((o) => o.id === sistemaId)?.label ?? sistemaId;
 }
@@ -102,7 +102,9 @@ export function listaSistemasIntegradosExplicitos(usuario: Usuario | null): stri
   for (const x of raw) {
     const id = String(x).trim().toUpperCase();
     if (!id) continue;
-    if (id === 'PATRIMONIO') {
+    if (id === 'ORION_ASSESSORIA') {
+      seen.add(SISTEMA_ID_ORION_AGENDA);
+    } else if (id === 'PATRIMONIO') {
       seen.add(SISTEMA_ID_ORION_PATRIMONIO);
     } else {
       seen.add(id);

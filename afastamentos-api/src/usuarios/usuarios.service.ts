@@ -97,6 +97,7 @@ export class UsuariosService {
       'SEG_SEX_07_19',
       'SEG_SEX_12X36_SEMANA_ALTERNADA',
       'JORNADA_24X72',
+      'GUARDA_COPOM_12X36',
     ];
     if (allowed.includes(s as FuncaoExpedienteHorarioPreset)) {
       return s as FuncaoExpedienteHorarioPreset;
@@ -120,6 +121,10 @@ export class UsuariosService {
       }
       if (id === 'PATRIMONIO') {
         seen.add('ORION_PATRIMONIO');
+        continue;
+      }
+      if (id === 'ORION_ASSESSORIA') {
+        seen.add('ORION_AGENDA');
         continue;
       }
       if (isSistemaExternoId(id)) {

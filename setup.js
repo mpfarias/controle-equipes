@@ -282,11 +282,11 @@ async function main() {
     'orion-juridico-web',
     'orion-patrimonio-web',
     'orion-mulher-web',
-    'orion-assessoria-web',
+    'orion-agenda-web',
     'orion-operacoes-web',
   ];
   const spaEnvLine = 'VITE_API_URL=http://localhost:3002\n';
-  logStep('9/10', 'Apps Órion (Suporte, Qualidade, Jurídico, Patrimônio, Mulher, Assessoria, Operações): .env e dependências...');
+  logStep('9/10', 'Apps Órion (Suporte, Qualidade, Jurídico, Patrimônio, Mulher, Agenda, Operações): .env e dependências...');
   for (const dir of orionSpaDirs) {
     const spaDir = path.join(__dirname, dir);
     if (!fs.existsSync(spaDir)) {
@@ -326,7 +326,7 @@ async function main() {
   log('   Matrícula: 1966901', 'green');
   log('   Senha: admin123\n', 'green');
   log('🚀 Para iniciar o projeto:', 'cyan');
-  log('   Raiz: npm run start:full  → API + SAD + Órion Suporte + Qualidade + Jurídico + Patrimônio + Mulher + Assessoria + Operações', 'yellow');
+  log('   Raiz: npm run start:full  → API + SAD + Órion Suporte + Qualidade + Jurídico + Patrimônio + Mulher + Agenda + Operações', 'yellow');
   log('   (start:full já sobe a API na 3002 — não rode start:api em outro terminal.)', 'yellow');
   log('   Se a API já estiver rodando: npm run start:full:without-api', 'yellow');
   log('   Ou separado:', 'cyan');
@@ -336,7 +336,7 @@ async function main() {
   log('   4. npm run start:orion-qualidade (porta 5182)', 'yellow');
   log('   5. npm run start:orion-patrimonio (porta 5184)', 'yellow');
   log('   6. npm run start:orion-mulher     (porta 5185)', 'yellow');
-  log('   7. npm run start:orion-assessoria (porta 5186)', 'yellow');
+  log('   7. npm run start:orion-agenda (porta 5186)', 'yellow');
   log('   8. npm run start:orion-operacoes  (porta 5187)\n', 'yellow');
   log('   Instalar deps dos SPAs Órion: npm run install:all\n', 'yellow');
   log('🌐 URLs (dev):', 'cyan');
@@ -346,7 +346,7 @@ async function main() {
   log('   Qualidade:  http://localhost:5182', 'green');
   log('   Patrimônio: http://localhost:5184', 'green');
   log('   Mulher:     http://localhost:5185', 'green');
-  log('   Assessoria: http://localhost:5186', 'green');
+  log('   Agenda: http://localhost:5186', 'green');
   log('   Operações:  http://localhost:5187\n', 'green');
   log('⚠️  IMPORTANTE: Altere a senha após o primeiro login!\n', 'yellow');
 }

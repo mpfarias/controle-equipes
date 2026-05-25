@@ -1,0 +1,62 @@
+{
+  "name": "copom-mulher-pmdf",
+  "version": "1.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\"",
+    "dev": "node scripts/next-dev.cjs",
+    "dev:clean": "npm run clean && npm run dev",
+    "pc": "node scripts/next-dev.cjs",
+    "build": "prisma generate && next build",
+    "start": "node scripts/next-start.cjs",
+    "pg:local": "node scripts/pg-local-start.cjs",
+    "servidor:b": "node scripts/servidor-opcao-b.cjs",
+    "up": "node scripts/pg-local-start.cjs && node scripts/servidor-opcao-b.cjs",
+    "smoke": "node scripts/smoke-http.mjs",
+    "test:dashboard": "tsx scripts/test-dashboard-range.ts",
+    "postinstall": "prisma generate",
+    "db:push": "prisma db push",
+    "bootstrap:pg": "node scripts/bootstrap-pg.mjs",
+    "setup:db": "prisma db push && prisma generate && npm run db:seed && npm run import:excel:refresh",
+    "db:seed": "prisma db seed",
+    "db:user:rafael": "tsx scripts/ensure-admin-rafael.ts",
+    "users:provision-responsaveis": "tsx scripts/provision-atendentes-responsaveis.ts",
+    "import:excel": "tsx scripts/import-excel.ts",
+    "import:excel:refresh": "tsx scripts/reimport-excel.ts",
+    "import:excel:restore": "npx prisma db push && tsx scripts/reimport-excel.ts",
+    "import:excel:from-scratch": "tsx scripts/reset-and-import.ts",
+    "data:sample": "tsx scripts/create-sample-excel.ts",
+    "fix:all": "npx prisma db push && npm run import:excel:from-scratch"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.5.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
+    "jose": "^6.0.10",
+    "next": "^15.2.4",
+    "prisma": "^6.6.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^2.15.2",
+    "tsx": "^4.19.3",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "22.19.17",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "^19.1.1",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.3"
+  }
+}

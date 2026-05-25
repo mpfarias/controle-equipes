@@ -38,6 +38,11 @@ import { api, getToken, removeToken } from './api';
 import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
 import type { Usuario } from './types';
 import { formatMatricula } from './utils/formatMatricula';
+import {
+  formatUsuarioSaudacaoCompleta,
+  iniciaisUsuario,
+  primeiroNomeUsuario,
+} from './utils/formatUsuarioExibicao';
 import { listaMenuOutrosSistemas } from './utils/sistemaDestinosMenu';
 import { temAcessoOrionSuporteEfetivo } from './utils/orionSuporteEfetivo';
 
@@ -61,18 +66,11 @@ function iconeMenuOutroSistema(id: string) {
       return Inventory2;
     case 'ORION_MULHER':
       return Woman;
-    case 'ORION_ASSESSORIA':
+    case 'ORION_AGENDA':
       return AssignmentInd;
     default:
       return Description;
   }
-}
-
-function getIniciaisUsuario(nome: string): string {
-  const partes = nome.trim().split(/\s+/).filter(Boolean);
-  if (partes.length === 0) return '?';
-  if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
-  return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
 }
 
 export default function App() {
@@ -140,7 +138,7 @@ export default function App() {
       return;
     }
     if (currentUser) {
-      document.title = `${DOC_TITLE} · ${currentUser.nome.split(' ')[0] ?? 'Painel'}`;
+      document.title = `${DOC_TITLE} · ${primeiroNomeUsuario(currentUser.nome) ?? 'Painel'}`;
     } else {
       document.title = `${DOC_TITLE} · Entrar`;
     }
@@ -484,7 +482,8 @@ export default function App() {
                   lineHeight: 1.35,
                 }}
               >
-                {currentUser.nome} — {formatMatricula(currentUser.matricula)}
+                {formatUsuarioSaudacaoCompleta(currentUser.nome)} —{' '}
+                {formatMatricula(currentUser.matricula)}
               </Typography>
             </Box>
             <Box
@@ -512,7 +511,7 @@ export default function App() {
                     border: `2px solid ${alpha('#0f172a', 0.9)}`,
                   }}
                 >
-                  {getIniciaisUsuario(currentUser.nome)}
+                  {iniciaisUsuario(currentUser.nome)}
                 </Avatar>
               </IconButton>
             </Box>

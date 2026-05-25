@@ -7,6 +7,10 @@ export type BlocoEscalaId =
   | 'ESCALA_EXTRAORDINARIA'
   | 'EXP_ALT_SEMANAL_07'
   | 'EXP_07_13'
+  | 'SUPERIOR_DE_DIA_DIURNO'
+  | 'SUPERIOR_DE_DIA_NOTURNO'
+  /** @deprecated Rascunhos antigos — use `normalizarBlocoLinhaEscala` na linha. */
+  | 'SUPERIOR_DE_DIA'
   | 'EQUIPE_DIURNA_07'
   | 'MOTORISTAS'
   | 'SVG_10_18'
@@ -22,12 +26,14 @@ export const ORDEM_BLOCOS_IMPRESSAO: BlocoEscalaId[] = [
   'ESCALA_EXTRAORDINARIA',
   'EXP_ALT_SEMANAL_07',
   'EXP_07_13',
+  'SUPERIOR_DE_DIA_DIURNO',
   'EQUIPE_DIURNA_07',
   'MOTORISTAS',
   'SVG_10_18',
   'EXP_13_19_SEG_SEX',
   'EXP_DIFERENCIADO',
   'SVG_15_23',
+  'SUPERIOR_DE_DIA_NOTURNO',
   'EQUIPE_NOTURNA_19_07',
   'SVG_20_04',
 ];
@@ -36,6 +42,9 @@ const TITULOS: Record<BlocoEscalaId, string> = {
   ESCALA_EXTRAORDINARIA: 'Escala extraordinária de serviço',
   EXP_ALT_SEMANAL_07: 'Expediente',
   EXP_07_13: 'Expediente — período da manhã',
+  SUPERIOR_DE_DIA_DIURNO: 'Superior de dia — escala diurna',
+  SUPERIOR_DE_DIA_NOTURNO: 'Superior de dia — escala noturna',
+  SUPERIOR_DE_DIA: 'Superior de dia',
   EQUIPE_DIURNA_07: 'Equipe',
   MOTORISTAS: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
   SVG_10_18: 'SVG',
@@ -54,7 +63,22 @@ const TITULOS: Record<BlocoEscalaId, string> = {
  */
 export function normalizarBlocoEscalaImpressao(id: BlocoEscalaId | string | undefined): BlocoEscalaId {
   if (id === 'EXP_13_19_ORG') return 'EXP_13_19_SEG_SEX';
+  if (id === 'SUPERIOR_DE_DIA') return 'SUPERIOR_DE_DIA_DIURNO';
   return (id ?? 'EXP_DIFERENCIADO') as BlocoEscalaId;
+}
+
+/** Bloco efetivo da linha (separa legado `SUPERIOR_DE_DIA` em diurno/noturno pelo horário). */
+export function normalizarBlocoLinhaEscala(l: {
+  blocoEscala?: BlocoEscalaId | string;
+  horarioServico?: string;
+}): BlocoEscalaId {
+  const raw = (l.blocoEscala ?? 'EXP_DIFERENCIADO') as BlocoEscalaId;
+  if (raw !== 'SUPERIOR_DE_DIA') return normalizarBlocoEscalaImpressao(raw);
+  const h = (l.horarioServico ?? '').replace(/^\[[^\]]+\]\s*/u, '').toLowerCase();
+  if (h.includes('dia da escala') || h.includes('dia seguinte')) {
+    return 'SUPERIOR_DE_DIA_NOTURNO';
+  }
+  return 'SUPERIOR_DE_DIA_DIURNO';
 }
 
 export function tituloBlocoEscala(id: BlocoEscalaId): string {

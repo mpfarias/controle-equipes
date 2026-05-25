@@ -116,7 +116,8 @@ export class UsuariosController {
         | 'ORGAO_DIAS_UTEIS'
         | 'SEG_SEX_07_19'
         | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
-        | 'JORNADA_24X72';
+        | 'JORNADA_24X72'
+        | 'GUARDA_COPOM_12X36';
       equipeReferencia?: string | null;
     },
     @CurrentUser() user: Usuario,
@@ -140,7 +141,8 @@ export class UsuariosController {
         | 'ORGAO_DIAS_UTEIS'
         | 'SEG_SEX_07_19'
         | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
-        | 'JORNADA_24X72';
+        | 'JORNADA_24X72'
+        | 'GUARDA_COPOM_12X36';
       equipeReferencia?: string | null;
     },
     @CurrentUser() user: Usuario,

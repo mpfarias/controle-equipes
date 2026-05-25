@@ -5,6 +5,7 @@ export {
   funcaoOcultaCampoEquipe,
   funcaoEquipeObrigatoriaNoFormulario,
   funcaoRequerFase12x36Expediente,
+  labelFase12x36Policial,
   resolveEquipeParaPolicial,
 } from './funcaoVinculoEquipe';
 

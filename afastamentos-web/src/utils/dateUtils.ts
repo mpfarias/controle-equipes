@@ -25,6 +25,19 @@ export function formatDate(value?: string | null): string {
   return new Intl.DateTimeFormat('pt-BR').format(date);
 }
 
+/** Valor `YYYY-MM-DD` para `<input type="date">` sem deslocamento por fuso UTC. */
+export function toDateInputValue(value?: string | null): string {
+  if (!value) return '';
+  const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const y = date.getFullYear();
+  const mo = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${d}`;
+}
+
 /** Extrai ano/mês/dia como dia civil de string YYYY-MM-DD ou ISO, evitando deslocamento por fuso. */
 function parseDatePart(value: string): { y: number; m: number; d: number } {
   const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);

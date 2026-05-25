@@ -1,0 +1,17 @@
+Referência rápida (padrão semelhante a projetos Expo + monorepo tipo sisBatalhaoRural)
+
+Ficheiros
+- app.json          — estático (nome, android, …)
+- app.config.js     — funde env (.env.local) e extra
+- index.js          — entry (evita AppEntry e URLs com \ no Windows)
+- App.tsx
+- metro.config.js   — rewriteRequestUrl + cinto LAN no JSON do manifesto
+- scripts/expo-start.cjs  — npx expo start --host lan e define:
+    EXPO_PACKAGER_PROXY_URL=http://<IP-LAN>:8095   (prioridade no @expo/cli, UrlCreator)
+    REACT_NATIVE_PACKAGER_HOSTNAME, COPOM_LAN_REWRITE
+- scripts/resolve-lan-host.cjs, load-env-local.cjs
+- .env.local        — copiar de .env.example; COPOM_LAN_REWRITE=192.168.x.x se precisar
+
+Telemóvel: http://IP-DO-PC:8095 — não 127.0.0.1
+
+Se tiver a pasta real sisBatalhaoRural, alinhe nomes de scripts/entry e compara app.config.js lado a lado.

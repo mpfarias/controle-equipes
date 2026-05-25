@@ -14,6 +14,7 @@ import { funcoesParaSelecao } from '../../constants';
 import { SISTEMAS_EXTERNOS_OPTIONS } from '../../constants/sistemasExternos';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
+import { normalizarTextoBusca } from '../../utils/policialBuscaAutocomplete';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import { canEdit, canExcluir, canDesativar } from '../../utils/permissions';
 import {
@@ -73,6 +74,7 @@ const SISTEMA_ICON: Record<string, React.ReactNode> = {
   ORION_QUALIDADE: <FactCheck sx={{ fontSize: 22 }} />,
   ORION_JURIDICO: <Gavel sx={{ fontSize: 22 }} />,
   ORION_MULHER: <Woman sx={{ fontSize: 22 }} />,
+  ORION_AGENDA: <AssignmentInd sx={{ fontSize: 22 }} />,
   ORION_ASSESSORIA: <AssignmentInd sx={{ fontSize: 22 }} />,
 };
 
@@ -1386,29 +1388,61 @@ export function UsuariosSection({
     }
   };
 
-  const normalizedSearch = searchTerm.trim().toUpperCase();
-  const filteredUsuarios = useMemo(() => {
-    // Primeiro, filtrar por busca se houver
-    let usuariosFiltrados = usuarios;
-    if (normalizedSearch) {
-      usuariosFiltrados = usuarios.filter((usuario) =>
-        usuario.nome.includes(normalizedSearch),
-      );
-    }
-    
-    // Se o usuário logado não é administrador, remover administradores da lista
-    if (!currentUserIsAdmin) {
-      usuariosFiltrados = usuariosFiltrados.filter((usuario) => 
-        !isUsuarioAdministrador(usuario)
-      );
-    }
-    
-    return usuariosFiltrados;
-  }, [usuarios, normalizedSearch, currentUserIsAdmin, isUsuarioAdministrador]);
+  const normalizedSearch = searchTerm.trim();
+  const termoBuscaNorm = normalizarTextoBusca(normalizedSearch);
 
-  const totalVisivel = normalizedSearch ? filteredUsuarios.length : totalUsuarios;
-  const registroInicio = totalVisivel === 0 ? 0 : ((paginaAtual - 1) * itensPorPagina) + 1;
-  const registroFim = totalVisivel === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalVisivel);
+  const filteredUsuarios = useMemo(() => {
+    const fonte = termoBuscaNorm ? usuariosParaValidacao : usuarios;
+    let usuariosFiltrados = fonte;
+
+    if (termoBuscaNorm) {
+      usuariosFiltrados = usuariosFiltrados.filter((usuario) => {
+        const haystack = normalizarTextoBusca(
+          `${usuario.nome} ${usuario.matricula} ${formatMatricula(usuario.matricula)}`,
+        );
+        return haystack.includes(termoBuscaNorm);
+      });
+    }
+
+    if (!currentUserIsAdmin) {
+      usuariosFiltrados = usuariosFiltrados.filter(
+        (usuario) => !isUsuarioAdministrador(usuario),
+      );
+    }
+
+    return usuariosFiltrados;
+  }, [
+    usuarios,
+    usuariosParaValidacao,
+    termoBuscaNorm,
+    currentUserIsAdmin,
+    isUsuarioAdministrador,
+  ]);
+
+  const totalPaginasEfetivo = termoBuscaNorm
+    ? Math.max(1, Math.ceil(filteredUsuarios.length / itensPorPagina))
+    : totalPaginas;
+
+  const usuariosExibidos = useMemo(() => {
+    if (!termoBuscaNorm) return filteredUsuarios;
+    const inicio = (paginaAtual - 1) * itensPorPagina;
+    return filteredUsuarios.slice(inicio, inicio + itensPorPagina);
+  }, [filteredUsuarios, termoBuscaNorm, paginaAtual, itensPorPagina]);
+
+  useEffect(() => {
+    setPaginaAtual(1);
+  }, [termoBuscaNorm]);
+
+  useEffect(() => {
+    if (paginaAtual > totalPaginasEfetivo) {
+      setPaginaAtual(totalPaginasEfetivo);
+    }
+  }, [paginaAtual, totalPaginasEfetivo]);
+
+  const totalVisivel = termoBuscaNorm ? filteredUsuarios.length : totalUsuarios;
+  const registroInicio = totalVisivel === 0 ? 0 : (paginaAtual - 1) * itensPorPagina + 1;
+  const registroFim =
+    totalVisivel === 0 ? 0 : Math.min(paginaAtual * itensPorPagina, totalVisivel);
 
   return (
     <section>
@@ -1756,10 +1790,10 @@ export function UsuariosSection({
       <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 2 }}>
         <TextField
           size="small"
-          placeholder="Pesquisar por nome"
+          placeholder="Pesquisar por nome ou matrícula"
           value={searchTerm}
-          onChange={(event) => setSearchTerm(event.target.value.toUpperCase())}
-          sx={{ minWidth: 200 }}
+          onChange={(event) => setSearchTerm(event.target.value)}
+          sx={{ minWidth: 240 }}
         />
         <FormControl size="small" sx={{ minWidth: 140 }}>
           <InputLabel>Itens por página</InputLabel>
@@ -1781,7 +1815,11 @@ export function UsuariosSection({
       {loading ? (
         <p className="empty-state">Carregando usuários...</p>
       ) : filteredUsuarios.length === 0 ? (
-        <p className="empty-state">Nenhum usuário cadastrado.</p>
+        <p className="empty-state">
+          {termoBuscaNorm
+            ? 'Nenhum usuário encontrado para esta busca.'
+            : 'Nenhum usuário cadastrado.'}
+        </p>
       ) : (
         <table className="table">
           <thead>
@@ -1794,7 +1832,7 @@ export function UsuariosSection({
             </tr>
           </thead>
           <tbody>
-            {filteredUsuarios.map((usuario) => (
+            {usuariosExibidos.map((usuario) => (
               <tr
                 key={usuario.id}
                 style={
@@ -1863,7 +1901,7 @@ export function UsuariosSection({
         </table>
       )}
 
-      {totalPaginas > 1 && (
+      {totalPaginasEfetivo > 1 && (
         <div
           style={{
             display: 'flex',
@@ -1899,13 +1937,13 @@ export function UsuariosSection({
               ‹ Anterior
             </button>
             <span style={{ padding: '0 12px', fontSize: '0.9rem', color: 'var(--text-secondary)' }}>
-              Página {paginaAtual} de {totalPaginas}
+              Página {paginaAtual} de {totalPaginasEfetivo}
             </span>
             <button
               type="button"
               className="ghost"
-              onClick={() => setPaginaAtual((prev) => Math.min(totalPaginas, prev + 1))}
-              disabled={paginaAtual === totalPaginas}
+              onClick={() => setPaginaAtual((prev) => Math.min(totalPaginasEfetivo, prev + 1))}
+              disabled={paginaAtual === totalPaginasEfetivo}
               style={{ padding: '6px 12px' }}
             >
               Próxima ›
@@ -1913,8 +1951,8 @@ export function UsuariosSection({
             <button
               type="button"
               className="ghost"
-              onClick={() => setPaginaAtual(totalPaginas)}
-              disabled={paginaAtual === totalPaginas}
+              onClick={() => setPaginaAtual(totalPaginasEfetivo)}
+              disabled={paginaAtual === totalPaginasEfetivo}
               style={{ padding: '6px 12px' }}
             >
               »»

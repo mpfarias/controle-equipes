@@ -29,6 +29,8 @@ import type {
   CreateRestricaoAfastamentoInput,
   UpdateRestricaoAfastamentoInput,
   StatusPolicialOption,
+  PostoGraduacaoOption,
+  QuadroOption,
   HorarioSvg,
   EscalaParametros,
   EscalaInformacao,
@@ -198,6 +200,36 @@ function setCached(key: string, data: unknown): void {
 function clearCache(): void {
   requestCache.clear();
 }
+
+export type PolicialListOrderBy =
+  | 'nome'
+  | 'postoGraduacao'
+  | 'matricula'
+  | 'equipe'
+  | 'status'
+  | 'funcao'
+  | 'dataDesligamento';
+
+export type ListPoliciaisPaginatedParams = {
+  page: number;
+  pageSize: number;
+  includeAfastamentos?: boolean;
+  includeRestricoes?: boolean;
+  search?: string;
+  equipe?: string;
+  equipes?: string[];
+  status?: string;
+  statuses?: string[];
+  funcaoId?: number;
+  funcaoIds?: number[];
+  orderBy?: PolicialListOrderBy;
+  orderDir?: 'asc' | 'desc';
+  mesPrevisaoFerias?: number;
+  anoPrevisaoFerias?: number;
+  feriasAno?: number;
+  excluirComissionadosParaLimiteFerias?: boolean;
+  excluirSuperiorDeDia?: boolean;
+};
 
 export const api = {
   async listUsuariosPaginated(params: {
@@ -621,30 +653,7 @@ export const api = {
     return data;
   },
 
-  async listPoliciaisPaginated(params: {
-    page: number;
-    pageSize: number;
-    includeAfastamentos?: boolean;
-    includeRestricoes?: boolean;
-    search?: string;
-    equipe?: string;
-    equipes?: string[];
-    status?: string;
-    statuses?: string[];
-    funcaoId?: number;
-    funcaoIds?: number[];
-    orderBy?: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento';
-    orderDir?: 'asc' | 'desc';
-    /** Filtro previsão de férias: só retorna policiais com férias programadas neste mês/ano */
-    mesPrevisaoFerias?: number;
-    anoPrevisaoFerias?: number;
-    /** Ano do registro de férias retornado em cada policial (padrão na API: ano civil atual) */
-    feriasAno?: number;
-    /** Exclui COMISSIONADO do efetivo e contagens (para limite 1/12 de férias) */
-    excluirComissionadosParaLimiteFerias?: boolean;
-    /** Exclui função «Superior de dia» do efetivo (ex.: dashboard). */
-    excluirSuperiorDeDia?: boolean;
-  }): Promise<{
+  async listPoliciaisPaginated(params: ListPoliciaisPaginatedParams): Promise<{
     Policiales: Policial[];
     total: number;
     totalDisponiveis?: number;
@@ -1210,6 +1219,30 @@ export const api = {
       method: 'DELETE',
     });
     clearCache();
+  },
+
+  async listPostosGraduacao(): Promise<PostoGraduacaoOption[]> {
+    const cacheKey = 'GET:/policiais/postos-graduacao';
+    const cached = getCached<PostoGraduacaoOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<PostoGraduacaoOption[]>('/policiais/postos-graduacao');
+    setCached(cacheKey, data);
+    return data;
+  },
+
+  async listQuadros(postoGraduacaoId?: number): Promise<QuadroOption[]> {
+    const qs =
+      postoGraduacaoId != null ? `?postoGraduacaoId=${postoGraduacaoId}` : '';
+    const cacheKey = `GET:/policiais/quadros${qs}`;
+    const cached = getCached<QuadroOption[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const data = await request<QuadroOption[]>(`/policiais/quadros${qs}`);
+    setCached(cacheKey, data);
+    return data;
   },
 
   // Status de Policial CRUD

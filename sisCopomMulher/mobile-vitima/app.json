@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "COPOM Mulher",
+    "slug": "copom-mulher",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["android", "ios"],
+    "scheme": "copomvitima",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "df.pm.copomvitima",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Localização para enviar posição e alertas de pânico à central COPOM Mulher."
+      }
+    },
+    "android": {
+      "package": "df.pm.copomvitima",
+      "usesCleartextTraffic": true,
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+      "adaptiveIcon": {
+        "backgroundColor": "#7c3aed"
+      }
+    }
+  }
+}

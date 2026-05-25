@@ -10,10 +10,10 @@ export class CreateEscalaGeradaDto {
   /** Um valor ou lista separada por vírgula, ex.: `OPERACIONAL` ou `OPERACIONAL,MOTORISTAS`. */
   @IsString()
   @Matches(
-    /^(OPERACIONAL|EXPEDIENTE|MOTORISTAS|EXTRAORDINARIA)(,(OPERACIONAL|EXPEDIENTE|MOTORISTAS|EXTRAORDINARIA))*$/,
+    /^(OPERACIONAL|EXPEDIENTE|MOTORISTAS|SVG|EXTRAORDINARIA)(,(OPERACIONAL|EXPEDIENTE|MOTORISTAS|SVG|EXTRAORDINARIA))*$/,
     {
       message:
-        'tipoServico deve ser OPERACIONAL, EXPEDIENTE, MOTORISTAS e/ou EXTRAORDINARIA (separados por vírgula).',
+        'tipoServico deve ser OPERACIONAL, EXPEDIENTE, MOTORISTAS, SVG e/ou EXTRAORDINARIA (separados por vírgula).',
     },
   )
   tipoServico!: string;

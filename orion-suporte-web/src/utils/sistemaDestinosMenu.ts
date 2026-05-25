@@ -1,7 +1,7 @@
 import { getUrlOrionJuridico } from '../constants/orionJuridico';
 import { getUrlOrionMulher } from '../constants/orionMulher';
 import { getUrlOrionOperacoes } from '../constants/orionOperacoes';
-import { getUrlOrionAssessoria } from '../constants/orionAssessoria';
+import { getUrlOrionAgenda } from '../constants/orionAgenda';
 import { getUrlOrionPatrimonio } from '../constants/orionPatrimonio';
 import { getUrlOrionQualidade } from '../constants/orionQualidade';
 import { getUrlOrionSAD } from '../constants/orionSAD';
@@ -75,10 +75,10 @@ export function listaMenuOutrosSistemas(usuario: Usuario): MenuOutroSistemaItem[
     }
   }
 
-  if (explicit.has('ORION_ASSESSORIA')) {
-    const u = getUrlOrionAssessoria();
+  if (explicit.has('ORION_AGENDA') || explicit.has('ORION_ASSESSORIA')) {
+    const u = getUrlOrionAgenda();
     if (u) {
-      out.push({ id: 'ORION_ASSESSORIA', label: 'Órion Assessoria', url: u });
+      out.push({ id: 'ORION_AGENDA', label: 'Órion Agenda', url: u });
     }
   }
 

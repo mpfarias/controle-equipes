@@ -11,6 +11,8 @@ import {
   MenuItem,
   Paper,
   Stack,
+  Tab,
+  Tabs,
   Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -20,22 +22,32 @@ import {
   FactCheck,
   Gavel,
   Hub,
-  InfoOutlined,
   Inventory2,
   Logout,
   SupportAgent,
   Woman,
 } from '@mui/icons-material';
 import { LoginMulherView } from './auth/LoginMulherView';
+import { MulherCentralVitimaSection } from './components/MulherCentralVitimaSection';
+import { MulherImportExcelSection } from './components/MulherImportExcelSection';
+import { MulherInicioSection } from './components/MulherInicioSection';
+import { MulherOcorrenciasSection } from './components/MulherOcorrenciasSection';
 import { api, getToken, removeToken } from './api';
 import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
-import type { Usuario } from './types';
+import type { OrionMulherSessao, Usuario } from './types';
 import { formatMatricula } from './utils/formatMatricula';
+import {
+  formatUsuarioSaudacaoCompleta,
+  iniciaisUsuario,
+  primeiroNomeUsuario,
+} from './utils/formatUsuarioExibicao';
 import { listaMenuOutrosSistemas } from './utils/sistemaDestinosMenu';
 import { usuarioPodeAcessarOrionMulher } from './utils/sistemaAccess';
 
 const DOC_TITLE = 'Órion Mulher';
 const accent = '#f472b6';
+
+type PainelMulher = 'inicio' | 'ocorrencias' | 'central' | 'importar';
 
 function iconeMenuOutroSistema(id: string) {
   switch (id) {
@@ -53,18 +65,11 @@ function iconeMenuOutroSistema(id: string) {
       return SupportAgent;
     case 'ORION_MULHER':
       return Woman;
-    case 'ORION_ASSESSORIA':
+    case 'ORION_AGENDA':
       return AssignmentInd;
     default:
       return Description;
   }
-}
-
-function getIniciaisUsuario(nome: string): string {
-  const partes = nome.trim().split(/\s+/).filter(Boolean);
-  if (partes.length === 0) return '?';
-  if (partes.length === 1) return partes[0].charAt(0).toUpperCase();
-  return (partes[0].charAt(0) + partes[partes.length - 1].charAt(0)).toUpperCase();
 }
 
 export default function App() {
@@ -72,6 +77,8 @@ export default function App() {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [avatarMenuAnchor, setAvatarMenuAnchor] = useState<HTMLElement | null>(null);
+  const [sessaoModulo, setSessaoModulo] = useState<OrionMulherSessao | null>(null);
+  const [painel, setPainel] = useState<PainelMulher>('inicio');
 
   const outrosSistemasMenu = useMemo(
     () => (currentUser ? listaMenuOutrosSistemas(currentUser) : []),
@@ -97,6 +104,11 @@ export default function App() {
         return;
       }
       setCurrentUser(me);
+      try {
+        setSessaoModulo(await api.getSessaoModulo());
+      } catch {
+        setSessaoModulo(null);
+      }
     } catch {
       removeToken();
       setCurrentUser(null);
@@ -115,7 +127,7 @@ export default function App() {
       return;
     }
     if (currentUser) {
-      document.title = `${DOC_TITLE} · ${currentUser.nome.split(' ')[0] ?? 'Painel'}`;
+      document.title = `${DOC_TITLE} · ${primeiroNomeUsuario(currentUser.nome) ?? 'Painel'}`;
     } else {
       document.title = `${DOC_TITLE} · Entrar`;
     }
@@ -139,6 +151,11 @@ export default function App() {
     setCurrentUser(null);
     setBootstrapError(null);
   }
+
+  const ehAdminMulher =
+    currentUser?.isAdmin === true ||
+    sessaoModulo?.perfil === 'ADMINISTRADOR' ||
+    currentUser?.nivel?.nome?.trim().toUpperCase() === 'ADMINISTRADOR';
 
   if (loading) {
     return (
@@ -282,8 +299,13 @@ export default function App() {
                   lineHeight: 1.45,
                 }}
               >
-                Violência doméstica — relatórios e documentos (em construção).
+                Violência doméstica — ocorrências, central da vítima e painel BI.
               </Typography>
+              {sessaoModulo?.perfil ? (
+                <Typography variant="caption" sx={{ color: alpha('#fdf2f8', 0.45), display: 'block', mt: 0.5 }}>
+                  Perfil: {sessaoModulo.perfil}
+                </Typography>
+              ) : null}
             </Box>
           </Stack>
           <Stack direction="row" alignItems="center" spacing={1.75} sx={{ flexShrink: 0 }}>
@@ -317,7 +339,8 @@ export default function App() {
                   lineHeight: 1.35,
                 }}
               >
-                {currentUser.nome} — {formatMatricula(currentUser.matricula)}
+                {formatUsuarioSaudacaoCompleta(currentUser.nome)} —{' '}
+                {formatMatricula(currentUser.matricula)}
               </Typography>
             </Box>
             <Box
@@ -345,7 +368,7 @@ export default function App() {
                     border: `2px solid ${alpha('#0f172a', 0.9)}`,
                   }}
                 >
-                  {getIniciaisUsuario(currentUser.nome)}
+                  {iniciaisUsuario(currentUser.nome)}
                 </Avatar>
               </IconButton>
             </Box>
@@ -390,27 +413,25 @@ export default function App() {
       </Menu>
 
       <main className="app-mulher__main">
-        <Paper
-          elevation={0}
+        <Tabs
+          value={painel}
+          onChange={(_, v: PainelMulher) => setPainel(v)}
           sx={{
-            p: 3,
-            borderRadius: 2,
-            bgcolor: alpha('#0f172a', 0.65),
-            border: `1px solid ${alpha(accent, 0.2)}`,
+            mb: 2,
+            '& .MuiTab-root': { color: alpha('#fdf2f8', 0.65), fontWeight: 600 },
+            '& .Mui-selected': { color: accent },
+            '& .MuiTabs-indicator': { bgcolor: accent },
           }}
         >
-          <Stack direction="row" alignItems="flex-start" spacing={2}>
-            <InfoOutlined sx={{ color: accent, fontSize: 32, mt: 0.25 }} />
-            <Box>
-              <Typography variant="h6" sx={{ fontWeight: 700, color: '#fdf2f8', mb: 1 }}>
-                Módulo em desenvolvimento
-              </Typography>
-              <Typography variant="body2" sx={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                Em desenvolvimento
-              </Typography>
-            </Box>
-          </Stack>
-        </Paper>
+          <Tab value="inicio" label="Painel BI" />
+          <Tab value="ocorrencias" label="Ocorrências" />
+          <Tab value="central" label="Central vítima" />
+          {ehAdminMulher ? <Tab value="importar" label="Importar Excel" /> : null}
+        </Tabs>
+        {painel === 'inicio' ? <MulherInicioSection /> : null}
+        {painel === 'ocorrencias' ? <MulherOcorrenciasSection /> : null}
+        {painel === 'central' ? <MulherCentralVitimaSection /> : null}
+        {painel === 'importar' && ehAdminMulher ? <MulherImportExcelSection /> : null}
       </main>
 
       <footer className="app-footer">

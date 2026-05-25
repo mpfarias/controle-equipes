@@ -26,6 +26,14 @@ const CPF_REGEX = /^\d{11}$/;
 const TELEFONE_REGEX = /^\d{11}$/;
 
 export class CreatePolicialDto {
+  @IsNotEmpty({ message: 'O posto/graduação é obrigatório.' })
+  @IsInt()
+  postoGraduacaoId: number;
+
+  @IsNotEmpty({ message: 'O quadro é obrigatório.' })
+  @IsInt()
+  quadroId: number;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(150)

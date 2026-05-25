@@ -1,0 +1,22 @@
+{
+  "name": "sisCopomMulher",
+  "private": true,
+  "description": "Web (Next em /sistema) + app nativa (mobile-vitima). Pânico e dados operacionais só no app; /mobile-vitima no browser é informativo.",
+  "scripts": {
+    "servidor": "npm --prefix sistema run servidor:b",
+    "up": "npm --prefix sistema run up",
+    "mobile:central": "powershell -NoProfile -ExecutionPolicy Bypass -File ./iniciar-mobile-central.ps1",
+    "dev": "npm --prefix sistema run dev",
+    "dev:web": "npm --prefix sistema run pc",
+    "pc": "npm --prefix sistema run pc",
+    "mobile": "npm --prefix mobile-vitima run start",
+    "dev:tudo": "concurrently -k -n web,mobile -c magenta,cyan \"npm --prefix sistema run pc\" \"npm --prefix mobile-vitima run start\"",
+    "users:provision-responsaveis": "npm --prefix sistema run users:provision-responsaveis",
+    "parar:dev": "node scripts/parar-portas-dev.cjs",
+    "build": "npm --prefix sistema run build",
+    "start": "npm --prefix sistema start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

@@ -1,6 +1,14 @@
 import type { Policial } from '../types';
 import { getExpedienteHorario } from '../constants/svgRegras';
 import type { BlocoEscalaId } from './escalaBlocos';
+import {
+  funcaoNomeIndicaGuardaCopom,
+  resolverHorarioGuardaCopomPolicial,
+  guardaCopomParTemSegundaQuartaSexta,
+} from './guardaCopomEscalaRegras';
+import { getISOWeekLocal } from './isoWeekLocal';
+
+export { getISOWeekLocal } from './isoWeekLocal';
 
 /**
  * Regras de horário do expediente na geração de escalas (UPM).
@@ -12,21 +20,36 @@ import type { BlocoEscalaId } from './escalaBlocos';
  */
 
 /**
- * Alternância do padrão a cada **duas semanas ISO** (ex.: sem. 15 e 16 = mesmo padrão; 17 e 18 = invertido),
- * para que terças consecutivas como 07/04 e 14/04 não invertam o par Manoel/Edilson no meio da quinzena.
+ * Alternância **semanal** do padrão seg/qua/sex × ter/qui entre PAR e IMPAR.
  *
- * `true` = Manoel em seg/qua/sex e Edilson em ter/qui.
+ * `true` = Manoel (PAR) em seg/qua/sex e Edilson (IMPAR) em ter/qui.
  * `false` = Manoel em ter/qui e Edilson em seg/qua/sex.
  *
- * Referência: 07/04 e 14/04/2026 (terças nas sem. 15 e 16) — Manoel em ter/qui.
+ * Referência: 18/05/2026 (segunda) — Manoel (PAR) em seg/qua/sex na semana âncora.
  */
 export function manoelTemPadraoSegundaQuartaSexta(dataRef: Date): boolean {
-  const w = getISOWeekLocal(dataRef);
-  return Math.floor((w - 1) / 2) % 2 === 0;
+  return guardaCopomParTemSegundaQuartaSexta(dataRef);
 }
 
-/** true = semanas ISO pares trabalha Valdivino; ímpares = Francisco (12×36 em alternância). */
+/** true = semanas ISO pares trabalha Valdivino; ímpares = Francisco (regra legada antes da âncora). */
 export const EXPEDIENTE_12X36_VALDIVINO_SEMANA_PAR = true;
+
+/** Segunda 25/05/2026 — a partir desta semana ISO, Francisco assume a escala (Valdivino na semana seguinte). */
+export const VALDIVINO_FRANCISCO_ANCORAGEM_YMD = '2026-05-25';
+
+/** Francisco ativo na semana ISO da data (Valdivino na semana em que retorna false). */
+export function franciscoAtivoSemana12x36Valdivino(dataRef: Date): boolean {
+  const [yA, mA, dA] = VALDIVINO_FRANCISCO_ANCORAGEM_YMD.split('-').map(Number);
+  const wAnchor = getISOWeekLocal(new Date(yA, mA - 1, dA));
+  const w = getISOWeekLocal(dataRef);
+  if (w < wAnchor) {
+    return semanaPar(dataRef) !== EXPEDIENTE_12X36_VALDIVINO_SEMANA_PAR;
+  }
+  let diff = w - wAnchor;
+  diff %= 2;
+  if (diff < 0) diff += 2;
+  return diff === 0;
+}
 
 export function normalizarNomeEscala(nome: string): string {
   return nome
@@ -39,20 +62,6 @@ export function normalizarNomeEscala(nome: string): string {
 
 function contemNome(nomePolicial: string, trecho: string): boolean {
   return normalizarNomeEscala(nomePolicial).includes(normalizarNomeEscala(trecho));
-}
-
-/** Número da semana ISO 8601 (1–53), baseado na data local. */
-export function getISOWeekLocal(d: Date): number {
-  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
-  const week1 = new Date(date.getFullYear(), 0, 4);
-  return (
-    1 +
-    Math.round(
-      ((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7,
-    )
-  );
 }
 
 function semanaPar(d: Date): boolean {
@@ -89,7 +98,8 @@ export type ExpedienteHorarioPresetFuncao =
   | 'ORGAO_DIAS_UTEIS'
   | 'SEG_SEX_07_19'
   | 'SEG_SEX_12X36_SEMANA_ALTERNADA'
-  | 'JORNADA_24X72';
+  | 'JORNADA_24X72'
+  | 'GUARDA_COPOM_12X36';
 
 export type ContextoResolverExpediente = {
   /** Resultado de `indiceFuncaoOrdenacaoEscala` no momento da geração (evita import circular). */
@@ -108,10 +118,12 @@ export function resolverHorarioExpedientePolicial(
   ctx: ContextoResolverExpediente,
 ): string | null {
   const preset = ctx.expedienteHorarioPreset;
-  if (preset !== 'JORNADA_24X72' && getExpedienteHorario(dataRef) === null) return null;
+  const ignoraCalendarioExpediente =
+    preset === 'JORNADA_24X72' || preset === 'GUARDA_COPOM_12X36';
+  if (!ignoraCalendarioExpediente && getExpedienteHorario(dataRef) === null) return null;
 
   const dow = dataRef.getDay(); // 0 dom … 6 sáb
-  if (preset !== 'JORNADA_24X72' && (dow === 0 || dow === 6)) return null;
+  if (!ignoraCalendarioExpediente && (dow === 0 || dow === 6)) return null;
 
   const org = horarioOrgaoExpedienteLabel(dataRef);
 
@@ -134,10 +146,13 @@ export function resolverHorarioExpedientePolicial(
   if (preset === 'JORNADA_24X72') {
     return '24x72';
   }
+  if (preset === 'GUARDA_COPOM_12X36' || funcaoNomeIndicaGuardaCopom(policial.funcao?.nome)) {
+    return resolverHorarioGuardaCopomPolicial(policial, dataRef);
+  }
 
   const nome = policial.nome;
 
-  // --- 1) 12×36 (Manoel / Edilson): seg/qua/sex vs ter/qui; alternância quinzenal. Sempre 07h–19h nos dias de serviço.
+  // --- 1) 12×36 (Manoel / Edilson), legado por nome quando a função não é Guarda COPOM no cadastro.
   const horarioManoelEdilson = '07h às 19h';
   if (contemNome(nome, 'MANOEL PEREIRA DOS SANTOS')) {
     const manoelMws = manoelTemPadraoSegundaQuartaSexta(dataRef);
@@ -189,17 +204,17 @@ export function resolverHorarioExpedientePolicial(
     return null;
   }
 
-  // --- 2e) 12×36 semanal, seg–sex 07–19 quando “na semana” ---
+  // --- 2e) 12×36 semanal, seg–sex 07–19 quando “na semana” (Valdivino × Francisco) ---
   if (contemNome(nome, 'VALDIVINO BARBOSA GRACIANO')) {
-    const on = semanaPar(dataRef) === EXPEDIENTE_12X36_VALDIVINO_SEMANA_PAR;
-    if (!on) return null;
-    if (dow >= 1 && dow <= 5) return '07h às 19h';
+    if (!franciscoAtivoSemana12x36Valdivino(dataRef)) {
+      if (dow >= 1 && dow <= 5) return '07h às 19h';
+    }
     return null;
   }
   if (contemNome(nome, 'FRANCISCO JOSE FERNANDES DE ARAUJO')) {
-    const on = semanaPar(dataRef) !== EXPEDIENTE_12X36_VALDIVINO_SEMANA_PAR;
-    if (!on) return null;
-    if (dow >= 1 && dow <= 5) return '07h às 19h';
+    if (franciscoAtivoSemana12x36Valdivino(dataRef)) {
+      if (dow >= 1 && dow <= 5) return '07h às 19h';
+    }
     return null;
   }
 
@@ -210,6 +225,12 @@ export function resolverHorarioExpedientePolicial(
     contemNome(nome, 'WELKYLLANE ARAUJO SILVA')
   ) {
     if (dow >= 1 && dow <= 5) return '13h às 19h';
+    return null;
+  }
+
+  // --- 2g) Luiz Henrique: seg–sex 14h–20h ---
+  if (contemNome(nome, 'LUIZ HENRIQUE TORRES CARDOSO')) {
+    if (dow >= 1 && dow <= 5) return '14h às 20h';
     return null;
   }
 
@@ -247,6 +268,9 @@ export function blocoExpedienteParaPolicial(
   if (preset === 'JORNADA_24X72') {
     return 'EXP_DIFERENCIADO';
   }
+  if (preset === 'GUARDA_COPOM_12X36' || funcaoNomeIndicaGuardaCopom(policial.funcao?.nome)) {
+    return 'EXP_ALT_SEMANAL_07';
+  }
 
   const nome = policial.nome;
 
@@ -275,7 +299,8 @@ export function blocoExpedienteParaPolicial(
     contemNome(nome, 'CELIO GIL DA SILVA ESPIG') ||
     contemNome(nome, 'IGOR ARTUR DE OLIVEIRA GUIMARAES') ||
     contemNome(nome, 'VALDIVINO BARBOSA GRACIANO') ||
-    contemNome(nome, 'FRANCISCO JOSE FERNANDES DE ARAUJO')
+    contemNome(nome, 'FRANCISCO JOSE FERNANDES DE ARAUJO') ||
+    contemNome(nome, 'LUIZ HENRIQUE TORRES CARDOSO')
   ) {
     return 'EXP_DIFERENCIADO';
   }
@@ -288,6 +313,6 @@ export function blocoExpedienteParaPolicial(
 /** Texto curto para o resumo da escala (expediente). */
 export const EXPEDIENTE_ESCALA_RESUMO_REGRAS =
   'Expediente — 13h às 19h (segunda a quinta) e sexta 07h às 13h, salvo exceções no bloco horários diferenciados. ' +
-  'Manoel/Edilson: 12×36 em blocos de 2 semanas ISO (seg/qua/sex vs ter/qui, alternando a cada quinzena). ' +
-  'Funções com preset no cadastro (ex.: 12×36 seg–sex por semana ISO) têm prioridade sobre regras por nome. ' +
+  'Guarda COPOM / Manoel–Edilson: 12×36 seg–sex (seg/qua/sex vs ter/qui, alternância semanal; âncora 18/05/2026). ' +
+  'Funções com preset no cadastro (ex.: Guarda COPOM, 12×36 seg–sex por semana ISO) têm prioridade sobre regras por nome. ' +
   'CMT/SubCmt no topo da lista do expediente. Ajustes: expedienteEscalaRegras.ts.';

@@ -2,7 +2,7 @@ import type { Policial, PolicialStatus } from '../types';
 import { ESCALA_MOTORISTA_DIA } from '../constants/escalaMotoristasDia';
 import escalaEditorOrderingInline from './escalaGeradaEditor-ordering-inline.js?raw';
 import { sortPorPatenteENome } from './sortPoliciais';
-import type { EscalaGeradaDraftPayload, LinhaEscalaGeradaDraft } from './gerarEscalasCalculo';
+import type { EscalaGeradaDraftPayload, LinhaEscalaGeradaDraft, TipoServicoGerar } from './gerarEscalasCalculo';
 import {
   ESCALA_CABECALHO_HORARIO_AUTOMATICO,
   ESCALA_CAB_OPCOES_CIRCUNSTANCIA,
@@ -10,7 +10,7 @@ import {
   ESCALA_CAB_OPCOES_TIPO,
   ORDEM_BLOCOS_IMPRESSAO,
   ehBlocoSvgPlaceholder,
-  normalizarBlocoEscalaImpressao,
+  normalizarBlocoLinhaEscala,
   rotuloHorarioApartirDeServico,
   tituloBlocoEscalaComLinhas,
   type BlocoEscalaId,
@@ -62,16 +62,33 @@ function horarioPadraoNovoNoBloco(blocoId: BlocoEscalaId | 'AFASTADOS'): string 
   if (blocoId === 'EQUIPE_DIURNA_07' || blocoId === 'EQUIPE_NOTURNA_19_07') {
     return '[Operacional] Conforme escala 12×24 das equipes';
   }
+  if (blocoId === 'SUPERIOR_DE_DIA_DIURNO') {
+    return '[Operacional] Superior de dia — 07h às 19h';
+  }
+  if (blocoId === 'SUPERIOR_DE_DIA_NOTURNO') {
+    return '[Operacional] Superior de dia — 19h às 07h';
+  }
+  if (blocoId === 'SUPERIOR_DE_DIA') {
+    return '[Operacional] Superior de dia';
+  }
   if (blocoId === 'AFASTADOS') return '[Expediente] Afastamento';
   if (blocoId === 'ESCALA_EXTRAORDINARIA') return '[Escala extraordinária de serviço] Conforme período indicado';
   return '[Expediente] Conforme regras UPM';
 }
 
-function tipoServicoLinhaPorBloco(blocoId: BlocoEscalaId | 'AFASTADOS'): 'OPERACIONAL' | 'EXPEDIENTE' | 'MOTORISTAS' {
+function tipoServicoLinhaPorBloco(blocoId: BlocoEscalaId | 'AFASTADOS'): TipoServicoGerar | 'EXPEDIENTE' {
   if (blocoId === 'ESCALA_EXTRAORDINARIA') return 'OPERACIONAL';
   if (blocoId === 'MOTORISTAS') return 'MOTORISTAS';
-  if (blocoId === 'EQUIPE_DIURNA_07' || blocoId === 'EQUIPE_NOTURNA_19_07') return 'OPERACIONAL';
-  if (blocoId === 'SVG_10_18' || blocoId === 'SVG_15_23' || blocoId === 'SVG_20_04') return 'EXPEDIENTE';
+  if (ehBlocoSvgPlaceholder(blocoId as BlocoEscalaId)) return 'SVG';
+  if (
+    blocoId === 'EQUIPE_DIURNA_07' ||
+    blocoId === 'EQUIPE_NOTURNA_19_07' ||
+    blocoId === 'SUPERIOR_DE_DIA_DIURNO' ||
+    blocoId === 'SUPERIOR_DE_DIA_NOTURNO' ||
+    blocoId === 'SUPERIOR_DE_DIA'
+  ) {
+    return 'OPERACIONAL';
+  }
   return 'EXPEDIENTE';
 }
 
@@ -84,7 +101,7 @@ function agruparDisponiveisPorBloco(
   }
   for (const l of linhas) {
     if (l.lista !== 'DISPONIVEL') continue;
-    const id = normalizarBlocoEscalaImpressao((l.blocoEscala ?? 'EXP_DIFERENCIADO') as BlocoEscalaId);
+    const id = normalizarBlocoLinhaEscala(l);
     const arr = m.get(id);
     if (arr) arr.push(l);
     else m.set(id, [l]);

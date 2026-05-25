@@ -424,9 +424,6 @@ export class TrocaServicoService {
     const dsA = dto.dataServicoA.slice(0, 10);
     const dsB = dto.dataServicoB.slice(0, 10);
 
-    const dataServicoA = this.parseDateOnly(dsA);
-    const dataServicoB = this.parseDateOnly(dsB);
-
     const [polA, polB] = await Promise.all([
       this.prisma.policial.findUnique({
         where: { id: troca.policialAId },
@@ -443,6 +440,9 @@ export class TrocaServicoService {
 
     const trocaLivreEntreMotoristas =
       this.policialEhMotoristaDeDia(polA) && this.policialEhMotoristaDeDia(polB);
+
+    const dataServicoA = this.parseDateOnly(dsA);
+    const dataServicoB = this.parseDateOnly(dsB);
 
     const equipeOrigemA = troca.equipeOrigemA ?? polA.equipe;
     const equipeOrigemB = troca.equipeOrigemB ?? polB.equipe;

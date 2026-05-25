@@ -21,6 +21,7 @@ import {
   SupportAgent,
   Woman,
 } from '@mui/icons-material';
+import { SaudacaoUsuario } from '../common/SaudacaoUsuario';
 import type { Usuario } from '../../types';
 import {
   getSistemaDestino,
@@ -30,7 +31,7 @@ import {
   SISTEMA_ID_ORION_JURIDICO,
   SISTEMA_ID_ORION_PATRIMONIO,
   SISTEMA_ID_ORION_MULHER,
-  SISTEMA_ID_ORION_ASSESSORIA,
+  SISTEMA_ID_ORION_AGENDA,
   SISTEMA_ID_ORION_QUALIDADE,
   SISTEMA_ID_ORION_SUPORTE,
 } from '../../constants/sistemaDestinos';
@@ -46,7 +47,7 @@ const ICONS: Record<string, ReactNode> = {
   [SISTEMA_ID_ORION_JURIDICO]: <Gavel sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_PATRIMONIO]: <Inventory2 sx={{ fontSize: 28 }} />,
   [SISTEMA_ID_ORION_MULHER]: <Woman sx={{ fontSize: 28 }} />,
-  [SISTEMA_ID_ORION_ASSESSORIA]: <AssignmentInd sx={{ fontSize: 28 }} />,
+  [SISTEMA_ID_ORION_AGENDA]: <AssignmentInd sx={{ fontSize: 28 }} />,
 };
 
 interface SelecionarSistemaViewProps {
@@ -95,8 +96,8 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
             Escolha o sistema
           </Typography>
           <Typography variant="body2" sx={{ color: alpha('#e8eef4', 0.55), mt: 1, maxWidth: 480 }}>
-            Olá, <strong style={{ color: '#e8eef4' }}>{usuario.nome}</strong> ({formatMatricula(usuario.matricula)}).
-            Selecione abaixo qual módulo deseja abrir nesta sessão.
+            <SaudacaoUsuario nomeCompleto={usuario.nome} prefixo="Olá," /> (
+            {formatMatricula(usuario.matricula)}). Selecione abaixo qual módulo deseja abrir nesta sessão.
           </Typography>
         </Box>
 
@@ -181,7 +182,7 @@ export function SelecionarSistemaView({ usuario, onEscolher, onLogout }: Selecio
             <code style={{ fontSize: '0.85em' }}>VITE_ORION_JURIDICO_URL</code>,{' '}
             <code style={{ fontSize: '0.85em' }}>VITE_ORION_PATRIMONIO_URL</code> e{' '}
             <code style={{ fontSize: '0.85em' }}>VITE_ORION_MULHER_URL</code>,{' '}
-            <code style={{ fontSize: '0.85em' }}>VITE_ORION_ASSESSORIA_URL</code> no arquivo{' '}
+            <code style={{ fontSize: '0.85em' }}>VITE_ORION_AGENDA_URL</code> no arquivo{' '}
             <code style={{ fontSize: '0.85em' }}>.env</code> quando o deploy não usar o host/porta padrão de desenvolvimento.
           </Alert>
         )}

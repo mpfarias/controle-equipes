@@ -52,17 +52,24 @@ interface CadastroUsuariosSectionProps {
 
 type TipoRemocao = 'equipe' | 'funcao' | 'pergunta' | 'motivo' | 'restricao' | 'restricao-servico' | 'status';
 
-type HorarioTrabalhoFuncaoUI = 'EQUIPES_12X36_12X72' | 'SEG_SEX_12X36' | 'EXPEDIENTE_PADRAO' | 'JORNADA_24X72';
+type HorarioTrabalhoFuncaoUI =
+  | 'EQUIPES_12X36_12X72'
+  | 'SEG_SEX_12X36'
+  | 'GUARDA_COPOM_12X36'
+  | 'EXPEDIENTE_PADRAO'
+  | 'JORNADA_24X72';
 
 const HORARIO_TRABALHO_FUNCAO_LABEL: Record<HorarioTrabalhoFuncaoUI, string> = {
   EQUIPES_12X36_12X72: 'Equipes (12x36, 12x72)',
   SEG_SEX_12X36: '12x36, de seg a sex',
+  GUARDA_COPOM_12X36: 'Guarda COPOM (12×36 seg–sex, seg/qua/sex × ter/qui)',
   EXPEDIENTE_PADRAO: 'Expediente (seg a qui: 13 às 19, sex: 07 às 13)',
   JORNADA_24X72: '24x72',
 };
 
 function mapPresetParaHorarioUI(v?: FuncaoExpedienteHorarioPreset): HorarioTrabalhoFuncaoUI {
   if (v === 'AUTO') return 'EQUIPES_12X36_12X72';
+  if (v === 'GUARDA_COPOM_12X36') return 'GUARDA_COPOM_12X36';
   if (v === 'SEG_SEX_07_19' || v === 'SEG_SEX_12X36_SEMANA_ALTERNADA') return 'SEG_SEX_12X36';
   if (v === 'JORNADA_24X72') return 'JORNADA_24X72';
   return 'EXPEDIENTE_PADRAO';
@@ -70,6 +77,7 @@ function mapPresetParaHorarioUI(v?: FuncaoExpedienteHorarioPreset): HorarioTraba
 
 function mapHorarioUIParaPreset(v: HorarioTrabalhoFuncaoUI): FuncaoExpedienteHorarioPreset {
   if (v === 'SEG_SEX_12X36') return 'SEG_SEX_07_19';
+  if (v === 'GUARDA_COPOM_12X36') return 'GUARDA_COPOM_12X36';
   if (v === 'JORNADA_24X72') return 'JORNADA_24X72';
   return 'ORGAO_DIAS_UTEIS';
 }
@@ -987,10 +995,12 @@ export function CadastroUsuariosSection({ currentUser, permissoes }: CadastroUsu
                             funcao.escalaExpediente === true
                               ? funcao.expedienteHorarioPreset === 'JORNADA_24X72'
                                 ? HORARIO_TRABALHO_FUNCAO_LABEL.JORNADA_24X72
-                                : funcao.expedienteHorarioPreset === 'SEG_SEX_07_19' ||
-                                    funcao.expedienteHorarioPreset === 'SEG_SEX_12X36_SEMANA_ALTERNADA'
-                                  ? HORARIO_TRABALHO_FUNCAO_LABEL.SEG_SEX_12X36
-                                  : HORARIO_TRABALHO_FUNCAO_LABEL.EXPEDIENTE_PADRAO
+                                : funcao.expedienteHorarioPreset === 'GUARDA_COPOM_12X36'
+                                  ? HORARIO_TRABALHO_FUNCAO_LABEL.GUARDA_COPOM_12X36
+                                  : funcao.expedienteHorarioPreset === 'SEG_SEX_07_19' ||
+                                      funcao.expedienteHorarioPreset === 'SEG_SEX_12X36_SEMANA_ALTERNADA'
+                                    ? HORARIO_TRABALHO_FUNCAO_LABEL.SEG_SEX_12X36
+                                    : HORARIO_TRABALHO_FUNCAO_LABEL.EXPEDIENTE_PADRAO
                               : HORARIO_TRABALHO_FUNCAO_LABEL.EQUIPES_12X36_12X72
                           }`,
                           funcao.descricao || '',

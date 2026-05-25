@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../api';
+import { api, type ListPoliciaisPaginatedParams, type PolicialListOrderBy } from '../../api';
 import type {
   Afastamento,
   Policial,
@@ -9,6 +9,8 @@ import type {
   Usuario,
   EquipeOption,
   HorarioSvg,
+  PostoGraduacaoOption,
+  QuadroOption,
 } from '../../types';
 import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import {
@@ -19,9 +21,11 @@ import {
   funcaoEquipeObrigatoriaNoFormulario,
   funcaoOcultaCampoEquipe,
   funcaoRequerFase12x36Expediente,
+  labelFase12x36Policial,
   funcoesParaSelecao,
   resolveEquipeParaPolicial,
 } from '../../constants';
+import { quadrosParaPosto } from '../../constants/quadro';
 import {
   SVG_INTERVALO_ESCALAS_HORAS,
   SVG_INTERVALO_EXPEDIENTE_HORAS,
@@ -37,7 +41,14 @@ import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divid
 import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, SwapHoriz, PictureAsPdf, Search, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { formatPeriodo, calcularDiasEntreDatas, formatNome, formatMatricula } from '../../utils/dateUtils';
+import {
+  formatPeriodo,
+  calcularDiasEntreDatas,
+  formatNome,
+  formatMatricula,
+  formatDate,
+  toDateInputValue,
+} from '../../utils/dateUtils';
 import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
 import {
   compareColunaStatusPolicial,
@@ -51,6 +62,16 @@ import { useEscalaParametros } from '../../hooks/useEscalaParametros';
 import { theme } from '../../constants/theme';
 import { nomeFuncaoIndicaExpedienteAdministrativo } from '../../utils/gerarEscalasCalculo';
 import { policialElegivelTrocaServico, policialEhMotoristaDeDia } from '../../utils/policialTrocaServico';
+import {
+  equipeParaPayloadEdicaoPolicial,
+  motivoPolicialForaDaLista,
+  policialPassaFiltrosListaMostrarEquipe,
+  type FiltrosListaPoliciais,
+} from '../../utils/policialListaFiltros';
+import {
+  normalizarTextoBusca,
+  policialCorrespondeBusca,
+} from '../../utils/policialBuscaAutocomplete';
 import { policialPossuiRestricaoCadastrada } from '../../utils/policialRestricao';
 import { policialFuncaoBloqueiaEscalasEOperacoes } from '../../utils/funcaoSupervisorDeDia';
 import { PoliciaisSection } from './PoliciaisSection';
@@ -67,7 +88,28 @@ const formFieldSx = {
     },
     '& input, & textarea, & .MuiSelect-select': { padding: '10px 12px' },
   },
+  '& .MuiInputLabel-outlined': {
+    color: 'text.secondary',
+  },
+  '& .MuiInputLabel-outlined.MuiInputLabel-shrink': {
+    bgcolor: 'var(--card-bg, var(--mui-palette-background-paper, #1e1e1e))',
+    px: 0.5,
+  },
 };
+
+function rotuloSelectVazio(texto: string) {
+  return (
+    <Typography component="span" variant="body2" sx={{ color: 'text.secondary' }}>
+      {texto}
+    </Typography>
+  );
+}
+
+/** Menu do Select acima do `.modal-backdrop` (z-index 1400) e cropper (1600). */
+const selectMenuPropsModal = {
+  sx: { zIndex: 1700 },
+  disableScrollLock: true,
+} as const;
 
 const MESES_PT_BR = [
   'Janeiro',
@@ -102,11 +144,8 @@ function hojeIsoLocal(): string {
   return `${y}-${m}-${day}`;
 }
 
-function normalizarTextoBusca(s: string): string {
-  return s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '');
+function postoGraduacaoExibicao(p: Policial): string {
+  return p.postoGraduacao?.sigla?.trim() || '—';
 }
 
 function matriculaExibicaoTroca(p: Policial): string {
@@ -140,8 +179,7 @@ function textoDataDesligamentoLista(p: Policial): string {
   const a = p.dataDesativacaoAPartirDe;
   const b = p.desativadoEm;
   if (a != null && String(a).trim() !== '') {
-    const d = new Date(a);
-    return Number.isNaN(d.getTime()) ? '-' : d.toLocaleDateString('pt-BR');
+    return formatDate(String(a));
   }
   if (b != null && String(b).trim() !== '') {
     const d = new Date(b);
@@ -241,6 +279,8 @@ export function MostrarEquipeSection({
     loading: false,
   });
   const [editForm, setEditForm] = useState({
+    postoGraduacaoId: undefined as number | undefined,
+    quadroId: undefined as number | undefined,
     nome: '',
     matricula: '',
     cpf: '' as string,
@@ -256,6 +296,8 @@ export function MostrarEquipeSection({
   });
   const [editCpfError, setEditCpfError] = useState<string | null>(null);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
+  const [postosGraduacao, setPostosGraduacao] = useState<PostoGraduacaoOption[]>([]);
+  const [quadros, setQuadros] = useState<QuadroOption[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -755,7 +797,7 @@ export function MostrarEquipeSection({
 
     try {
       // Buscar todos os policiais
-      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+      const params: ListPoliciaisPaginatedParams = {
         page: 1,
         pageSize: 1000,
         includeAfastamentos: true,
@@ -871,7 +913,7 @@ export function MostrarEquipeSection({
     }
   }, []);
   const [ordenacao, setOrdenacao] = useState<{
-    campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento';
+    campo: PolicialListOrderBy;
     direcao: 'asc' | 'desc';
   } | null>(null);
   const [paginaAtual, setPaginaAtual] = useState(1);
@@ -934,7 +976,7 @@ export function MostrarEquipeSection({
       // Para Cpmulher, precisamos buscar todos e filtrar por função
       const buscarTodosParaTotal = usuarioEhCpmulher && funcoesCpmulherIds.length > 0;
       
-      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+      const params: ListPoliciaisPaginatedParams = {
         page: 1,
         pageSize: buscarTodosParaTotal ? 10000 : 1, // Buscar todos se precisar filtrar por função
         includeAfastamentos: false,
@@ -1023,23 +1065,23 @@ export function MostrarEquipeSection({
       // Quando excluir desativados está marcado, precisamos buscar todos para filtrar e contar corretamente
       const buscarTodosParaExcluirDesativados = excluirDesativados;
       const buscarTodosParaRestricaoMedica = somenteComRestricaoMedica;
+      const busca = debouncedSearchTerm.trim();
+      /** Busca sem acento é feita no cliente; precisa da lista completa (dentro dos filtros da API). */
+      const buscarTodosParaBusca = busca.length > 0;
       const buscarTodos =
         buscarTodosParaFiltro ||
         buscarTodosParaOrdenacaoPorPatente ||
         buscarTodosParaExcluirMotoristas ||
         buscarTodosParaExcluirDesativados ||
-        buscarTodosParaRestricaoMedica;
+        buscarTodosParaRestricaoMedica ||
+        buscarTodosParaBusca;
 
-      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+      const params: ListPoliciaisPaginatedParams = {
         page: buscarTodos ? 1 : page,
         pageSize: buscarTodos ? 10000 : pageSize,
         includeAfastamentos: false,
         includeRestricoes: true,
       };
-      const busca = debouncedSearchTerm.trim();
-      if (busca) {
-        params.search = busca;
-      }
       // Para Cpmulher, não aplicar filtro de equipe (precisa ver todos)
       if (!usuarioEhCpmulher) {
         if (!usuarioPodeVerTodos && currentUser.equipe) {
@@ -1072,6 +1114,10 @@ export function MostrarEquipeSection({
           if (funcoesSelecionadas.length > 0 && !funcoesSelecionadas.includes(p.funcaoId)) return false;
           return true;
         });
+      }
+
+      if (busca) {
+        policiaisFiltrados = policiaisFiltrados.filter((p) => policialCorrespondeBusca(p, busca));
       }
       
       // Se buscamos todos (Cpmulher ou ordenação por patente), armazenar TODOS e paginar no cliente
@@ -1214,11 +1260,31 @@ export function MostrarEquipeSection({
     debouncedSearchTerm,
   ]);
 
+  const carregarPostosGraduacao = useCallback(async () => {
+    try {
+      const data = await api.listPostosGraduacao();
+      setPostosGraduacao(data);
+    } catch (err) {
+      console.error('Erro ao carregar postos/graduação:', err);
+    }
+  }, []);
+
+  const carregarQuadros = useCallback(async () => {
+    try {
+      const data = await api.listQuadros();
+      setQuadros(data);
+    } catch (err) {
+      console.error('Erro ao carregar quadros:', err);
+    }
+  }, []);
+
   useEffect(() => {
     void carregarFuncoes();
     void carregarRestricoesMedicas();
     void carregarEquipes();
-  }, [carregarFuncoes, carregarRestricoesMedicas, carregarEquipes]);
+    void carregarPostosGraduacao();
+    void carregarQuadros();
+  }, [carregarFuncoes, carregarRestricoesMedicas, carregarEquipes, carregarPostosGraduacao, carregarQuadros]);
 
   const openEditModal = (policial: Policial) => {
     setEditingPolicial(policial);
@@ -1227,15 +1293,13 @@ export function MostrarEquipeSection({
     const funcaoId = policial.funcaoId !== null && policial.funcaoId !== undefined
       ? policial.funcaoId
       : policial.funcao?.id ?? undefined;
-    const dataPosseStr = policial.dataPosse
-      ? new Date(policial.dataPosse).toISOString().split('T')[0]
-      : '';
-    const dataNascimentoStr = policial.dataNascimento
-      ? new Date(policial.dataNascimento).toISOString().split('T')[0]
-      : '';
+    const dataPosseStr = toDateInputValue(policial.dataPosse);
+    const dataNascimentoStr = toDateInputValue(policial.dataNascimento);
     const cpfFormatado = policial.cpf ? maskCpf((policial.cpf || '').replace(/\D/g, '')) : '';
     const telefoneFormatado = policial.telefone ? maskTelefone((policial.telefone || '').replace(/\D/g, '')) : '';
     setEditForm({
+      postoGraduacaoId: policial.postoGraduacaoId ?? policial.postoGraduacao?.id ?? undefined,
+      quadroId: policial.quadroId ?? policial.quadro?.id ?? undefined,
       nome: policial.nome,
       matricula: policial.matricula,
       cpf: cpfFormatado,
@@ -1272,6 +1336,11 @@ export function MostrarEquipeSection({
     [trocaPolicialOrigem],
   );
 
+  const trocaPolicialParceiro = useMemo(() => {
+    if (trocaPolicialOutroId === '') return null;
+    return trocaCandidatos.find((p) => p.id === trocaPolicialOutroId) ?? null;
+  }, [trocaCandidatos, trocaPolicialOutroId]);
+
   const carregarCandidatosTroca = useCallback(
     async (policial: Policial) => {
       setTrocaCandidatosLoading(true);
@@ -1279,7 +1348,7 @@ export function MostrarEquipeSection({
       setTrocaModalError(null);
       try {
         // Troca exige outra equipe: buscar em todas as equipes (não só na do usuário logado).
-        const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        const params: ListPoliciaisPaginatedParams = {
           page: 1,
           pageSize: 8000,
           statuses: ['ATIVO', 'DESIGNADO', 'PTTC', 'COMISSIONADO'],
@@ -1326,7 +1395,7 @@ export function MostrarEquipeSection({
     setTrocaOrigensLoading(true);
     setTrocaModalError(null);
     try {
-      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+      const params: ListPoliciaisPaginatedParams = {
         page: 1,
         pageSize: 8000,
         statuses: ['ATIVO', 'DESIGNADO', 'PTTC', 'COMISSIONADO'],
@@ -1505,6 +1574,19 @@ export function MostrarEquipeSection({
     setImageForCrop('');
   };
 
+  const postoSelecionadoEdit = useMemo(
+    () =>
+      editForm.postoGraduacaoId != null
+        ? postosGraduacao.find((p) => p.id === editForm.postoGraduacaoId)
+        : undefined,
+    [editForm.postoGraduacaoId, postosGraduacao],
+  );
+
+  const quadrosDisponiveisEdit = useMemo(
+    () => quadrosParaPosto(quadros, postoSelecionadoEdit),
+    [quadros, postoSelecionadoEdit],
+  );
+
   const handleEditSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!editingPolicial || editSubmitting) {
@@ -1514,6 +1596,14 @@ export function MostrarEquipeSection({
     const nome = editForm.nome.trim();
     const matricula = editForm.matricula.trim();
 
+    if (!editForm.postoGraduacaoId) {
+      setEditError('Selecione o posto/graduação.');
+      return;
+    }
+    if (!editForm.quadroId) {
+      setEditError('Selecione o quadro.');
+      return;
+    }
     if (!nome || !matricula) {
       setEditError('Informe nome e matrícula.');
       return;
@@ -1573,7 +1663,16 @@ export function MostrarEquipeSection({
     const telefoneEnvio = telefoneDigits.length === 11 ? telefoneDigits : null;
     const dataNascimentoEnvio = editForm.dataNascimento.trim() || null;
 
+    const equipePayload = equipeParaPayloadEdicaoPolicial(
+      editingPolicial,
+      editForm,
+      funcoes,
+      equipeFinal,
+    );
+
     const payload = {
+      postoGraduacaoId: editForm.postoGraduacaoId,
+      quadroId: editForm.quadroId,
       nome,
       matricula,
       cpf: cpfEnvio,
@@ -1582,7 +1681,7 @@ export function MostrarEquipeSection({
       status: editForm.status,
       matriculaComissionadoGdf,
       dataPosse,
-      equipe: equipeFinal,
+      ...(equipePayload !== undefined ? { equipe: equipePayload } : {}),
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl,
       expediente12x36Fase: funcaoRequerFase12x36Expediente(funcaoSelecionadaEdit)
@@ -1598,10 +1697,35 @@ export function MostrarEquipeSection({
         try {
           setEditSubmitting(true);
           setEditError(null);
-          await api.updatePolicial(editingPolicial.id, payload);
-          setSuccess('Policial atualizado com sucesso.');
+          const atualizado = await api.updatePolicial(editingPolicial.id, payload);
           closeEditModal();
-          await carregarPoliciais(paginaAtual, itensPorPagina);
+
+          const filtrosLista: FiltrosListaPoliciais = {
+            usuarioPodeVerTodos,
+            usuarioEhCpmulher,
+            equipeAtual: currentUser.equipe,
+            equipesSelecionadas,
+            statusSelecionados,
+            funcoesSelecionadas,
+            funcoesCpmulherIds,
+            excluirMotoristas,
+            excluirDesativados,
+            somenteComRestricaoMedica,
+          };
+
+          if (policialPassaFiltrosListaMostrarEquipe(atualizado, filtrosLista)) {
+            setSearchTerm(atualizado.matricula);
+            setPaginaAtual(1);
+            await carregarPoliciais(1, itensPorPagina);
+            setSuccess('Policial atualizado com sucesso.');
+          } else {
+            await carregarPoliciais(paginaAtual, itensPorPagina);
+            const motivo = motivoPolicialForaDaLista(atualizado, filtrosLista);
+            setSuccess(
+              `Policial atualizado, mas não aparece na lista atual${motivo ? ` (${motivo})` : ''}. ` +
+                'Ajuste os filtros ou busque pela matrícula se precisar localizá-lo.',
+            );
+          }
           onChanged?.();
         } catch (err) {
           setEditError(
@@ -1755,7 +1879,7 @@ export function MostrarEquipeSection({
     }
   };
 
-  const normalizedSearch = searchTerm.trim().toUpperCase();
+  const termoBuscaLista = debouncedSearchTerm.trim();
   const equipeAtual = currentUser.equipe;
 
   // Verificar se o usuário é ADMINISTRADOR ou SAD (podem ver todos e fazer ações)
@@ -1807,29 +1931,23 @@ export function MostrarEquipeSection({
       if (excluirDesativados) {
         base = base.filter((p) => p.status !== 'DESATIVADO');
       }
+      if (excluirMotoristas) {
+        base = base.filter((policial) => {
+          const nomeFuncao = policial.funcao?.nome?.toUpperCase() ?? '';
+          return !nomeFuncao.includes('MOTORISTA DE DIA');
+        });
+      }
+      if (termoBuscaLista) {
+        base = base.filter((p) => policialCorrespondeBusca(p, termoBuscaLista));
+      }
       return base;
     }
 
     // Quando a paginação é no cliente (ex.: Cpmulher), aplicar filtros no cliente
     let resultado = policiaisDaEquipe;
 
-    // Aplicar filtro de busca por nome, matrícula ou função
-    if (normalizedSearch) {
-      resultado = resultado.filter((policial) => {
-        // Buscar por nome
-        if (policial.nome.includes(normalizedSearch)) {
-          return true;
-        }
-        // Buscar por matrícula
-        if (policial.matricula.toUpperCase().includes(normalizedSearch)) {
-          return true;
-        }
-        // Buscar por função
-        if (policial.funcao?.nome && policial.funcao.nome.toUpperCase().includes(normalizedSearch)) {
-          return true;
-        }
-        return false;
-      });
+    if (termoBuscaLista) {
+      resultado = resultado.filter((p) => policialCorrespondeBusca(p, termoBuscaLista));
     }
 
     // Aplicar filtro por equipe (client-side, quando paginação no cliente)
@@ -1890,6 +2008,13 @@ export function MostrarEquipeSection({
           primary = compareColunaStatusPolicial(a.status, b.status, dir);
         } else {
           switch (ordenacao.campo) {
+            case 'postoGraduacao': {
+              const ordemA = a.postoGraduacao?.ordem ?? 9999;
+              const ordemB = b.postoGraduacao?.ordem ?? 9999;
+              primary = ordemA - ordemB;
+              if (dir === 'desc') primary = -primary;
+              break;
+            }
             case 'matricula':
               primary = compareTextoColunaPolicial(
                 a.matricula.toUpperCase(),
@@ -1934,7 +2059,7 @@ export function MostrarEquipeSection({
     return resultado;
   }, [
     policiaisDaEquipe,
-    normalizedSearch,
+    termoBuscaLista,
     equipesSelecionadas,
     statusSelecionados,
     funcoesSelecionadas,
@@ -2001,7 +2126,7 @@ export function MostrarEquipeSection({
   useEffect(() => {
     setPaginaAtual(1);
   }, [
-    normalizedSearch,
+    debouncedSearchTerm,
     equipesSelecionadas,
     statusSelecionados,
     funcoesSelecionadas,
@@ -2009,9 +2134,7 @@ export function MostrarEquipeSection({
     ordenacao,
   ]);
 
-  const handleOrdenacao = (
-    campo: 'nome' | 'matricula' | 'equipe' | 'status' | 'funcao' | 'dataDesligamento',
-  ) => {
+  const handleOrdenacao = (campo: PolicialListOrderBy) => {
     setOrdenacao((prev) => {
       if (prev?.campo === campo) {
         // Mesmo campo: 1º clique = asc, 2º = desc, 3º = remove ordenação (volta ao padrão)
@@ -2033,14 +2156,13 @@ export function MostrarEquipeSection({
 
     const buscarTodosParaFiltro = usuarioEhCpmulher && funcoesCpmulherIds.length > 0;
 
-    const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+    const params: ListPoliciaisPaginatedParams = {
       page: 1,
       pageSize: 50000,
       includeAfastamentos: false,
       includeRestricoes: true,
     };
     const busca = debouncedSearchTerm.trim();
-    if (busca) params.search = busca;
     if (!usuarioEhCpmulher) {
       if (!usuarioPodeVerTodos && currentUser.equipe) {
         params.equipe = currentUser.equipe;
@@ -2069,6 +2191,9 @@ export function MostrarEquipeSection({
     // Excluir desativados quando checkbox marcado (consistente com a lista na tela)
     if (excluirDesativados) {
       listaPdf = listaPdf.filter((p) => p.status !== 'DESATIVADO');
+    }
+    if (busca) {
+      listaPdf = listaPdf.filter((p) => policialCorrespondeBusca(p, busca));
     }
     // Excluir motoristas quando checkbox marcado (consistente com a lista na tela)
     if (excluirMotoristas) {
@@ -2599,6 +2724,44 @@ export function MostrarEquipeSection({
                 <th>
                   <button
                     type="button"
+                    onClick={() => handleOrdenacao('postoGraduacao')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      font: 'inherit',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      width: '100%',
+                      fontWeight: ordenacao?.campo === 'postoGraduacao' ? 'bold' : 'normal',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      color: 'var(--text-primary)',
+                      whiteSpace: 'nowrap',
+                      fontSize: '0.85rem',
+                    }}
+                    title={
+                      ordenacao?.campo === 'postoGraduacao'
+                        ? `Ordenar por posto/graduação (${ordenacao.direcao === 'asc' ? 'ascendente' : 'descendente'}) - clique para inverter`
+                        : 'Ordenar por posto/graduação'
+                    }
+                  >
+                    Posto/Graduação
+                    {ordenacao?.campo === 'postoGraduacao' ? (
+                      ordenacao.direcao === 'asc' ? (
+                        <ArrowUpward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
+                      ) : (
+                        <ArrowDownward sx={{ fontSize: 18, color: 'var(--text-primary)' }} />
+                      )
+                    ) : (
+                      <SwapVert sx={{ fontSize: 18, color: 'var(--text-primary)', opacity: 0.8 }} />
+                    )}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
                     onClick={() => handleOrdenacao('nome')}
                     style={{
                       background: 'none',
@@ -2808,6 +2971,16 @@ export function MostrarEquipeSection({
                     : undefined
                 }
               >
+                <td
+                  style={{
+                    whiteSpace: 'nowrap',
+                    fontSize: '0.9rem',
+                    color: postoGraduacaoExibicao(policial) === '—' ? 'var(--text-secondary)' : undefined,
+                    fontStyle: postoGraduacaoExibicao(policial) === '—' ? 'italic' : undefined,
+                  }}
+                >
+                  {postoGraduacaoExibicao(policial)}
+                </td>
                 <td>
                   <a
                     href="#"
@@ -3100,8 +3273,9 @@ export function MostrarEquipeSection({
             </Typography>
             <Typography variant="body2" color="text.secondary">
               <strong>Demais policiais (escala 12×24, Designado, PTTC ou Comissionado):</strong> a troca é com policial de{' '}
-              <strong>outra equipe</strong>. Informe apenas as datas; o turno é inferido automaticamente pela escala 12×24
-              (equipe própria ou do parceiro naquele dia). Parâmetros em Gestão de escalas e Calendário.
+              <strong>outra equipe</strong>. Informe a data de serviço de cada um (podem ser dias diferentes). Na escala de
+              cada data, quem entra na equipe do parceiro aparece na lista e quem cede o plantão na própria equipe não. O
+              turno é inferido pela escala 12×24. Parâmetros em Gestão de escalas e Calendário.
             </Typography>
 
             {trocaModalError && (
@@ -3173,7 +3347,18 @@ export function MostrarEquipeSection({
                   <Button
                     size="small"
                     variant="text"
-                    sx={{ mt: 0.5, textTransform: 'none', p: 0, minWidth: 0 }}
+                    sx={{
+                      mt: 0.5,
+                      textTransform: 'none',
+                      p: 0,
+                      minWidth: 0,
+                      color: 'var(--accent-muted, #6b9bc4)',
+                      fontWeight: 500,
+                      '&:hover': {
+                        color: 'var(--text-primary, #e8eef4)',
+                        backgroundColor: 'rgba(107, 155, 196, 0.12)',
+                      },
+                    }}
                     onClick={() => void handleIniciarAlteracaoOrigemTroca()}
                   >
                     Alterar policial de origem
@@ -3239,9 +3424,11 @@ export function MostrarEquipeSection({
 
                 <TextField
                   label={
-                    trocaModalOrigemEhMotorista
-                      ? 'Data de serviço — motorista de origem'
-                      : 'Data de serviço do policial de origem (própria equipe ou substituindo o parceiro na escala)'
+                    trocaPolicialOrigem
+                      ? `Data de serviço — ${trocaPolicialOrigem.nome}`
+                      : trocaModalOrigemEhMotorista
+                        ? 'Data de serviço — motorista de origem'
+                        : 'Data de serviço do policial de origem'
                   }
                   type="date"
                   size="small"
@@ -3249,12 +3436,15 @@ export function MostrarEquipeSection({
                   value={trocaDataPolicialOrigem}
                   onChange={(e) => setTrocaDataPolicialOrigem(e.target.value)}
                   InputLabelProps={{ shrink: true }}
+                  helperText="Dia em que este policial cumpre plantão na equipe do parceiro"
                 />
                 <TextField
                   label={
-                    trocaModalOrigemEhMotorista
-                      ? 'Data de serviço — outro motorista'
-                      : 'Data de serviço do outro policial (própria equipe ou substituindo o parceiro na escala)'
+                    trocaPolicialParceiro
+                      ? `Data de serviço — ${trocaPolicialParceiro.nome}`
+                      : trocaModalOrigemEhMotorista
+                        ? 'Data de serviço — outro motorista'
+                        : 'Data de serviço do outro policial'
                   }
                   type="date"
                   size="small"
@@ -3262,6 +3452,7 @@ export function MostrarEquipeSection({
                   value={trocaDataPolicialOutro}
                   onChange={(e) => setTrocaDataPolicialOutro(e.target.value)}
                   InputLabelProps={{ shrink: true }}
+                  helperText="Dia em que o parceiro cumpre plantão na equipe do policial de origem (pode ser outro dia)"
                 />
                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, lineHeight: 1.5 }}>
                   O horário da troca é definido automaticamente pela escala:
@@ -3296,7 +3487,7 @@ export function MostrarEquipeSection({
 
       {editingPolicial && (
         <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal" style={{ maxWidth: showImageCropper ? '800px' : '500px' }}>
+          <div className="modal" style={{ maxWidth: showImageCropper ? '800px' : '560px' }}>
             <h3>Editar policial</h3>
             {editError && (
               <Alert severity="error" sx={{ mb: 2 }} onClose={() => setEditError(null)}>
@@ -3423,6 +3614,93 @@ export function MostrarEquipeSection({
               
               <form onSubmit={handleEditSubmit}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'column', sm: 'row' },
+                    gap: 2,
+                  }}
+                >
+                  <FormControl fullWidth size="small" required sx={formFieldSx}>
+                    <InputLabel id="edit-posto-graduacao-label" shrink>
+                      Posto/Graduação
+                    </InputLabel>
+                    <Select
+                      labelId="edit-posto-graduacao-label"
+                      label="Posto/Graduação"
+                      MenuProps={selectMenuPropsModal}
+                      value={editForm.postoGraduacaoId != null ? String(editForm.postoGraduacaoId) : ''}
+                      displayEmpty
+                      renderValue={(v) => {
+                        if (!v) return rotuloSelectVazio('Selecione');
+                        const p = postosGraduacao.find((x) => x.id === Number(v));
+                        return p ? p.sigla : rotuloSelectVazio('Selecione');
+                      }}
+                      onChange={(e) => {
+                        const val = String(e.target.value);
+                        setEditForm((prev) => ({
+                          ...prev,
+                          postoGraduacaoId: val === '' ? undefined : Number(val),
+                          quadroId: undefined,
+                        }));
+                      }}
+                    >
+                      <MenuItem value="">
+                        <em>Selecione</em>
+                      </MenuItem>
+                      {postosGraduacao.map((p) => (
+                        <MenuItem key={p.id} value={String(p.id)}>
+                          {p.sigla}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <FormControl
+                    fullWidth
+                    size="small"
+                    required
+                    disabled={!editForm.postoGraduacaoId}
+                    sx={formFieldSx}
+                  >
+                    <InputLabel id="edit-quadro-label" shrink>
+                      Quadro
+                    </InputLabel>
+                    <Select
+                      labelId="edit-quadro-label"
+                      label="Quadro"
+                      MenuProps={selectMenuPropsModal}
+                      value={editForm.quadroId != null ? String(editForm.quadroId) : ''}
+                      displayEmpty
+                      renderValue={(v) => {
+                        if (!v) {
+                          return rotuloSelectVazio(
+                            editForm.postoGraduacaoId ? 'Selecione o quadro' : 'Selecione o posto antes',
+                          );
+                        }
+                        const q =
+                          quadrosDisponiveisEdit.find((x) => x.id === Number(v)) ??
+                          quadros.find((x) => x.id === Number(v));
+                        return q ? q.sigla : rotuloSelectVazio('Selecione o quadro');
+                      }}
+                      onChange={(e) => {
+                        const val = String(e.target.value);
+                        setEditForm((prev) => ({
+                          ...prev,
+                          quadroId: val === '' ? undefined : Number(val),
+                        }));
+                      }}
+                    >
+                      <MenuItem value="">
+                        <em>Selecione</em>
+                      </MenuItem>
+                      {quadrosDisponiveisEdit.map((q) => (
+                        <MenuItem key={q.id} value={String(q.id)}>
+                          {q.sigla}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Box>
                 <TextField
                   label="NOME"
                   value={editForm.nome}
@@ -3505,7 +3783,7 @@ export function MostrarEquipeSection({
                 <FormControl fullWidth variant="outlined" size="small" required>
                   <InputLabel>STATUS</InputLabel>
                   <Select
-                    MenuProps={{ sx: { zIndex: 1500 } }}
+                    MenuProps={selectMenuPropsModal}
                     value={editForm.status}
                     onChange={(event) => {
                       const novoStatus = event.target.value as PolicialStatus;
@@ -3559,7 +3837,7 @@ export function MostrarEquipeSection({
                 <FormControl fullWidth variant="outlined" size="small" required>
                   <InputLabel>FUNÇÃO</InputLabel>
                   <Select
-                    MenuProps={{ sx: { zIndex: 1500 } }}
+                    MenuProps={selectMenuPropsModal}
                     value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
                     label="FUNÇÃO"
                     onChange={(event) => {
@@ -3624,7 +3902,7 @@ export function MostrarEquipeSection({
                   <FormControl fullWidth variant="outlined" size="small" required={equipeObrigatoria}>
                     <InputLabel>EQUIPE</InputLabel>
                     <Select
-                      MenuProps={{ sx: { zIndex: 1500 } }}
+                      MenuProps={selectMenuPropsModal}
                       value={editForm.equipe || ''}
                       displayEmpty
                       renderValue={(v) => {
@@ -3656,17 +3934,19 @@ export function MostrarEquipeSection({
               {(() => {
                 const funcaoSel = editForm.funcaoId ? funcoes.find((f) => f.id === editForm.funcaoId) : undefined;
                 if (!funcaoRequerFase12x36Expediente(funcaoSel)) return null;
+                const guardaCopom = funcaoSel?.expedienteHorarioPreset === 'GUARDA_COPOM_12X36';
+                const faseLabel = guardaCopom ? 'Fase Guarda COPOM (12×36)' : 'Fase 12×36 (semana ISO)';
                 return (
                   <FormControl fullWidth variant="outlined" size="small" required>
-                    <InputLabel id="edit-policial-fase-12x36-label">Fase 12×36 (semana ISO)</InputLabel>
+                    <InputLabel id="edit-policial-fase-12x36-label">{faseLabel}</InputLabel>
                     <Select
                       labelId="edit-policial-fase-12x36-label"
-                      label="Fase 12×36 (semana ISO)"
+                      label={faseLabel}
                       value={editForm.expediente12x36Fase ?? ''}
                       displayEmpty
                       renderValue={(v) => {
-                        if (!v) return 'Selecione par ou ímpar';
-                        return v === 'PAR' ? 'Semanas pares' : 'Semanas ímpares';
+                        if (!v) return 'Selecione PAR ou IMPAR';
+                        return labelFase12x36Policial(v as 'PAR' | 'IMPAR', funcaoSel?.expedienteHorarioPreset);
                       }}
                       onChange={(e) => {
                         const v = e.target.value;
@@ -3675,13 +3955,17 @@ export function MostrarEquipeSection({
                           expediente12x36Fase: v === 'PAR' || v === 'IMPAR' ? v : undefined,
                         }));
                       }}
-                      MenuProps={{ sx: { zIndex: 1500 } }}
+                      MenuProps={selectMenuPropsModal}
                     >
                       <MenuItem value="">
-                        <em>Selecione par ou ímpar</em>
+                        <em>Selecione PAR ou IMPAR</em>
                       </MenuItem>
-                      <MenuItem value="PAR">Semanas pares</MenuItem>
-                      <MenuItem value="IMPAR">Semanas ímpares</MenuItem>
+                      <MenuItem value="PAR">
+                        {labelFase12x36Policial('PAR', funcaoSel?.expedienteHorarioPreset)}
+                      </MenuItem>
+                      <MenuItem value="IMPAR">
+                        {labelFase12x36Policial('IMPAR', funcaoSel?.expedienteHorarioPreset)}
+                      </MenuItem>
                     </Select>
                   </FormControl>
                 );
@@ -3914,7 +4198,7 @@ export function MostrarEquipeSection({
                         </Typography>
                         <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.dataNascimento ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.dataNascimento ? 'italic' : 'inherit' }}>
                           {viewingPolicial.dataNascimento
-                            ? new Date(viewingPolicial.dataNascimento.includes('T') ? viewingPolicial.dataNascimento : viewingPolicial.dataNascimento + 'T12:00:00').toLocaleDateString('pt-BR')
+                            ? formatDate(viewingPolicial.dataNascimento)
                             : 'Campo não preenchido'}
                         </Typography>
                       </Box>
@@ -3948,7 +4232,7 @@ export function MostrarEquipeSection({
                             </Typography>
                             <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.dataPosse ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.dataPosse ? 'italic' : 'inherit' }}>
                               {viewingPolicial.dataPosse
-                                ? new Date(viewingPolicial.dataPosse).toLocaleDateString('pt-BR')
+                                ? formatDate(viewingPolicial.dataPosse)
                                 : 'Campo não preenchido'}
                             </Typography>
                           </Box>
@@ -3968,6 +4252,38 @@ export function MostrarEquipeSection({
                           </Box>
                         </>
                       )}
+
+                      {(() => {
+                        const funcaoView = viewingPolicial.funcaoId
+                          ? funcoes.find((f) => f.id === viewingPolicial.funcaoId)
+                          : undefined;
+                        if (!funcaoRequerFase12x36Expediente(funcaoView)) return null;
+                        const fase = viewingPolicial.expediente12x36Fase;
+                        return (
+                          <>
+                            <Divider />
+                            <Box>
+                              <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                {funcaoView?.expedienteHorarioPreset === 'GUARDA_COPOM_12X36'
+                                  ? 'Escala Guarda COPOM (12×36)'
+                                  : 'Fase 12×36 (semana ISO)'}
+                              </Typography>
+                              <Typography
+                                variant="body1"
+                                sx={{
+                                  mt: 0.5,
+                                  color: !fase ? 'text.secondary' : 'inherit',
+                                  fontStyle: !fase ? 'italic' : 'inherit',
+                                }}
+                              >
+                                {fase
+                                  ? labelFase12x36Policial(fase, funcaoView?.expedienteHorarioPreset)
+                                  : 'Campo não preenchido'}
+                              </Typography>
+                            </Box>
+                          </>
+                        );
+                      })()}
 
                       <>
                         <Divider />
@@ -3990,7 +4306,7 @@ export function MostrarEquipeSection({
                             </Typography>
                             {viewingPolicial.dataDesativacaoAPartirDe && (
                               <Typography variant="body2" sx={{ mb: 0.5 }}>
-                                <strong>A partir de:</strong> {new Date(viewingPolicial.dataDesativacaoAPartirDe).toLocaleDateString('pt-BR')}
+                                <strong>A partir de:</strong> {formatDate(viewingPolicial.dataDesativacaoAPartirDe)}
                               </Typography>
                             )}
                             {viewingPolicial.observacoesDesativacao && (
@@ -4028,7 +4344,7 @@ export function MostrarEquipeSection({
                                 </Typography>
                                 {viewingPolicial.restricaoMedicaDataInicio && (
                                   <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem' }}>
-                                    Início: {new Date(viewingPolicial.restricaoMedicaDataInicio).toLocaleDateString('pt-BR')}
+                                    Início: {formatDate(viewingPolicial.restricaoMedicaDataInicio)}
                                   </Typography>
                                 )}
                                 <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
@@ -4036,7 +4352,7 @@ export function MostrarEquipeSection({
                                   {viewingPolicial.restricaoMedicaPermanente
                                     ? 'Indeterminado / Permanente'
                                     : viewingPolicial.restricaoMedicaDataFim
-                                      ? new Date(viewingPolicial.restricaoMedicaDataFim).toLocaleDateString('pt-BR')
+                                      ? formatDate(viewingPolicial.restricaoMedicaDataFim)
                                       : '—'}
                                 </Typography>
                               </Box>
@@ -4074,10 +4390,10 @@ export function MostrarEquipeSection({
                                         )}
                                       </Box>
                                       <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
-                                        Colocada em: {new Date(historico.dataInicio).toLocaleDateString('pt-BR')}
+                                        Colocada em: {formatDate(historico.dataInicio)}
                                       </Typography>
                                       <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
-                                        Removida em: {new Date(historico.dataFim).toLocaleDateString('pt-BR')}
+                                        Removida em: {formatDate(historico.dataFim)}
                                       </Typography>
                                       {historico.removidoPorNome && (
                                         <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', display: 'block' }}>
@@ -4230,13 +4546,11 @@ export function MostrarEquipeSection({
                       restricaoMedicaId: viewingPolicial.restricaoMedicaId ?? null,
                       observacao: viewingPolicial.restricaoMedicaObservacao ?? '',
                       dataInicio: viewingPolicial.restricaoMedicaDataInicio
-                        ? new Date(viewingPolicial.restricaoMedicaDataInicio).toISOString().slice(0, 10)
+                        ? toDateInputValue(viewingPolicial.restricaoMedicaDataInicio)
                         : viewingPolicial.restricaoMedicaId != null && viewingPolicial.updatedAt
-                          ? new Date(viewingPolicial.updatedAt).toISOString().slice(0, 10)
-                          : new Date().toISOString().slice(0, 10),
-                      dataFim: viewingPolicial.restricaoMedicaDataFim
-                        ? new Date(viewingPolicial.restricaoMedicaDataFim).toISOString().slice(0, 10)
-                        : '',
+                          ? toDateInputValue(viewingPolicial.updatedAt)
+                          : toDateInputValue(new Date().toISOString()),
+                      dataFim: toDateInputValue(viewingPolicial.restricaoMedicaDataFim),
                       permanente: viewingPolicial.restricaoMedicaPermanente === true,
                       loading: false,
                       error: null,
@@ -4938,7 +5252,7 @@ export function MostrarEquipeSection({
                     COPOM - Centro de Operações da Polícia Militar
                   </Typography>
                   <Typography className="print-date" variant="body2">
-                    Data: {dataEfetivo ? new Date(dataEfetivo).toLocaleDateString('pt-BR') : '-'}
+                    Data: {dataEfetivo ? formatDate(dataEfetivo) : '-'}
                   </Typography>
                   <Typography variant="body2" sx={{ mt: 1, fontWeight: 500 }}>
                     Total de policiais: {efetivoDisponivel.length}
