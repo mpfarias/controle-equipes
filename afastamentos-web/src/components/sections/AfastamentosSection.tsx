@@ -14,6 +14,7 @@ import {
   type PreencherCadastroAfastamentoInput,
 } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome, formatMatricula } from '../../utils/dateUtils';
+import { deduplicarAfastamentosLista } from '../../utils/deduplicarAfastamentos';
 import { sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
@@ -528,7 +529,7 @@ export function AfastamentosSection({
           })
         : afastamentosData;
       
-      setAfastamentos(afastamentosFiltrados);
+      setAfastamentos(deduplicarAfastamentosLista(afastamentosFiltrados));
       setPoliciais(policiaisFiltrados);
       setError(null);
     } catch (err) {
@@ -1010,6 +1011,7 @@ export function AfastamentosSection({
   );
 
   const submeterAfastamento = useCallback(async () => {
+    if (submitting) return;
     try {
       setSubmitting(true);
       
@@ -1077,7 +1079,7 @@ export function AfastamentosSection({
     } finally {
       setSubmitting(false);
     }
-  }, [form, calcularPeriodo, quantidadeDias, motivos, motivoOutroTexto, carregarDados, onChanged]);
+  }, [form, calcularPeriodo, quantidadeDias, motivos, motivoOutroTexto, carregarDados, onChanged, submitting]);
 
   const abrirConfirmacaoCadastro = useCallback(
     (dataFimParaValidacao: string | null) => {

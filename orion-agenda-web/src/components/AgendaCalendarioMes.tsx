@@ -1,5 +1,6 @@
-import { Box, Button, Stack, Tooltip, Typography } from '@mui/material';
+import { Box, Button, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 import type { OrionAgendaCompromisso, OrionAgendaStatus } from '../types';
 import {
   DIAS_SEMANA_CURTO,
@@ -22,6 +23,73 @@ const STATUS_LABEL: Record<OrionAgendaStatus, string> = {
 
 function diaTemCompromissoAgendado(compromissos: OrionAgendaCompromisso[]): boolean {
   return compromissos.some((c) => c.status === 'AGENDADO');
+}
+
+type BotaoNavegacaoMesProps = {
+  direcao: 'anterior' | 'proximo';
+  onClick: () => void;
+  disabled?: boolean;
+};
+
+function BotaoNavegacaoMes({ direcao, onClick, disabled }: BotaoNavegacaoMesProps) {
+  const anterior = direcao === 'anterior';
+  const titulo = anterior ? 'Mês anterior' : 'Próximo mês';
+
+  return (
+    <Tooltip title={titulo} placement={anterior ? 'right' : 'left'} arrow>
+      <Box component="span" sx={{ display: 'flex', flexShrink: 0 }}>
+        <IconButton
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={titulo}
+          sx={{
+            width: { xs: 44, sm: 52 },
+            height: { xs: 44, sm: 52 },
+            color: accent,
+            bgcolor: alpha('#020617', 0.62),
+            border: `1px solid ${alpha(accent, 0.38)}`,
+            borderRadius: '50%',
+            backgroundImage: `linear-gradient(145deg, ${alpha(accent, 0.12)} 0%, transparent 60%)`,
+            boxShadow: `
+              0 0 0 1px ${alpha('#000', 0.35)} inset,
+              0 10px 28px ${alpha('#000', 0.45)}
+            `,
+            transition:
+              'transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease',
+            '&:hover:not(:disabled)': {
+              bgcolor: alpha(accent, 0.2),
+              borderColor: alpha(accent, 0.75),
+              transform: anterior ? 'translateX(-3px) scale(1.04)' : 'translateX(3px) scale(1.04)',
+              boxShadow: `
+                0 0 0 1px ${alpha(accent, 0.35)} inset,
+                0 0 24px ${alpha(accent, 0.28)},
+                0 12px 32px ${alpha('#000', 0.5)}
+              `,
+            },
+            '&:active:not(:disabled)': {
+              transform: anterior ? 'translateX(-1px) scale(0.98)' : 'translateX(1px) scale(0.98)',
+            },
+            '&:focus-visible': {
+              outline: `2px solid ${alpha(accent, 0.85)}`,
+              outlineOffset: 3,
+            },
+            '&.Mui-disabled': {
+              opacity: 0.32,
+              color: alpha('#f0fdfa', 0.35),
+              borderColor: alpha(accent, 0.12),
+              boxShadow: 'none',
+            },
+          }}
+        >
+          {anterior ? (
+            <ChevronLeft sx={{ fontSize: { xs: 30, sm: 34 } }} />
+          ) : (
+            <ChevronRight sx={{ fontSize: { xs: 30, sm: 34 } }} />
+          )}
+        </IconButton>
+      </Box>
+    </Tooltip>
+  );
 }
 
 function ConteudoHoverCompromissos({ compromissos }: { compromissos: OrionAgendaCompromisso[] }) {
@@ -89,6 +157,10 @@ type AgendaCalendarioMesProps = {
   compromissosPorDia: Map<number, OrionAgendaCompromisso[]>;
   onAdicionarDia?: (dia: number) => void;
   onVerCompromisso?: (compromisso: OrionAgendaCompromisso) => void;
+  onMesAnterior?: () => void;
+  onMesProximo?: () => void;
+  mesAnteriorDesabilitado?: boolean;
+  mesProximoDesabilitado?: boolean;
 };
 
 export function AgendaCalendarioMes({
@@ -97,6 +169,10 @@ export function AgendaCalendarioMes({
   compromissosPorDia,
   onAdicionarDia,
   onVerCompromisso,
+  onMesAnterior,
+  onMesProximo,
+  mesAnteriorDesabilitado,
+  mesProximoDesabilitado,
 }: AgendaCalendarioMesProps) {
   const celulas = gradeCalendarioMes(ano, mes);
   const mesRef = montarMesReferencia(ano, mes);
@@ -117,11 +193,28 @@ export function AgendaCalendarioMes({
 
       <Box
         sx={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-          gap: { xs: 0.75, sm: 1 },
+          display: 'flex',
+          alignItems: 'center',
+          gap: { xs: 0.75, sm: 1.25, md: 1.75 },
         }}
       >
+        {onMesAnterior ? (
+          <BotaoNavegacaoMes
+            direcao="anterior"
+            onClick={onMesAnterior}
+            disabled={mesAnteriorDesabilitado}
+          />
+        ) : null}
+
+        <Box
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+            gap: { xs: 0.75, sm: 1 },
+          }}
+        >
         {DIAS_SEMANA_CURTO.map((nome) => (
           <Typography
             key={nome}
@@ -385,6 +478,15 @@ export function AgendaCalendarioMes({
             </Tooltip>
           );
         })}
+        </Box>
+
+        {onMesProximo ? (
+          <BotaoNavegacaoMes
+            direcao="proximo"
+            onClick={onMesProximo}
+            disabled={mesProximoDesabilitado}
+          />
+        ) : null}
       </Box>
     </Box>
   );

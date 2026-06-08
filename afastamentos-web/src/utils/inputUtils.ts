@@ -62,6 +62,48 @@ export function telefoneToDigits(telefone: string): string {
 }
 
 /**
+ * Máscara CEP: 00000-000.
+ */
+export function maskCep(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
+export function cepToDigits(cep: string): string {
+  return cep.replace(/\D/g, '').slice(0, 8);
+}
+
+/**
+ * Telefone celular para contato de emergência: (xx)x xxxx-xxxx.
+ */
+export function maskTelefoneEmergencia(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+  if (digits.length <= 2) return digits.length ? `(${digits}` : '';
+  if (digits.length === 3) return `(${digits.slice(0, 2)})${digits.slice(2)}`;
+  if (digits.length <= 7) {
+    return `(${digits.slice(0, 2)})${digits.slice(2, 3)} ${digits.slice(3)}`;
+  }
+  return `(${digits.slice(0, 2)})${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+export function telefoneEmergenciaToDigits(telefone: string): string {
+  return telefone.replace(/\D/g, '').slice(0, 11);
+}
+
+export function validarEmail(email: string): boolean {
+  const v = email.trim();
+  if (!v) return true;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
+export function validarTelefoneEmergencia(telefone: string): boolean {
+  const digits = telefoneEmergenciaToDigits(telefone);
+  if (!digits) return true;
+  return digits.length === 11;
+}
+
+/**
  * Valida CPF pelos dígitos verificadores.
  */
 export function validarCpf(cpf: string): boolean {

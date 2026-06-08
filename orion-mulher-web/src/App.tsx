@@ -9,7 +9,6 @@ import {
   IconButton,
   Menu,
   MenuItem,
-  Paper,
   Stack,
   Tab,
   Tabs,

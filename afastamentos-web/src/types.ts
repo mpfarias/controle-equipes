@@ -7,6 +7,18 @@ export type PolicialStatus =
   | 'PTTC'
   | 'DESATIVADO';
 
+export type PolicialSexo = 'MASCULINO' | 'FEMININO';
+
+export type PolicialCategoriaCnh = 'A' | 'AB' | 'B' | 'C' | 'D' | 'E';
+
+export type PolicialDependenteCondicao = 'CONJUGE' | 'FILHO' | 'OUTROS';
+
+export type PolicialDependente = {
+  nome?: string | null;
+  condicao?: PolicialDependenteCondicao | null;
+  condicaoOutros?: string | null;
+};
+
 /** Tipo de serviço para escala extraordinária (feriados / eventos). */
 export type EscalaExtraordinariaTipoServico = 'CARNAVAL' | 'SETE_DE_SETEMBRO' | 'EVENTO' | 'OUTRO';
 
@@ -186,6 +198,23 @@ export interface Policial {
   telefone?: string | null;
   dataNascimento?: string | null;
   email?: string | null;
+  sexo?: PolicialSexo | null;
+  dataAdmissao?: string | null;
+  cep?: string | null;
+  logradouro?: string | null;
+  complemento?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  enderecoSemCep?: boolean;
+  contatoEmergenciaNome?: string | null;
+  contatoEmergenciaTelefone?: string | null;
+  quantidadeDependentes?: number | null;
+  dependentes?: PolicialDependente[];
+  doadorOrgaos?: boolean | null;
+  categoriaCnh?: PolicialCategoriaCnh | null;
+  cnhNaoHabilitado?: boolean;
+  nivelSuperiorEm?: string[] | null;
+  cursosCivisMilitares?: string[] | null;
   matriculaComissionadoGdf?: string | null;
   dataPosse?: string | null;
   equipe: Equipe | null;
@@ -232,10 +261,28 @@ export interface CreatePolicialInput {
   telefone?: string | null;
   dataNascimento?: string | null;
   email?: string | null;
+  sexo?: PolicialSexo | null;
+  dataAdmissao?: string | null;
+  cep?: string | null;
+  logradouro?: string | null;
+  complemento?: string | null;
+  cidade?: string | null;
+  estado?: string | null;
+  enderecoSemCep?: boolean;
+  contatoEmergenciaNome?: string | null;
+  contatoEmergenciaTelefone?: string | null;
+  quantidadeDependentes?: number | null;
+  dependentes?: PolicialDependente[];
+  doadorOrgaos?: boolean | null;
+  categoriaCnh?: PolicialCategoriaCnh | null;
+  cnhNaoHabilitado?: boolean;
+  nivelSuperiorEm?: string[] | null;
+  cursosCivisMilitares?: string[] | null;
   matriculaComissionadoGdf?: string | null;
   dataPosse?: string | null;
   equipe?: Equipe | null;
   expediente12x36Fase?: 'PAR' | 'IMPAR' | null;
+  fotoUrl?: string | null;
 }
 
 export interface Afastamento {

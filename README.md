@@ -15,6 +15,8 @@ Plataforma integrada de apoio operacional e administrativo ao COPOM: **um backen
 7. [Modelagem de dados (Prisma / PostgreSQL)](#7-modelagem-de-dados-prisma--postgresql)
 8. [Fluxos operacionais principais](#8-fluxos-operacionais-principais)
 9. [Ambiente de desenvolvimento](#9-ambiente-de-desenvolvimento)
+   - [Como rodar localmente em produção](#93-como-rodar-localmente-em-produção)
+   - [Comandos recomendados](#94-comandos-recomendados)
 10. [Deploy, segurança e observabilidade](#10-deploy-segurança-e-observabilidade)
 11. [Licença](#11-licença)
 
@@ -41,17 +43,17 @@ Documentação interna adicional: `afastamentos-web/REFACTORING.md` (estrutura d
 
 Cada pasta na raiz do monorepo é um pacote npm independente, exceto o `package.json` raiz que orquestra scripts de desenvolvimento.
 
-| Pasta | Nome de produto | Papel | Porta dev (padrão) |
-|-------|-----------------|--------|---------------------|
-| `afastamentos-api` | API Órion | **Única API HTTP** do ecossistema: auth, SAD, escalas, suporte, qualidade, patrimônio, placeholders | `3002` (`PORT`) |
-| `afastamentos-web` | **Órion SAD** | Afastamentos, efetivo, escalas, relatórios, usuários/níveis | `5173` |
-| `orion-suporte-web` | **Órion Suporte** | Chamados (`ErrorReport`): protocolo, status, comentários, fila admin | `5180` |
-| `orion-qualidade-web` | **Órion Qualidade** | Registros de qualidade + dashboard de chamadas (XLSX no cliente); API com Integra SSP opcional | `5182` |
-| `orion-juridico-web` | **Órion Jurídico** | SPA estrutural; API placeholder | `5183` |
-| `orion-patrimonio-web` | **Órion Patrimônio** | Bens patrimoniais (`PatrimonioBem`) | `5184` |
-| `orion-mulher-web` | **Órion Mulher** | SPA em evolução; permissão `ORION_MULHER`; sem módulo API dedicado | `5185` |
-| `orion-agenda-web` | **Órion Agenda** | Agenda institucional de compromissos | `5186` |
-| `orion-operacoes-web` | **Órion Operações** | SPA estrutural (checagem `OPERACOES`); API placeholder | `5187` |
+| Pasta | Nome de produto | Papel | Porta dev | Porta prod local |
+|-------|-----------------|--------|-----------|------------------|
+| `afastamentos-api` | API Órion | **Única API HTTP** do ecossistema: auth, SAD, escalas, suporte, qualidade, patrimônio, placeholders | `3002` (`PORT`) | `3002` |
+| `afastamentos-web` | **Órion SAD** | Afastamentos, efetivo, escalas, relatórios, usuários/níveis | `6173` | `5173` |
+| `orion-suporte-web` | **Órion Suporte** | Chamados (`ErrorReport`): protocolo, status, comentários, fila admin | `6180` | `5180` |
+| `orion-qualidade-web` | **Órion Qualidade** | Registros de qualidade + dashboard de chamadas (XLSX no cliente); API com Integra SSP opcional | `6182` | `5182` |
+| `orion-juridico-web` | **Órion Jurídico** | SPA estrutural; API placeholder | `6183` | `5183` |
+| `orion-patrimonio-web` | **Órion Patrimônio** | Bens patrimoniais (`PatrimonioBem`) | `6184` | `5184` |
+| `orion-mulher-web` | **Órion Mulher** | SPA em evolução; permissão `ORION_MULHER`; sem módulo API dedicado | `6185` | `5185` |
+| `orion-agenda-web` | **Órion Agenda** | Agenda institucional de compromissos | `6186` | `5186` |
+| `orion-operacoes-web` | **Órion Operações** | SPA estrutural (checagem `OPERACOES`); API placeholder | `6187` | `5187` |
 
 **Identificadores em `Usuario.sistemasPermitidos`** (constante `SISTEMAS_EXTERNOS_IDS` em `afastamentos-api/src/usuarios/constants/sistemas-externos.ts`):
 
@@ -391,34 +393,157 @@ npm run setup:db       # só Prisma na API
 
 ```bash
 npm run install:all
-npm run start:full
+npm run start:full:dev
 ```
 
-- **`start:full`**: API + todos os SPAs via `concurrently`.
-- **Não** rode `start:api` junto com `start:full` (mesma porta).
-- API já rodando: `npm run start:full:without-api`.
+- **`start:full:dev`** (alias **`start:full`**): API + todos os SPAs em **desenvolvimento** (portas **61xx**, HMR).
+- **`start:full:prod`**: ecossistema em **preview** (portas **51xx**, requer `build:full` antes).
+- Dev e prod local podem rodar **ao mesmo tempo** (faixas de porta distintas).
+- **Não** rode `start:api` junto com `start:full:dev` (mesma porta da API).
+- API já rodando: `npm run start:full:dev:without-api`.
 
-| Serviço | Porta |
-|---------|-------|
-| API | 3002 |
-| SAD | 5173 |
-| Suporte | 5180 |
-| Qualidade | 5182 |
-| Jurídico | 5183 |
-| Patrimônio | 5184 |
-| Mulher | 5185 |
-| Agenda | 5186 |
-| Operações | 5187 |
+| Serviço | Dev (`start:full:dev`) | Prod local (`start:full:prod`) |
+|---------|------------------------|--------------------------------|
+| API | 3002 | 3002 |
+| SAD | **6173** | 5173 |
+| Suporte | **6180** | 5180 |
+| Qualidade | **6182** | 5182 |
+| Jurídico | **6183** | 5183 |
+| Patrimônio | **6184** | 5184 |
+| Mulher | **6185** | 5185 |
+| Agenda | **6186** | 5186 |
+| Operações | **6187** | 5187 |
 
-Cada SPA: `VITE_API_URL=http://localhost:3002` (ver `*.env.example` em cada pasta).
+Apontamentos entre módulos: arquivos **`.env.development`** (61xx) e **`.env.production`** (51xx) em cada SPA (versionados). Override local: `.env.development.local` / `.env.production.local`.
+
+Cada SPA: `VITE_API_URL=http://localhost:3002` (ver também `*.env.example`).
 
 Scripts individuais na raiz: `start:api`, `start:web`, `start:orion-qualidade`, etc.
 
-### 9.4 Monorepo
+### 9.3 Como rodar localmente em produção
+
+Todos os frontends são **Vite + React** (não há Next.js neste monorepo). Em produção local, cada SPA usa **`vite preview`** servindo a pasta `dist/` já compilada — **sem watcher e sem hot reload**. A API usa **`node dist/main`** (NestJS compilado), também sem recompilação contínua.
+
+**Portas** — desenvolvimento e produção local usam faixas **diferentes** para permitir execução simultânea:
+
+| Serviço | Dev (`61xx`) | Prod local (`51xx`) | Modo dev | Modo prod local |
+|---------|--------------|---------------------|----------|-----------------|
+| API | `3002` | `3002` | `start:dev` (watch) | `start:prod` |
+| SAD | `6173` | `5173` | `dev` | `start:prod` (preview) |
+| Suporte | `6180` | `5180` | `dev` | `start:prod` |
+| Qualidade | `6182` | `5182` | `dev` | `start:prod` |
+| Jurídico | `6183` | `5183` | `dev` | `start:prod` |
+| Patrimônio | `6184` | `5184` | `dev` | `start:prod` |
+| Mulher | `6185` | `5185` | `dev` | `start:prod` |
+| Agenda | `6186` | `5186` | `dev` | `start:prod` |
+| Operações | `6187` | `5187` | `dev` | `start:prod` |
+
+> Links entre módulos vêm de `.env.development` / `.env.production` em cada SPA. Os scripts `start:prod` **forçam as portas 51xx** via CLI (`--port` + `--strictPort`).
+
+#### Passo a passo
+
+1. **Instalar dependências** (uma vez ou após pull):
+
+   ```bash
+   npm run install:all
+   ```
+
+2. **Subir o PostgreSQL**:
+
+   ```bash
+   npm run db:up
+   npm run setup:db
+   ```
+
+3. **Build completo** (API + todos os frontends):
+
+   ```bash
+   npm run build:full
+   ```
+
+4. **Iniciar tudo em produção local**:
+
+   ```bash
+   npm run start:full:prod
+   ```
+
+   - API já em execução: `npm run start:full:prod:without-api`
+   - **Não** rode `start:api` junto com `start:full:prod` (mesma porta `3002`).
+
+#### Scripts híbridos (desenvolver um módulo só)
+
+Útil quando você altera **apenas um frontend**: os demais ficam em preview (leve) e a API em produção (sem watch). Só o módulo escolhido usa `vite dev` (HMR).
+
+| Script | Módulo em dev | Demais |
+|--------|---------------|--------|
+| `dev:web:full` | SAD | API prod + outros preview |
+| `dev:suporte:full` | Suporte | … |
+| `dev:qualidade:full` | Qualidade | … |
+| `dev:juridico:full` | Jurídico | … |
+| `dev:patrimonio:full` | Patrimônio | … |
+| `dev:mulher:full` | Mulher | … |
+| `dev:agenda:full` | Agenda | … |
+| `dev:operacoes:full` | Operações | … |
+| `dev:api:full` | API (`start:dev`) | todos os fronts preview |
+
+Exemplo — trabalhar só no Patrimônio:
+
+```bash
+npm run build:full
+npm run dev:patrimonio:full
+```
+
+#### Diferença entre os modos
+
+| Comando | API | Frontends | Portas | Uso típico |
+|---------|-----|-----------|--------|------------|
+| `start:full:dev` | `start:dev` (watch) | `dev` (HMR) | **61xx** | Desenvolvimento ativo em vários módulos |
+| `start:full:prod` | `start:prod` | `start:prod` (preview) | **51xx** | Testar ecossistema inteiro de forma **leve** |
+| `dev:<modulo>:full` | prod (ou dev no `dev:api:full`) | um `dev`, resto preview | misto | Foco em **um** app — use `.env.development.local` no módulo em dev para apontar os demais em **51xx** |
+
+**Após alterar código**, rode de novo o build do pacote afetado (ex.: `npm run build:web`) ou `npm run build:full` antes de `start:full:prod` / scripts híbridos — preview não recompila sozinho.
+
+### 9.4 Comandos recomendados
+
+**Primeira vez / ambiente limpo:**
+
+```bash
+npm run install:all
+npm run db:up
+npm run setup:db
+npm run build:full
+npm run start:full:prod
+```
+
+**Desenvolvimento clássico (tudo com HMR — mais pesado):**
+
+```bash
+npm run start:full:dev
+```
+
+(`start:full` é alias de `start:full:dev`.)
+
+**Desenvolvimento focado em um módulo:**
+
+```bash
+npm run build:full
+npm run dev:patrimonio:full
+```
+
+**Build / start individuais:**
+
+```bash
+npm run build:api
+npm run build:web
+npm run start:api:prod
+npm run start:web:prod
+```
+
+### 9.5 Monorepo
 
 Sem workspaces npm obrigatórios: cada pasta tem `node_modules`. `install:all` instala todos os pacotes.
 
-### 9.5 Primeiro acesso e credenciais
+### 9.6 Primeiro acesso e credenciais
 
 Após `npm run setup` ou primeira subida da API:
 
@@ -437,7 +562,7 @@ npm run build
 node scripts/reset-admin-password.cjs
 ```
 
-### 9.6 Variáveis de ambiente
+### 9.7 Variáveis de ambiente
 
 #### API (`afastamentos-api/.env`)
 
@@ -462,13 +587,13 @@ node scripts/reset-admin-password.cjs
 |----------|-----------|
 | `VITE_API_URL` | Base da API |
 | `VITE_ORION_<SISTEMA>_URL` | URL completa do SPA (recomendado em LAN) |
-| `VITE_ORION_<SISTEMA>_PORT` | Porta dev se URL omitida (mesmo host da página) |
+| `VITE_ORION_<SISTEMA>_PORT` | Porta se URL omitida (`.env.development` → 61xx; `.env.production` → 51xx) |
 | `VITE_ORION_AUTH_TOKEN_KEY` | Chave customizada do JWT no `sessionStorage` |
 | `VITE_ORION_AUTH_ACESSO_ID_KEY` | Chave customizada do id de acesso |
 
 Copie de `*.env.example` em cada pasta do monorepo.
 
-### 9.7 Scripts de manutenção (API)
+### 9.8 Scripts de manutenção (API)
 
 Em `afastamentos-api/package.json`:
 

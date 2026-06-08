@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type ListPoliciaisPaginatedParams, type PolicialListOrderBy } from '../../api';
 import type {
   Afastamento,
@@ -15,11 +15,9 @@ import type {
 import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
 import {
   POLICIAL_STATUS_OPTIONS,
-  POLICIAL_STATUS_OPTIONS_FORM,
   STATUS_LABEL,
   formatEquipeLabel,
   funcaoEquipeObrigatoriaNoFormulario,
-  funcaoOcultaCampoEquipe,
   funcaoRequerFase12x36Expediente,
   labelFase12x36Policial,
   funcoesParaSelecao,
@@ -36,9 +34,8 @@ import {
   getExpedienteHorario,
 } from '../../constants/svgRegras';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
-import { ImageCropper } from '../common/ImageCropper';
-import { Card, CardMedia, CardActions, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox, Collapse, Grid, CircularProgress, Autocomplete } from '@mui/material';
-import { PhotoCamera, Delete, AddPhotoAlternate, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, SwapHoriz, PictureAsPdf, Search, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import { Card, CardMedia, IconButton, Box, Typography, Paper, Divider, Chip, Tabs, Tab, TextField, Button, List, ListItem, ListItemText, Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, FormControl, InputLabel, Select, MenuItem, Stack, Alert, Checkbox, Collapse, Grid, CircularProgress, Autocomplete } from '@mui/material';
+import { Delete, Edit, CheckCircle, Block, Close as CloseIcon, Print, ArrowUpward, ArrowDownward, SwapVert, SwapHoriz, PictureAsPdf, Search, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
@@ -49,7 +46,19 @@ import {
   formatDate,
   toDateInputValue,
 } from '../../utils/dateUtils';
-import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
+import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits, maskCep, maskTelefoneEmergencia } from '../../utils/inputUtils';
+import { PolicialEditModal } from '../policial/PolicialEditModal';
+import { parseFormacaoLista } from '../policial/PolicialFormacaoListaCampo';
+import {
+  INITIAL_POLICIAL_CAMPOS_COMPLEMENTARES,
+  camposComplementaresParaApi,
+  policialToCamposComplementares,
+  temErrosCamposComplementares,
+  validarCamposComplementares,
+  type PolicialCamposComplementaresErrors,
+  type PolicialCamposComplementaresForm,
+} from '../../utils/policialCamposComplementaresForm';
+import { labelSexoPolicial, labelQuantidadeDependentes, labelDoadorOrgaos, labelCategoriaCnh, labelCondicaoDependente } from '../../constants/policialDados';
 import {
   compareColunaStatusPolicial,
   comparePorPatenteENome,
@@ -97,15 +106,7 @@ const formFieldSx = {
   },
 };
 
-function rotuloSelectVazio(texto: string) {
-  return (
-    <Typography component="span" variant="body2" sx={{ color: 'text.secondary' }}>
-      {texto}
-    </Typography>
-  );
-}
-
-/** Menu do Select acima do `.modal-backdrop` (z-index 1400) e cropper (1600). */
+/** Menu do Select acima do Dialog de edição. */
 const selectMenuPropsModal = {
   sx: { zIndex: 1700 },
   disableScrollLock: true,
@@ -294,16 +295,21 @@ export function MostrarEquipeSection({
     fotoUrl: undefined as string | null | undefined,
     expediente12x36Fase: undefined as 'PAR' | 'IMPAR' | undefined,
   });
+  const [editCamposComplementares, setEditCamposComplementares] =
+    useState<PolicialCamposComplementaresForm>(INITIAL_POLICIAL_CAMPOS_COMPLEMENTARES);
+  const [editCamposComplementaresErrors, setEditCamposComplementaresErrors] =
+    useState<PolicialCamposComplementaresErrors>({});
+  const patchEditCamposComplementares = useCallback((patch: Partial<PolicialCamposComplementaresForm>) => {
+    setEditCamposComplementares((prev) => ({ ...prev, ...patch }));
+  }, []);
   const [editCpfError, setEditCpfError] = useState<string | null>(null);
+  const [editTelefoneError, setEditTelefoneError] = useState<string | null>(null);
   const [funcoes, setFuncoes] = useState<FuncaoOption[]>([]);
   const [postosGraduacao, setPostosGraduacao] = useState<PostoGraduacaoOption[]>([]);
   const [quadros, setQuadros] = useState<QuadroOption[]>([]);
   const [equipes, setEquipes] = useState<EquipeOption[]>([]);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
-  const [showImageCropper, setShowImageCropper] = useState(false);
-  const [imageForCrop, setImageForCrop] = useState<string>('');
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [filtrosExpanded, setFiltrosExpanded] = useState(false);
   const [equipesSelecionadas, setEquipesSelecionadas] = useState<Equipe[]>([]);
   const [statusSelecionados, setStatusSelecionados] = useState<PolicialStatus[]>([]);
@@ -1316,9 +1322,11 @@ export function MostrarEquipeSection({
           ? policial.expediente12x36Fase
           : undefined,
     });
+    setEditCamposComplementares(policialToCamposComplementares(policial));
+    setEditCamposComplementaresErrors({});
     setEditError(null);
     setEditCpfError(null);
-    setShowImageCropper(false);
+    setEditTelefoneError(null);
   };
 
   const fecharModalTroca = useCallback(() => {
@@ -1533,45 +1541,7 @@ export function MostrarEquipeSection({
     setEditingPolicial(null);
     setEditError(null);
     setEditCpfError(null);
-    setShowImageCropper(false);
-    setImageForCrop('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // Validar se é uma imagem
-      if (!file.type.startsWith('image/')) {
-        setEditError('Por favor, selecione uma imagem válida.');
-        return;
-      }
-
-      // Validar tamanho (máximo 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setEditError('A imagem deve ter no máximo 5MB.');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const imageSrc = e.target?.result as string;
-        setImageForCrop(imageSrc);
-        setShowImageCropper(true);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleCropComplete = (croppedImageUrl: string) => {
-    setEditForm((prev) => ({
-      ...prev,
-      fotoUrl: croppedImageUrl,
-    }));
-    setShowImageCropper(false);
-    setImageForCrop('');
+    setEditTelefoneError(null);
   };
 
   const postoSelecionadoEdit = useMemo(
@@ -1586,6 +1556,24 @@ export function MostrarEquipeSection({
     () => quadrosParaPosto(quadros, postoSelecionadoEdit),
     [quadros, postoSelecionadoEdit],
   );
+
+  const funcaoSelecionadaEditForm = useMemo(
+    () => (editForm.funcaoId ? funcoes.find((f) => f.id === editForm.funcaoId) : null),
+    [editForm.funcaoId, funcoes],
+  );
+
+  const isMotoristaDiaEdit =
+    funcaoSelecionadaEditForm?.nome.toUpperCase().includes('MOTORISTA DE DIA') ?? false;
+  const equipesDisponiveisEdit = useMemo(() => {
+    let list =
+      currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
+        ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
+        : equipesDisponiveisCadastro;
+    if (isMotoristaDiaEdit) {
+      list = list.filter((option) => option.nome !== 'E');
+    }
+    return list;
+  }, [currentUser.equipe, currentUser.nivel?.nome, equipesDisponiveisCadastro, isMotoristaDiaEdit]);
 
   const handleEditSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1639,6 +1627,14 @@ export function MostrarEquipeSection({
       setEditError('Selecione a fase da semana (par ou ímpar) para esta função no expediente 12×36.');
       return;
     }
+
+    const errosComp = validarCamposComplementares(editCamposComplementares, editForm.status);
+    setEditCamposComplementaresErrors(errosComp);
+    if (temErrosCamposComplementares(errosComp)) {
+      setEditError('Corrija os campos complementares destacados.');
+      return;
+    }
+
     const nomeU = funcaoSelecionadaEdit?.nome.toUpperCase() ?? '';
     if (nomeU.includes('MOTORISTA DE DIA') && editForm.equipe === 'E') {
       setEditError('A função MOTORISTA DE DIA não pode ter equipe E. Selecione uma equipe de A até D.');
@@ -1681,6 +1677,7 @@ export function MostrarEquipeSection({
       status: editForm.status,
       matriculaComissionadoGdf,
       dataPosse,
+      ...camposComplementaresParaApi(editCamposComplementares, editForm.status),
       ...(equipePayload !== undefined ? { equipe: equipePayload } : {}),
       funcaoId: editForm.funcaoId,
       fotoUrl: editForm.fotoUrl,
@@ -3485,516 +3482,32 @@ export function MostrarEquipeSection({
         </DialogActions>
       </Dialog>
 
-      {editingPolicial && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true">
-          <div className="modal" style={{ maxWidth: showImageCropper ? '800px' : '560px' }}>
-            <h3>Editar policial</h3>
-            {editError && (
-              <Alert severity="error" sx={{ mb: 2 }} onClose={() => setEditError(null)}>
-                {editError}
-              </Alert>
-            )}
-            
-            {showImageCropper ? (
-              <ImageCropper
-                imageSrc={imageForCrop}
-                onCropComplete={handleCropComplete}
-                onCancel={() => {
-                  setShowImageCropper(false);
-                  setImageForCrop('');
-                  if (fileInputRef.current) {
-                    fileInputRef.current.value = '';
-                  }
-                }}
-              />
-            ) : (
-            <>
-              {/* Foto do policial no topo */}
-              <Box sx={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
-                <Card 
-                  sx={{ 
-                    position: 'relative',
-                    width: 180,
-                    height: 240, // Proporção 3x4 (180/240 = 0.75)
-                    borderRadius: 2,
-                    boxShadow: 3,
-                  }}
-                >
-                  {editForm.fotoUrl ? (
-                    <>
-                      <CardMedia
-                        component="img"
-                        image={editForm.fotoUrl}
-                        alt="Foto do policial"
-                        sx={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                        }}
-                      />
-                      <CardActions 
-                        sx={{ 
-                          position: 'absolute',
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          background: 'linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%)',
-                          justifyContent: 'center',
-                          padding: '8px',
-                        }}
-                      >
-                        <IconButton
-                          size="small"
-                          onClick={() => fileInputRef.current?.click()}
-                          sx={{
-                            color: 'white',
-                            backgroundColor: 'rgba(255,255,255,0.2)',
-                            '&:hover': {
-                              backgroundColor: 'rgba(255,255,255,0.3)',
-                            },
-                            marginRight: 1,
-                          }}
-                          title="Alterar foto"
-                        >
-                          <PhotoCamera fontSize="small" />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            setEditForm((prev) => ({ ...prev, fotoUrl: null }));
-                            if (fileInputRef.current) {
-                              fileInputRef.current.value = '';
-                            }
-                          }}
-                          sx={{
-                            color: 'white',
-                            backgroundColor: 'rgba(255,255,255,0.2)',
-                            '&:hover': {
-                              backgroundColor: 'rgba(239, 68, 68, 0.8)',
-                            },
-                          }}
-                          title="Remover foto"
-                        >
-                          <Delete fontSize="small" />
-                        </IconButton>
-                      </CardActions>
-                    </>
-                  ) : (
-                    <Box
-                      sx={{
-                        width: '100%',
-                        height: '100%',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: 'rgba(0,0,0,0.15)',
-                        cursor: 'pointer',
-                        '&:hover': {
-                          backgroundColor: 'rgba(0,0,0,0.25)',
-                        },
-                      }}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <AddPhotoAlternate sx={{ fontSize: 48, color: 'var(--text-secondary)', marginBottom: 1 }} />
-                      <Typography variant="caption" color="text.secondary">
-                        Adicionar foto
-                      </Typography>
-                    </Box>
-                  )}
-                </Card>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileSelect}
-                  style={{ display: 'none' }}
-                />
-              </Box>
-              
-              <form onSubmit={handleEditSubmit}>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: { xs: 'column', sm: 'row' },
-                    gap: 2,
-                  }}
-                >
-                  <FormControl fullWidth size="small" required sx={formFieldSx}>
-                    <InputLabel id="edit-posto-graduacao-label" shrink>
-                      Posto/Graduação
-                    </InputLabel>
-                    <Select
-                      labelId="edit-posto-graduacao-label"
-                      label="Posto/Graduação"
-                      MenuProps={selectMenuPropsModal}
-                      value={editForm.postoGraduacaoId != null ? String(editForm.postoGraduacaoId) : ''}
-                      displayEmpty
-                      renderValue={(v) => {
-                        if (!v) return rotuloSelectVazio('Selecione');
-                        const p = postosGraduacao.find((x) => x.id === Number(v));
-                        return p ? p.sigla : rotuloSelectVazio('Selecione');
-                      }}
-                      onChange={(e) => {
-                        const val = String(e.target.value);
-                        setEditForm((prev) => ({
-                          ...prev,
-                          postoGraduacaoId: val === '' ? undefined : Number(val),
-                          quadroId: undefined,
-                        }));
-                      }}
-                    >
-                      <MenuItem value="">
-                        <em>Selecione</em>
-                      </MenuItem>
-                      {postosGraduacao.map((p) => (
-                        <MenuItem key={p.id} value={String(p.id)}>
-                          {p.sigla}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormControl
-                    fullWidth
-                    size="small"
-                    required
-                    disabled={!editForm.postoGraduacaoId}
-                    sx={formFieldSx}
-                  >
-                    <InputLabel id="edit-quadro-label" shrink>
-                      Quadro
-                    </InputLabel>
-                    <Select
-                      labelId="edit-quadro-label"
-                      label="Quadro"
-                      MenuProps={selectMenuPropsModal}
-                      value={editForm.quadroId != null ? String(editForm.quadroId) : ''}
-                      displayEmpty
-                      renderValue={(v) => {
-                        if (!v) {
-                          return rotuloSelectVazio(
-                            editForm.postoGraduacaoId ? 'Selecione o quadro' : 'Selecione o posto antes',
-                          );
-                        }
-                        const q =
-                          quadrosDisponiveisEdit.find((x) => x.id === Number(v)) ??
-                          quadros.find((x) => x.id === Number(v));
-                        return q ? q.sigla : rotuloSelectVazio('Selecione o quadro');
-                      }}
-                      onChange={(e) => {
-                        const val = String(e.target.value);
-                        setEditForm((prev) => ({
-                          ...prev,
-                          quadroId: val === '' ? undefined : Number(val),
-                        }));
-                      }}
-                    >
-                      <MenuItem value="">
-                        <em>Selecione</em>
-                      </MenuItem>
-                      {quadrosDisponiveisEdit.map((q) => (
-                        <MenuItem key={q.id} value={String(q.id)}>
-                          {q.sigla}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
-                <TextField
-                  label="NOME"
-                  value={editForm.nome}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({ ...prev, nome: event.target.value.toUpperCase() }))
-                  }
-                  required
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  inputProps={{ style: { textTransform: 'uppercase' } }}
-                />
-                <TextField
-                  label="MATRÍCULA"
-                  value={editForm.matricula}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({
-                      ...prev,
-                      matricula: event.target.value.replace(/[^0-9xX]/g, '').toUpperCase(),
-                    }))
-                  }
-                  required
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  inputProps={{ style: { textTransform: 'uppercase' } }}
-                />
-                <TextField
-                  label="CPF"
-                  value={editForm.cpf}
-                  onChange={(event) => {
-                    setEditForm((prev) => ({ ...prev, cpf: maskCpf(event.target.value) }));
-                    if (editCpfError) setEditCpfError(null);
-                  }}
-                  onBlur={() => {
-                    const digits = cpfToDigits(editForm.cpf);
-                    if (digits.length === 11 && !validarCpf(editForm.cpf)) {
-                      setEditCpfError('CPF inválido (dígitos verificadores incorretos).');
-                    } else if (digits.length > 0 && digits.length !== 11) {
-                      setEditCpfError('CPF deve conter 11 dígitos.');
-                    } else {
-                      setEditCpfError(null);
-                    }
-                  }}
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  placeholder="000.000.000-00"
-                  inputProps={{ maxLength: 14 }}
-                  error={!!editCpfError}
-                  helperText={editCpfError}
-                  sx={formFieldSx}
-                />
-                <TextField
-                  label="Telefone"
-                  value={editForm.telefone}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({ ...prev, telefone: maskTelefone(event.target.value) }))
-                  }
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  placeholder="(00)00000-0000"
-                  inputProps={{ maxLength: 14 }}
-                  sx={formFieldSx}
-                />
-                <TextField
-                  label="Data de nascimento"
-                  type="date"
-                  value={editForm.dataNascimento}
-                  onChange={(event) =>
-                    setEditForm((prev) => ({ ...prev, dataNascimento: event.target.value }))
-                  }
-                  fullWidth
-                  variant="outlined"
-                  size="small"
-                  InputLabelProps={{ shrink: true }}
-                  sx={formFieldSx}
-                />
-                <FormControl fullWidth variant="outlined" size="small" required>
-                  <InputLabel>STATUS</InputLabel>
-                  <Select
-                    MenuProps={selectMenuPropsModal}
-                    value={editForm.status}
-                    onChange={(event) => {
-                      const novoStatus = event.target.value as PolicialStatus;
-                      setEditForm((prev) => ({
-                        ...prev,
-                        status: novoStatus,
-                        ...(novoStatus !== 'COMISSIONADO' ? { matriculaComissionadoGdf: '', dataPosse: '' } : {}),
-                      }));
-                    }}
-                    label="STATUS"
-                  >
-                    {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
-                      <MenuItem key={option.value} value={option.value}>
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-                {editForm.status === 'COMISSIONADO' && (
-                  <>
-                    <TextField
-                      label="MATRÍCULA COMISSIONADO"
-                      value={editForm.matriculaComissionadoGdf}
-                      onChange={(event) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          matriculaComissionadoGdf: event.target.value
-                            .replace(/[^0-9xX]/g, '')
-                            .toUpperCase(),
-                        }))
-                      }
-                      fullWidth
-                      variant="outlined"
-                      size="small"
-                      inputProps={{ style: { textTransform: 'uppercase' } }}
-                    />
-                    <TextField
-                      label="Data de posse"
-                      type="date"
-                      value={editForm.dataPosse}
-                      onChange={(event) =>
-                        setEditForm((prev) => ({ ...prev, dataPosse: event.target.value }))
-                      }
-                      fullWidth
-                      variant="outlined"
-                      size="small"
-                      InputLabelProps={{ shrink: true }}
-                    />
-                  </>
-                )}
-                <FormControl fullWidth variant="outlined" size="small" required>
-                  <InputLabel>FUNÇÃO</InputLabel>
-                  <Select
-                    MenuProps={selectMenuPropsModal}
-                    value={editForm.funcaoId ? String(editForm.funcaoId) : ''}
-                    label="FUNÇÃO"
-                    onChange={(event) => {
-                    const novoFuncaoId = event.target.value ? Number(event.target.value) : undefined;
-                    const funcaoSelecionada = novoFuncaoId ? funcoes.find(f => f.id === novoFuncaoId) : null;
-                    
-                    // Se a função selecionada não permite equipe, limpar o campo de equipe
-                    // Se for MOTORISTA DE DIA e a equipe for E, limpar também
-                    if (funcaoSelecionada) {
-                      const isMotoristaDia = funcaoSelecionada.nome.toUpperCase().includes('MOTORISTA DE DIA');
-                      const oculta = funcaoOcultaCampoEquipe(funcaoSelecionada);
-                      const manterFase = funcaoRequerFase12x36Expediente(funcaoSelecionada);
-                      setEditForm((prev) => ({
-                        ...prev,
-                        funcaoId: novoFuncaoId,
-                        equipe: oculta ? undefined : isMotoristaDia && prev.equipe === 'E' ? undefined : prev.equipe,
-                        expediente12x36Fase: manterFase ? prev.expediente12x36Fase : undefined,
-                      }));
-                    } else {
-                      setEditForm((prev) => ({
-                        ...prev,
-                        funcaoId: novoFuncaoId,
-                        expediente12x36Fase: undefined,
-                      }));
-                    }
-                  }}
-                  >
-                    <MenuItem value="">Selecione uma função</MenuItem>
-                    {funcoesOrdenadas.map((funcao) => (
-                      <MenuItem key={funcao.id} value={funcao.id}>
-                        {formatNome(funcao.nome)}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              
-              {/* Campo Equipe - Mostrar apenas se a função selecionada permitir */}
-              {(() => {
-                const funcaoSelecionada = editForm.funcaoId ? funcoes.find((f) => f.id === editForm.funcaoId) : null;
-                const mostrarEquipe = funcaoSelecionada ? !funcaoOcultaCampoEquipe(funcaoSelecionada) : false;
-                const equipeObrigatoria = funcaoSelecionada
-                  ? funcaoEquipeObrigatoriaNoFormulario(funcaoSelecionada)
-                  : false;
-
-                const isMotoristaDia = funcaoSelecionada?.nome.toUpperCase().includes('MOTORISTA DE DIA') || false;
-
-                // Filtrar equipes: MOTORISTA DE DIA não pode ter equipe E
-                const equipesDisponiveis = (() => {
-                  let equipesFiltradas =
-                    currentUser.nivel?.nome === 'OPERAÇÕES' && currentUser.equipe
-                      ? equipesDisponiveisCadastro.filter((option) => option.nome === currentUser.equipe)
-                      : equipesDisponiveisCadastro;
-
-                  if (isMotoristaDia) {
-                    equipesFiltradas = equipesFiltradas.filter((option) => option.nome !== 'E');
-                  }
-
-                  return equipesFiltradas;
-                })();
-
-                return mostrarEquipe ? (
-                  <FormControl fullWidth variant="outlined" size="small" required={equipeObrigatoria}>
-                    <InputLabel>EQUIPE</InputLabel>
-                    <Select
-                      MenuProps={selectMenuPropsModal}
-                      value={editForm.equipe || ''}
-                      displayEmpty
-                      renderValue={(v) => {
-                        if (!v) {
-                          return equipeObrigatoria ? 'Selecione uma equipe' : 'Sem equipe (opcional)';
-                        }
-                        return formatNome(v);
-                      }}
-                      onChange={(event) =>
-                        setEditForm((prev) => ({
-                          ...prev,
-                          equipe: event.target.value ? (event.target.value as Equipe) : undefined,
-                        }))
-                      }
-                      label="EQUIPE"
-                    >
-                      <MenuItem value="">
-                        <em>{equipeObrigatoria ? 'Selecione uma equipe' : 'Sem equipe (opcional)'}</em>
-                      </MenuItem>
-                      {equipesDisponiveis.map((option) => (
-                        <MenuItem key={option.id} value={option.nome}>
-                          {formatNome(option.nome)}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                ) : null;
-              })()}
-              {(() => {
-                const funcaoSel = editForm.funcaoId ? funcoes.find((f) => f.id === editForm.funcaoId) : undefined;
-                if (!funcaoRequerFase12x36Expediente(funcaoSel)) return null;
-                const guardaCopom = funcaoSel?.expedienteHorarioPreset === 'GUARDA_COPOM_12X36';
-                const faseLabel = guardaCopom ? 'Fase Guarda COPOM (12×36)' : 'Fase 12×36 (semana ISO)';
-                return (
-                  <FormControl fullWidth variant="outlined" size="small" required>
-                    <InputLabel id="edit-policial-fase-12x36-label">{faseLabel}</InputLabel>
-                    <Select
-                      labelId="edit-policial-fase-12x36-label"
-                      label={faseLabel}
-                      value={editForm.expediente12x36Fase ?? ''}
-                      displayEmpty
-                      renderValue={(v) => {
-                        if (!v) return 'Selecione PAR ou IMPAR';
-                        return labelFase12x36Policial(v as 'PAR' | 'IMPAR', funcaoSel?.expedienteHorarioPreset);
-                      }}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setEditForm((prev) => ({
-                          ...prev,
-                          expediente12x36Fase: v === 'PAR' || v === 'IMPAR' ? v : undefined,
-                        }));
-                      }}
-                      MenuProps={selectMenuPropsModal}
-                    >
-                      <MenuItem value="">
-                        <em>Selecione PAR ou IMPAR</em>
-                      </MenuItem>
-                      <MenuItem value="PAR">
-                        {labelFase12x36Policial('PAR', funcaoSel?.expedienteHorarioPreset)}
-                      </MenuItem>
-                      <MenuItem value="IMPAR">
-                        {labelFase12x36Policial('IMPAR', funcaoSel?.expedienteHorarioPreset)}
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
-                );
-              })()}
-              
-              </Box>
-              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 2 }}>
-                <Button
-                  type="button"
-                  variant="outlined"
-                  onClick={closeEditModal}
-                  disabled={editSubmitting}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  disabled={editSubmitting}
-                >
-                  {editSubmitting ? 'Salvando...' : 'Salvar alterações'}
-                </Button>
-              </Box>
-            </form>
-            </>
-            )}
-          </div>
-        </div>
-      )}
+      <PolicialEditModal
+        open={!!editingPolicial}
+        policial={editingPolicial}
+        editForm={editForm}
+        setEditForm={setEditForm}
+        camposComplementares={editCamposComplementares}
+        patchCamposComplementares={patchEditCamposComplementares}
+        camposComplementaresErrors={editCamposComplementaresErrors}
+        setCamposComplementaresErrors={setEditCamposComplementaresErrors}
+        cpfError={editCpfError}
+        setCpfError={setEditCpfError}
+        telefoneError={editTelefoneError}
+        setTelefoneError={setEditTelefoneError}
+        error={editError}
+        setError={setEditError}
+        submitting={editSubmitting}
+        onClose={closeEditModal}
+        onSubmit={handleEditSubmit}
+        postosGraduacao={postosGraduacao}
+        quadrosDisponiveis={quadrosDisponiveisEdit}
+        funcoes={funcoes}
+        funcoesOrdenadas={funcoesOrdenadas}
+        equipesDisponiveis={equipesDisponiveisEdit}
+        formFieldSx={formFieldSx}
+        selectMenuProps={selectMenuPropsModal}
+      />
 
       {/* Modal de Visualização (Somente Leitura) */}
       {viewingPolicial && (
@@ -4201,6 +3714,182 @@ export function MostrarEquipeSection({
                             ? formatDate(viewingPolicial.dataNascimento)
                             : 'Campo não preenchido'}
                         </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          E-mail
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.email ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.email ? 'italic' : 'inherit' }}>
+                          {viewingPolicial.email?.trim() || 'Campo não preenchido'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Sexo
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.sexo ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.sexo ? 'italic' : 'inherit' }}>
+                          {labelSexoPolicial(viewingPolicial.sexo)}
+                        </Typography>
+                      </Box>
+
+                      {viewingPolicial.status !== 'COMISSIONADO' ? (
+                        <>
+                          <Divider />
+                          <Box>
+                            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              Data de admissão
+                            </Typography>
+                            <Typography variant="body1" sx={{ mt: 0.5, color: !viewingPolicial.dataAdmissao ? 'text.secondary' : 'inherit', fontStyle: !viewingPolicial.dataAdmissao ? 'italic' : 'inherit' }}>
+                              {viewingPolicial.dataAdmissao
+                                ? formatDate(viewingPolicial.dataAdmissao)
+                                : 'Campo não preenchido'}
+                            </Typography>
+                          </Box>
+                        </>
+                      ) : null}
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Endereço
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5, color: 'text.secondary' }}>
+                          {viewingPolicial.enderecoSemCep ? 'Cadastrado sem CEP' : viewingPolicial.cep ? `CEP: ${maskCep(viewingPolicial.cep)}` : 'CEP não informado'}
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          {viewingPolicial.logradouro?.trim() || 'Logradouro não preenchido'}
+                        </Typography>
+                        {viewingPolicial.complemento?.trim() ? (
+                          <Typography variant="body2" sx={{ mt: 0.25 }}>
+                            Complemento: {viewingPolicial.complemento.trim()}
+                          </Typography>
+                        ) : null}
+                        <Typography variant="body2" sx={{ mt: 0.25 }}>
+                          {[viewingPolicial.cidade?.trim(), viewingPolicial.estado?.trim()].filter(Boolean).join(' — ') || 'Cidade/UF não preenchidos'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Contato de emergência
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.5 }}>
+                          {viewingPolicial.contatoEmergenciaNome?.trim() || 'Nome não preenchido'}
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.25, color: !viewingPolicial.contatoEmergenciaTelefone ? 'text.secondary' : 'inherit' }}>
+                          {viewingPolicial.contatoEmergenciaTelefone
+                            ? maskTelefoneEmergencia(viewingPolicial.contatoEmergenciaTelefone.replace(/\D/g, ''))
+                            : 'Telefone não preenchido'}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Dependentes
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: viewingPolicial.quantidadeDependentes == null ? 'text.secondary' : 'inherit', fontStyle: viewingPolicial.quantidadeDependentes == null ? 'italic' : 'inherit' }}>
+                          {labelQuantidadeDependentes(viewingPolicial.quantidadeDependentes)}
+                        </Typography>
+                        {(viewingPolicial.dependentes ?? []).map((dep, idx) => {
+                          const nome = dep.nome?.trim();
+                          const condicao = labelCondicaoDependente(dep.condicao, dep.condicaoOutros);
+                          if (!nome && dep.condicao == null) return null;
+                          return (
+                            <Typography key={idx} variant="body2" sx={{ mt: 0.25 }}>
+                              Dependente ({idx + 1})
+                              {nome ? `: ${nome}` : ''}
+                              {' — '}
+                              {condicao}
+                            </Typography>
+                          );
+                        })}
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Doador de órgãos
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5, color: viewingPolicial.doadorOrgaos == null ? 'text.secondary' : 'inherit', fontStyle: viewingPolicial.doadorOrgaos == null ? 'italic' : 'inherit' }}>
+                          {labelDoadorOrgaos(viewingPolicial.doadorOrgaos)}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Categoria CNH
+                        </Typography>
+                        <Typography variant="body1" sx={{ mt: 0.5 }}>
+                          {labelCategoriaCnh(viewingPolicial.categoriaCnh, viewingPolicial.cnhNaoHabilitado)}
+                        </Typography>
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Nível superior em
+                        </Typography>
+                        {(() => {
+                          const itens = parseFormacaoLista(viewingPolicial.nivelSuperiorEm);
+                          if (itens.length === 0) {
+                            return (
+                              <Typography variant="body1" sx={{ mt: 0.5, color: 'text.secondary', fontStyle: 'italic' }}>
+                                Campo não preenchido
+                              </Typography>
+                            );
+                          }
+                          return (
+                            <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2.5 }}>
+                              {itens.map((item) => (
+                                <Typography key={item} component="li" variant="body1">
+                                  {item}
+                                </Typography>
+                              ))}
+                            </Box>
+                          );
+                        })()}
+                      </Box>
+
+                      <Divider />
+
+                      <Box>
+                        <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Cursos civis e/ou militares
+                        </Typography>
+                        {(() => {
+                          const itens = parseFormacaoLista(viewingPolicial.cursosCivisMilitares);
+                          if (itens.length === 0) {
+                            return (
+                              <Typography variant="body1" sx={{ mt: 0.5, color: 'text.secondary', fontStyle: 'italic' }}>
+                                Campo não preenchido
+                              </Typography>
+                            );
+                          }
+                          return (
+                            <Box component="ul" sx={{ mt: 0.5, mb: 0, pl: 2.5 }}>
+                              {itens.map((item) => (
+                                <Typography key={item} component="li" variant="body1">
+                                  {item}
+                                </Typography>
+                              ))}
+                            </Box>
+                          );
+                        })()}
                       </Box>
 
                       <Divider />

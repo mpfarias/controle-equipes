@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { Box, Link, Typography } from '@mui/material';
+import { alpha } from '@mui/material/styles';
+import { ImagemLightboxDialog } from '../../components/common/ImagemLightboxDialog';
 
 const IMAGE_MIMES = new Set([
   'image/png',
@@ -11,6 +14,12 @@ const IMAGE_MIMES = new Set([
 function mimeFromDataUrl(dataUrl: string): string | null {
   const m = /^data:([\w/+.-]+);/i.exec(dataUrl);
   return m ? m[1].toLowerCase().split(';')[0].trim() : null;
+}
+
+function isImageAnexo(dataUrl: string): boolean {
+  const mime = mimeFromDataUrl(dataUrl);
+  if (mime != null && IMAGE_MIMES.has(mime)) return true;
+  return /^data:image\//i.test(dataUrl);
 }
 
 export interface ChamadoAnexoPreviewProps {
@@ -28,10 +37,11 @@ export function ChamadoAnexoPreview({
   compact,
   showTitle = true,
 }: ChamadoAnexoPreviewProps) {
+  const [lightboxAberta, setLightboxAberta] = useState(false);
   const mime = mimeFromDataUrl(anexoDataUrl);
   const label = anexoNome?.trim() || 'Anexo';
   const isPdf = mime === 'application/pdf';
-  const isImg = mime != null && IMAGE_MIMES.has(mime);
+  const isImg = isImageAnexo(anexoDataUrl);
 
   return (
     <Box sx={{ mt: compact ? 1 : 2 }}>
@@ -41,19 +51,57 @@ export function ChamadoAnexoPreview({
         </Typography>
       ) : null}
       {isImg ? (
-        <Box
-          component="img"
-          src={anexoDataUrl}
-          alt={label}
-          sx={{
-            maxWidth: '100%',
-            maxHeight: compact ? 180 : 420,
-            objectFit: 'contain',
-            borderRadius: 1,
-            border: '1px solid var(--border-soft)',
-            display: 'block',
-          }}
-        />
+        <>
+          <Box
+            component="button"
+            type="button"
+            onClick={() => setLightboxAberta(true)}
+            aria-label={`Ampliar imagem: ${label}`}
+            title="Clique para ver a imagem completa"
+            sx={{
+              display: 'block',
+              p: 0,
+              border: '1px solid var(--border-soft)',
+              borderRadius: 1,
+              bgcolor: 'transparent',
+              cursor: 'zoom-in',
+              maxWidth: '100%',
+              transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
+              '&:hover': {
+                borderColor: alpha('#2dd4bf', 0.55),
+                boxShadow: `0 0 0 1px ${alpha('#2dd4bf', 0.25)}`,
+              },
+              '&:focus-visible': {
+                outline: `2px solid ${alpha('#2dd4bf', 0.85)}`,
+                outlineOffset: 2,
+              },
+            }}
+          >
+            <Box
+              component="img"
+              src={anexoDataUrl}
+              alt={label}
+              draggable={false}
+              sx={{
+                maxWidth: '100%',
+                maxHeight: compact ? 180 : 420,
+                objectFit: 'contain',
+                borderRadius: 1,
+                display: 'block',
+                verticalAlign: 'bottom',
+              }}
+            />
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Clique na imagem para ampliar
+          </Typography>
+          <ImagemLightboxDialog
+            open={lightboxAberta}
+            src={anexoDataUrl}
+            alt={label}
+            onClose={() => setLightboxAberta(false)}
+          />
+        </>
       ) : isPdf ? (
         <>
           <Link href={anexoDataUrl} target="_blank" rel="noopener noreferrer" sx={{ wordBreak: 'break-all' }}>

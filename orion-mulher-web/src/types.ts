@@ -4,8 +4,13 @@ export interface Usuario {
   matricula: string;
   fotoUrl?: string | null;
   isAdmin?: boolean;
+  acessoOrionSuporte?: boolean | null;
   sistemasPermitidos?: string[];
-  nivel?: { id?: number; nome?: string | null } | null;
+  nivel?: {
+    id?: number;
+    nome?: string | null;
+    acessoOrionSuporte?: boolean | null;
+  } | null;
 }
 
 export interface LoginInput {

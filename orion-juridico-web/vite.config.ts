@@ -4,8 +4,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const fromEnv = env.VITE_ORION_JURIDICO_PORT;
-  const parsed = fromEnv != null && String(fromEnv).trim() !== '' ? Number(fromEnv) : 5183;
-  const port = Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 5183;
+  const parsed = fromEnv != null && String(fromEnv).trim() !== '' ? Number(fromEnv) : 6183;
+  const port = Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 6183;
 
   return {
     plugins: [react()],
@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       host: '0.0.0.0',
-      port: 4183,
+      port: 5183,
     },
   };
 });

@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { RestricoesAfastamentoService } from '../restricoes-afastamento/restricoes-afastamento.service';
 import { CreatePolicialDto } from './dto/create-policial.dto';
+import type { PolicialDependenteDto } from './dto/policial-dependente.dto';
 import { UpdatePolicialDto } from './dto/update-policial.dto';
 import { CreatePoliciaisBulkDto } from './dto/create-policiais-bulk.dto.js';
 import { DeletePolicialDto } from './dto/delete-policial.dto';
@@ -123,6 +124,100 @@ export class PoliciaisService {
     if (telefone == null || typeof telefone !== 'string') return null;
     const digits = telefone.replace(/\D/g, '');
     return digits.length === 11 ? digits : null;
+  }
+
+  /** Retorna 8 dígitos do CEP ou null. */
+  private sanitizeCep(cep: string | null | undefined): string | null {
+    if (cep == null || typeof cep !== 'string') return null;
+    const digits = cep.replace(/\D/g, '');
+    return digits.length === 8 ? digits : null;
+  }
+
+  private sanitizeOptionalText(value: string | null | undefined, maxLen: number): string | null {
+    if (value == null || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed.slice(0, maxLen);
+  }
+
+  private sanitizeUf(estado: string | null | undefined): string | null {
+    if (estado == null || typeof estado !== 'string') return null;
+    const uf = estado.trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(uf) ? uf : null;
+  }
+
+  private mapSexoPolicial(sexo: string | null | undefined): 'MASCULINO' | 'FEMININO' | null | undefined {
+    if (sexo === undefined) return undefined;
+    if (sexo == null || sexo === '') return null;
+    return sexo === 'MASCULINO' || sexo === 'FEMININO' ? sexo : null;
+  }
+
+  private mapCategoriaCnh(
+    categoria: string | null | undefined,
+    naoHabilitado: boolean | undefined,
+  ): 'A' | 'AB' | 'B' | 'C' | 'D' | 'E' | null | undefined {
+    if (categoria === undefined && naoHabilitado === undefined) return undefined;
+    if (naoHabilitado) return null;
+    if (categoria == null || categoria === '') return null;
+    const valid = ['A', 'AB', 'B', 'C', 'D', 'E'] as const;
+    return valid.includes(categoria as (typeof valid)[number]) ? (categoria as (typeof valid)[number]) : null;
+  }
+
+  private sanitizeQuantidadeDependentes(value: number | null | undefined): number | null {
+    if (value == null || value === undefined) return null;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0 || n > 6) return null;
+    return n;
+  }
+
+  private sanitizeDependentes(
+    dependentes: PolicialDependenteDto[] | null | undefined,
+    quantidade: number | null,
+  ): { nome: string | null; condicao: 'CONJUGE' | 'FILHO' | 'OUTROS' | null; condicaoOutros: string | null }[] {
+    if (quantidade == null || quantidade === 0) return [];
+    const limit = Math.min(quantidade, 6);
+    const arr = Array.isArray(dependentes) ? dependentes : [];
+    const validCond = new Set(['CONJUGE', 'FILHO', 'OUTROS']);
+    return Array.from({ length: limit }, (_, i) => {
+      const item = arr[i];
+      const nome =
+        item?.nome != null && typeof item.nome === 'string'
+          ? this.sanitizeOptionalText(item.nome, 200)
+          : null;
+      const rawCond = item?.condicao;
+      const condicao =
+        rawCond != null && validCond.has(String(rawCond))
+          ? (rawCond as 'CONJUGE' | 'FILHO' | 'OUTROS')
+          : null;
+      const condicaoOutros =
+        condicao === 'OUTROS'
+          ? this.sanitizeOptionalText(item?.condicaoOutros, 100)
+          : null;
+      return { nome, condicao, condicaoOutros };
+    });
+  }
+
+  private sanitizeStringList(
+    items: string[] | null | undefined,
+    maxItems: number,
+    maxLength: number,
+  ): string[] {
+    if (items == null) return [];
+    const arr = Array.isArray(items) ? items : [];
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const raw of arr) {
+      if (typeof raw !== 'string') continue;
+      const trimmed = raw.trim();
+      if (!trimmed) continue;
+      const normalized = trimmed.slice(0, maxLength);
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(normalized);
+      if (result.length >= maxItems) break;
+    }
+    return result;
   }
 
   /** Valida CPF pelos dígitos verificadores (algoritmo oficial). */
@@ -702,6 +797,13 @@ export class PoliciaisService {
       : null;
     const emailValue = data.email != null && data.email !== '' ? data.email.trim() : null;
     const telefoneValue = this.sanitizeTelefone(data.telefone);
+    const sexoValue = this.mapSexoPolicial(data.sexo);
+    const dataAdmissaoDate =
+      data.status !== 'COMISSIONADO' && data.dataAdmissao ? new Date(data.dataAdmissao) : null;
+    const enderecoSemCep = Boolean(data.enderecoSemCep);
+    const cepValue = enderecoSemCep ? null : this.sanitizeCep(data.cep);
+    const quantidadeDependentes = this.sanitizeQuantidadeDependentes(data.quantidadeDependentes);
+    const cnhNaoHabilitado = Boolean(data.cnhNaoHabilitado);
 
     const created = await this.prisma.policial.create({
       data: {
@@ -713,6 +815,24 @@ export class PoliciaisService {
         telefone: telefoneValue,
         dataNascimento: dataNascimentoDate,
         email: emailValue,
+        sexo: sexoValue ?? undefined,
+        dataAdmissao: dataAdmissaoDate,
+        cep: cepValue,
+        logradouro: this.sanitizeOptionalText(data.logradouro, 255),
+        complemento: this.sanitizeOptionalText(data.complemento, 100),
+        cidade: this.sanitizeOptionalText(data.cidade, 120),
+        estado: this.sanitizeUf(data.estado),
+        enderecoSemCep,
+        contatoEmergenciaNome: this.sanitizeOptionalText(data.contatoEmergenciaNome, 200),
+        contatoEmergenciaTelefone: this.sanitizeTelefone(data.contatoEmergenciaTelefone),
+        quantidadeDependentes,
+        dependentes: this.sanitizeDependentes(data.dependentes, quantidadeDependentes),
+        doadorOrgaos: data.doadorOrgaos ?? null,
+        categoriaCnh: this.mapCategoriaCnh(data.categoriaCnh, cnhNaoHabilitado) ?? undefined,
+        cnhNaoHabilitado,
+        nivelSuperiorEm: this.sanitizeStringList(data.nivelSuperiorEm, 20, 255),
+        cursosCivisMilitares: this.sanitizeStringList(data.cursosCivisMilitares, 30, 500),
+        fotoUrl: data.fotoUrl ?? null,
         matriculaComissionadoGdf: data.matriculaComissionadoGdf != null && data.matriculaComissionadoGdf !== '' ? data.matriculaComissionadoGdf.trim() : null,
         dataPosse: data.dataPosse ? new Date(data.dataPosse) : null,
         status: { connect: { id: statusId } },
@@ -1537,6 +1657,79 @@ export class PoliciaisService {
     }
     if (data.dataPosse !== undefined) {
       updateData.dataPosse = data.dataPosse ? new Date(data.dataPosse) : null;
+    }
+
+    if (data.sexo !== undefined) {
+      updateData.sexo = this.mapSexoPolicial(data.sexo);
+    }
+    if (data.dataAdmissao !== undefined) {
+      const statusEfetivo = data.status ?? before.status?.nome ?? 'ATIVO';
+      updateData.dataAdmissao =
+        statusEfetivo !== 'COMISSIONADO' && data.dataAdmissao ? new Date(data.dataAdmissao) : null;
+    } else if (data.status === 'COMISSIONADO') {
+      updateData.dataAdmissao = null;
+    }
+    if (data.enderecoSemCep !== undefined) {
+      updateData.enderecoSemCep = Boolean(data.enderecoSemCep);
+    }
+    if (data.cep !== undefined) {
+      const semCep =
+        data.enderecoSemCep !== undefined ? Boolean(data.enderecoSemCep) : before.enderecoSemCep;
+      updateData.cep = semCep ? null : this.sanitizeCep(data.cep);
+    }
+    if (data.logradouro !== undefined) {
+      updateData.logradouro = this.sanitizeOptionalText(data.logradouro, 255);
+    }
+    if (data.complemento !== undefined) {
+      updateData.complemento = this.sanitizeOptionalText(data.complemento, 100);
+    }
+    if (data.cidade !== undefined) {
+      updateData.cidade = this.sanitizeOptionalText(data.cidade, 120);
+    }
+    if (data.estado !== undefined) {
+      updateData.estado = this.sanitizeUf(data.estado);
+    }
+    if (data.contatoEmergenciaNome !== undefined) {
+      updateData.contatoEmergenciaNome = this.sanitizeOptionalText(data.contatoEmergenciaNome, 200);
+    }
+    if (data.contatoEmergenciaTelefone !== undefined) {
+      updateData.contatoEmergenciaTelefone = this.sanitizeTelefone(data.contatoEmergenciaTelefone);
+    }
+    if (data.quantidadeDependentes !== undefined) {
+      updateData.quantidadeDependentes = this.sanitizeQuantidadeDependentes(data.quantidadeDependentes);
+    }
+    if (data.dependentes !== undefined || data.quantidadeDependentes !== undefined) {
+      const qtd =
+        data.quantidadeDependentes !== undefined
+          ? this.sanitizeQuantidadeDependentes(data.quantidadeDependentes)
+          : before.quantidadeDependentes;
+      const beforeDeps = Array.isArray(before.dependentes)
+        ? (before.dependentes as PolicialDependenteDto[])
+        : [];
+      updateData.dependentes = this.sanitizeDependentes(
+        data.dependentes ?? beforeDeps,
+        qtd,
+      );
+    }
+    if (data.doadorOrgaos !== undefined) {
+      updateData.doadorOrgaos = data.doadorOrgaos;
+    }
+    if (data.cnhNaoHabilitado !== undefined) {
+      updateData.cnhNaoHabilitado = Boolean(data.cnhNaoHabilitado);
+    }
+    if (data.categoriaCnh !== undefined || data.cnhNaoHabilitado !== undefined) {
+      const naoHabilitado =
+        data.cnhNaoHabilitado !== undefined ? Boolean(data.cnhNaoHabilitado) : before.cnhNaoHabilitado;
+      updateData.categoriaCnh = this.mapCategoriaCnh(
+        data.categoriaCnh !== undefined ? data.categoriaCnh : before.categoriaCnh,
+        naoHabilitado,
+      );
+    }
+    if (data.nivelSuperiorEm !== undefined) {
+      updateData.nivelSuperiorEm = this.sanitizeStringList(data.nivelSuperiorEm, 20, 255);
+    }
+    if (data.cursosCivisMilitares !== undefined) {
+      updateData.cursosCivisMilitares = this.sanitizeStringList(data.cursosCivisMilitares, 30, 500);
     }
 
     if (data.fotoUrl !== undefined) {

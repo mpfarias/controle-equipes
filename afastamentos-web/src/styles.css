@@ -597,6 +597,14 @@ label {
   gap: 6px;
 }
 
+/* MUI FormControlLabel usa <label>; rótulo fica ao lado do radio/checkbox */
+label.MuiFormControlLabel-root {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+}
+
 input,
 select,
 textarea {

@@ -36,7 +36,6 @@ import {
 import type { OrionJuridicoPublicInfo, OrionJuridicoSessao, Usuario } from './types';
 import { formatMatricula } from './utils/formatMatricula';
 import {
-  formatUsuarioSaudacaoCompleta,
   iniciaisUsuario,
   primeiroNomeUsuario,
 } from './utils/formatUsuarioExibicao';

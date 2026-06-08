@@ -29,6 +29,8 @@ const AFASTAMENTO_STATUS_RELEVANTES: AfastamentoStatus[] = [
   AfastamentoStatus.ENCERRADO,
 ];
 
+const TZ_AFASTAMENTO = 'America/Sao_Paulo';
+
 @Injectable()
 export class AfastamentosService {
   constructor(
@@ -62,6 +64,22 @@ export class AfastamentosService {
     const month = parseInt(m!, 10) - 1;
     const day = parseInt(d!, 10);
     return new Date(Date.UTC(year, month, day, 12, 0, 0, 0));
+  }
+
+  /** Data civil no fuso de São Paulo (YYYY-MM-DD) — alinhado à exibição no front. */
+  private formatDateOnlySp(value: Date): string {
+    return value.toLocaleDateString('en-CA', { timeZone: TZ_AFASTAMENTO });
+  }
+
+  private deduplicarPorId<T extends { id: number }>(itens: T[]): T[] {
+    const visto = new Set<number>();
+    const saida: T[] = [];
+    for (const item of itens) {
+      if (visto.has(item.id)) continue;
+      visto.add(item.id);
+      saida.push(item);
+    }
+    return saida;
   }
 
   private mapAfastamentoStatus(afastamento: AfastamentoWithPolicial): AfastamentoWithPolicialResponse {
@@ -162,72 +180,74 @@ export class AfastamentosService {
     inicio2: Date,
     fim2: Date | null,
   ): boolean {
-    const dataInicio1 = new Date(inicio1);
-    const dataFim1 = fim1 ? new Date(fim1) : null;
-    const dataInicio2 = new Date(inicio2);
-    const dataFim2 = fim2 ? new Date(fim2) : null;
+    const inicio1Str = this.formatDateOnlySp(inicio1);
+    const fim1Str = fim1 ? this.formatDateOnlySp(fim1) : null;
+    const inicio2Str = this.formatDateOnlySp(inicio2);
+    const fim2Str = fim2 ? this.formatDateOnlySp(fim2) : null;
 
-    // Normalizar para comparar apenas a data (sem hora)
-    dataInicio1.setHours(0, 0, 0, 0);
-    if (dataFim1) dataFim1.setHours(0, 0, 0, 0);
-    dataInicio2.setHours(0, 0, 0, 0);
-    if (dataFim2) dataFim2.setHours(0, 0, 0, 0);
-
-    // Verificar sobreposição: períodos se sobrepõem se há pelo menos um dia em comum
-    // Período 1: [inicio1, fim1] - o policial está de férias até o dia fim1 (inclusive)
-    // Período 2: [inicio2, fim2] - o policial estaria de férias a partir do dia inicio2 (inclusive)
-    // Dois intervalos [a, b] e [c, d] se sobrepõem se: a <= d && c <= b
-    // Mas períodos adjacentes (um termina em X, outro começa em X+1) NÃO se sobrepõem
-    if (dataFim1 && dataFim2) {
-      // Ambos têm data fim
-      // Função auxiliar para obter apenas a data (YYYY-MM-DD)
-      const getDateOnly = (date: Date): string => {
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
+    if (fim1Str && fim2Str) {
+      const diaApos = (yyyyMmDd: string): string => {
+        const [y, m, d] = yyyyMmDd.split('-').map(Number);
+        const dt = new Date(Date.UTC(y!, m! - 1, d! + 1, 12, 0, 0, 0));
+        return dt.toLocaleDateString('en-CA', { timeZone: TZ_AFASTAMENTO });
       };
-
-      const inicio1Str = getDateOnly(dataInicio1);
-      const fim1Str = getDateOnly(dataFim1);
-      const inicio2Str = getDateOnly(dataInicio2);
-      const fim2Str = getDateOnly(dataFim2);
-
-      // Verificar se são adjacentes (um termina em X, outro começa em X+1)
-      // Períodos adjacentes NÃO se sobrepõem
-      const dataFim1Obj = new Date(fim1Str);
-      dataFim1Obj.setDate(dataFim1Obj.getDate() + 1); // Adicionar 1 dia
-      const fim1MaisUmDia = getDateOnly(dataFim1Obj);
-      
-      const dataFim2Obj = new Date(fim2Str);
-      dataFim2Obj.setDate(dataFim2Obj.getDate() + 1); // Adicionar 1 dia
-      const fim2MaisUmDia = getDateOnly(dataFim2Obj);
+      const fim1MaisUmDia = diaApos(fim1Str);
+      const fim2MaisUmDia = diaApos(fim2Str);
 
       if (inicio2Str === fim1MaisUmDia || inicio1Str === fim2MaisUmDia) {
-        return false; // Períodos adjacentes não se sobrepõem
+        return false;
       }
-      
-      // Verificar sobreposição: dois intervalos [a, b] e [c, d] se sobrepõem se: a <= d && c <= b
-      // Usando comparação de strings de data (YYYY-MM-DD) que é mais confiável
-      // Mas primeiro verificar se os períodos não se sobrepõem claramente (um termina antes do outro começar)
       if (fim1Str < inicio2Str || fim2Str < inicio1Str) {
-        return false; // Períodos não se sobrepõem - um termina antes do outro começar
+        return false;
       }
-      
-      // Se chegou aqui, verificar a condição padrão de sobreposição
-      const condicao1 = inicio1Str <= fim2Str;
-      const condicao2 = inicio2Str <= fim1Str;
-      
-      return condicao1 && condicao2;
-    } else if (dataFim1 && !dataFim2) {
-      // Período 1 tem fim, período 2 não tem fim
-      return dataInicio2.getTime() <= dataFim1.getTime();
-    } else if (!dataFim1 && dataFim2) {
-      // Período 1 não tem fim, período 2 tem fim
-      return dataInicio1.getTime() <= dataFim2.getTime();
-    } else {
-      // Ambos não têm fim - sempre há sobreposição
-      return true;
+      return inicio1Str <= fim2Str && inicio2Str <= fim1Str;
+    }
+    if (fim1Str && !fim2Str) {
+      return inicio2Str <= fim1Str;
+    }
+    if (!fim1Str && fim2Str) {
+      return inicio1Str <= fim2Str;
+    }
+    return true;
+  }
+
+  /**
+   * Impede registro idêntico (mesmo policial, motivo e período civil em SP).
+   * Complementa a regra de sobreposição — evita duplicata exata na lista.
+   */
+  private async assertAfastamentoNaoDuplicadoExato(
+    policialId: number,
+    motivoId: number,
+    dataInicio: Date,
+    dataFim: Date | null,
+    seiNumero: string,
+    excluirAfastamentoId?: number,
+  ): Promise<void> {
+    const inicioSp = this.formatDateOnlySp(dataInicio);
+    const fimSp = dataFim ? this.formatDateOnlySp(dataFim) : null;
+    const seiNorm = seiNumero.trim();
+
+    const existentes = await this.prisma.afastamento.findMany({
+      where: {
+        policialId,
+        motivoId,
+        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
+        ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
+      },
+      select: { dataInicio: true, dataFim: true, seiNumero: true },
+    });
+
+    for (const ex of existentes) {
+      const exInicio = this.formatDateOnlySp(ex.dataInicio);
+      const exFim = ex.dataFim ? this.formatDateOnlySp(ex.dataFim) : null;
+      if (exInicio !== inicioSp || exFim !== fimSp) continue;
+
+      const mesmoSei = seiNorm.length > 0 && ex.seiNumero.trim() === seiNorm;
+      throw new BadRequestException(
+        mesmoSei
+          ? 'Já existe um afastamento idêntico para este policial (mesmo motivo, período e número SEI).'
+          : 'Já existe um afastamento para este policial com o mesmo motivo e o mesmo período.',
+      );
     }
   }
 
@@ -857,6 +877,14 @@ export class AfastamentosService {
       data.seiNumero,
     );
 
+    await this.assertAfastamentoNaoDuplicadoExato(
+      data.policialId,
+      data.motivoId,
+      dataInicio,
+      dataFim,
+      data.seiNumero,
+    );
+
     // Validar limite de 45 dias para policiais PTTC (férias fora deste limite)
     await this.validarLimitePTTC(
       data.policialId,
@@ -1045,7 +1073,7 @@ export class AfastamentosService {
         include,
         orderBy: { dataInicio: 'desc' },
       });
-      return itens.map((item) => this.mapAfastamentoStatus(item));
+      return this.deduplicarPorId(itens.map((item) => this.mapAfastamentoStatus(item)));
     }
 
     // Implementar paginação
@@ -1067,8 +1095,11 @@ export class AfastamentosService {
       this.prisma.afastamento.count({ where }),
     ]);
 
+    const mapeados = this.deduplicarPorId(
+      afastamentos.map((item) => this.mapAfastamentoStatus(item)),
+    );
     return {
-      afastamentos: afastamentos.map((item) => this.mapAfastamentoStatus(item)),
+      afastamentos: mapeados,
       total,
       page: currentPage,
       pageSize: currentPageSize,
@@ -1112,7 +1143,7 @@ export class AfastamentosService {
       include,
       orderBy: { dataInicio: 'desc' },
     });
-    return itens.map((item) => this.mapAfastamentoStatus(item));
+    return this.deduplicarPorId(itens.map((item) => this.mapAfastamentoStatus(item)));
   }
 
   async update(
@@ -1179,6 +1210,15 @@ export class AfastamentosService {
       dataFimFinal,
       id,
       seiNumeroFinal,
+    );
+
+    await this.assertAfastamentoNaoDuplicadoExato(
+      policialIdFinal,
+      motivoIdFinal,
+      dataInicioFinal,
+      dataFimFinal,
+      seiNumeroFinal,
+      id,
     );
 
     // Validar limite de 45 dias para policiais PTTC (férias fora; exclui o próprio registro)

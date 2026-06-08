@@ -4,14 +4,19 @@ import {
   IsOptional,
   IsString,
   IsIn,
+  IsBoolean,
   Matches,
   MaxLength,
   Min,
+  Max,
   ValidateIf,
   IsEmail,
   IsISO8601,
+  IsArray,
+  ArrayMaxSize,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { PolicialDependenteDto } from './policial-dependente.dto';
 
 const POLICIAL_STATUS_VALUES = [
   'ATIVO',
@@ -24,6 +29,8 @@ const POLICIAL_STATUS_VALUES = [
 /** CPF: apenas dígitos, 11 caracteres. Validação dos dígitos verificadores é feita no service. */
 const CPF_REGEX = /^\d{11}$/;
 const TELEFONE_REGEX = /^\d{11}$/;
+const CEP_REGEX = /^\d{8}$/;
+const UF_REGEX = /^[A-Z]{2}$/;
 
 export class CreatePolicialDto {
   @IsNotEmpty({ message: 'O posto/graduação é obrigatório.' })
@@ -104,4 +111,106 @@ export class CreatePolicialDto {
   @ValidateIf((o) => o.expediente12x36Fase != null)
   @IsIn(['PAR', 'IMPAR'])
   expediente12x36Fase?: 'PAR' | 'IMPAR' | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.sexo != null && o.sexo !== '')
+  @IsIn(['MASCULINO', 'FEMININO'], { message: 'Sexo inválido.' })
+  sexo?: 'MASCULINO' | 'FEMININO' | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.dataAdmissao != null && o.dataAdmissao !== '')
+  @IsISO8601({ strict: true }, { message: 'Data de admissão inválida (use AAAA-MM-DD).' })
+  dataAdmissao?: string | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.cep != null && String(o.cep).replace(/\D/g, '').length > 0)
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/\D/g, '') : value))
+  @IsString()
+  @Matches(CEP_REGEX, { message: 'CEP deve conter exatamente 8 dígitos.' })
+  cep?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  logradouro?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  complemento?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cidade?: string | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.estado != null && String(o.estado).trim() !== '')
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @IsString()
+  @Matches(UF_REGEX, { message: 'Estado (UF) inválido.' })
+  estado?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  enderecoSemCep?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  contatoEmergenciaNome?: string | null;
+
+  @IsOptional()
+  @ValidateIf(
+    (o) => o.contatoEmergenciaTelefone != null && String(o.contatoEmergenciaTelefone).replace(/\D/g, '').length > 0,
+  )
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/\D/g, '') : value))
+  @IsString()
+  @Matches(TELEFONE_REGEX, {
+    message: 'Telefone de emergência deve conter exatamente 11 dígitos.',
+  })
+  contatoEmergenciaTelefone?: string | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.quantidadeDependentes != null)
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  quantidadeDependentes?: number | null;
+
+  @IsOptional()
+  @IsString()
+  fotoUrl?: string | null;
+
+  @IsOptional()
+  @Type(() => PolicialDependenteDto)
+  dependentes?: PolicialDependenteDto[];
+
+  @IsOptional()
+  @ValidateIf((o) => o.doadorOrgaos != null)
+  @IsBoolean()
+  doadorOrgaos?: boolean | null;
+
+  @IsOptional()
+  @ValidateIf((o) => o.categoriaCnh != null && o.categoriaCnh !== '' && !o.cnhNaoHabilitado)
+  @IsIn(['A', 'AB', 'B', 'C', 'D', 'E'], { message: 'Categoria CNH inválida.' })
+  categoriaCnh?: 'A' | 'AB' | 'B' | 'C' | 'D' | 'E' | null;
+
+  @IsOptional()
+  @IsBoolean()
+  cnhNaoHabilitado?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(255, { each: true })
+  nivelSuperiorEm?: string[] | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(30)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  cursosCivisMilitares?: string[] | null;
 }

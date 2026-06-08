@@ -4,8 +4,8 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const fromEnv = env.VITE_ORION_AGENDA_PORT;
-  const parsed = fromEnv != null && String(fromEnv).trim() !== '' ? Number(fromEnv) : 5186;
-  const port = Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 5186;
+  const parsed = fromEnv != null && String(fromEnv).trim() !== '' ? Number(fromEnv) : 6186;
+  const port = Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 6186;
 
   return {
     plugins: [react()],
@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
     },
     preview: {
       host: '0.0.0.0',
-      port: 4186,
+      port: 5186,
     },
   };
 });

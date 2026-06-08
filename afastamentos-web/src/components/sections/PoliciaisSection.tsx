@@ -26,7 +26,19 @@ import {
 import { quadrosParaPosto } from '../../constants/quadro';
 import { formatNome, formatMatricula } from '../../utils/dateUtils';
 import { sortPorPatenteENome } from '../../utils/sortPoliciais';
-import { maskCpf, cpfToDigits, validarCpf, maskTelefone, telefoneToDigits } from '../../utils/inputUtils';
+import { cpfToDigits, validarCpf, telefoneToDigits } from '../../utils/inputUtils';
+import { PolicialCamposComplementares, blurValidacaoCpfTelefone } from '../policial/PolicialCamposComplementares';
+import { PolicialFormSection } from '../policial/PolicialFormSection';
+import { PolicialFotoUpload } from '../policial/PolicialFotoUpload';
+import {
+  INITIAL_POLICIAL_CAMPOS_COMPLEMENTARES,
+  camposComplementaresParaApi,
+  temErrosCamposComplementares,
+  validarCamposComplementares,
+  type PolicialCamposComplementaresErrors,
+  type PolicialCamposComplementaresForm,
+} from '../../utils/policialCamposComplementaresForm';
+import { labelSexoPolicial } from '../../constants/policialDados';
 import type { PermissoesPorTela } from '../../utils/permissions';
 import type { ConfirmConfig } from '../common/ConfirmDialog';
 import {
@@ -40,7 +52,6 @@ import {
   Typography,
   Grid,
   Paper,
-  Divider,
   Stack,
   FormControlLabel,
   Checkbox,
@@ -134,7 +145,6 @@ export function PoliciaisSection({
     cpf: '',
     telefone: '',
     dataNascimento: '',
-    email: '',
     matriculaComissionadoGdf: '',
     dataPosse: '',
     status: 'ATIVO' as PolicialStatus,
@@ -152,11 +162,19 @@ export function PoliciaisSection({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(initialForm);
+  const [camposComplementares, setCamposComplementares] = useState<PolicialCamposComplementaresForm>(
+    INITIAL_POLICIAL_CAMPOS_COMPLEMENTARES,
+  );
+  const [camposComplementaresErrors, setCamposComplementaresErrors] =
+    useState<PolicialCamposComplementaresErrors>({});
+  const patchCamposComplementares = useCallback((patch: Partial<PolicialCamposComplementaresForm>) => {
+    setCamposComplementares((prev) => ({ ...prev, ...patch }));
+  }, []);
   const [matriculaError, setMatriculaError] = useState<string | null>(null);
   const [funcaoError, setFuncaoError] = useState<string | null>(null);
   const [cpfError, setCpfError] = useState<string | null>(null);
-  const [emailError, setEmailError] = useState<string | null>(null);
   const [telefoneError, setTelefoneError] = useState<string | null>(null);
+  const [fotoUrl, setFotoUrl] = useState<string | null | undefined>(undefined);
   const matriculaTimeoutRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reativarModal, setReativarModal] = useState<{
@@ -419,7 +437,6 @@ export function PoliciaisSection({
       const cpfEnvio = cpfDigits.length === 11 ? cpfDigits : undefined;
       const telefoneEnvio = telefoneDigits.length === 11 ? telefoneDigits : undefined;
       const dataNascimentoEnvio = form.dataNascimento.trim() || undefined;
-      const emailEnvio = form.email.trim() || undefined;
 
       await api.createPolicial({
         postoGraduacaoId: form.postoGraduacaoId!,
@@ -431,20 +448,23 @@ export function PoliciaisSection({
         cpf: cpfEnvio ?? null,
         telefone: telefoneEnvio ?? null,
         dataNascimento: dataNascimentoEnvio ?? null,
-        email: emailEnvio ?? null,
+        ...camposComplementaresParaApi(camposComplementares, form.status),
         matriculaComissionadoGdf: form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? form.matriculaComissionadoGdf.trim() : null,
         dataPosse: form.status === 'COMISSIONADO' && form.dataPosse ? form.dataPosse : null,
         equipe: equipeFinal === null ? null : (equipeFinal || undefined),
         ...(funcaoRequerFase12x36Expediente(funcaoSelecionada) && form.expediente12x36Fase
           ? { expediente12x36Fase: form.expediente12x36Fase }
           : {}),
+        fotoUrl: fotoUrl ?? null,
       });
       setSuccess('Policial cadastrado com sucesso.');
 
       setForm(initialForm);
+      setCamposComplementares(INITIAL_POLICIAL_CAMPOS_COMPLEMENTARES);
+      setCamposComplementaresErrors({});
+      setFotoUrl(undefined);
       setMatriculaError(null);
       setCpfError(null);
-      setEmailError(null);
       setTelefoneError(null);
       if (matriculaTimeoutRef.current) {
         clearTimeout(matriculaTimeoutRef.current);
@@ -497,15 +517,15 @@ export function PoliciaisSection({
     } finally {
       setSubmitting(false);
     }
-  }, [form, funcoes, currentUser, carregarPoliciais, onChanged]);
+  }, [form, camposComplementares, fotoUrl, funcoes, currentUser, carregarPoliciais, onChanged]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setSuccess(null);
     setCpfError(null);
-    setEmailError(null);
     setTelefoneError(null);
+    setCamposComplementaresErrors({});
 
     const nome = form.nome.trim();
     const matricula = form.matricula.trim();
@@ -552,10 +572,10 @@ export function PoliciaisSection({
       return;
     }
 
-    const emailTrim = form.email.trim();
-    if (emailTrim && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
-      setEmailError('E-mail inválido.');
-      setError('E-mail inválido.');
+    const errosComp = validarCamposComplementares(camposComplementares, form.status);
+    setCamposComplementaresErrors(errosComp);
+    if (temErrosCamposComplementares(errosComp)) {
+      setError('Corrija os campos complementares destacados.');
       return;
     }
 
@@ -612,7 +632,11 @@ export function PoliciaisSection({
     const cpfExibir = form.cpf ? form.cpf : '—';
     const telefoneExibir = form.telefone ? form.telefone : '—';
     const dataNascExibir = form.dataNascimento ? new Date(form.dataNascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
-    const emailExibir = form.email.trim() || '—';
+    const emailExibir = camposComplementares.email.trim() || '—';
+    const sexoExibir = camposComplementares.sexo ? labelSexoPolicial(camposComplementares.sexo) : '—';
+    const admissaoExibir = camposComplementares.dataAdmissao
+      ? new Date(camposComplementares.dataAdmissao + 'T12:00:00').toLocaleDateString('pt-BR')
+      : '—';
 
     const message =
       `Confirme os dados do policial:\n\n` +
@@ -622,6 +646,10 @@ export function PoliciaisSection({
       (telefoneExibir !== '—' ? `Telefone: ${telefoneExibir}\n` : '') +
       (dataNascExibir !== '—' ? `Data de nascimento: ${dataNascExibir}\n` : '') +
       (emailExibir !== '—' ? `E-mail: ${emailExibir}\n` : '') +
+      `Sexo: ${sexoExibir}\n` +
+      (form.status !== 'COMISSIONADO' && admissaoExibir !== '—'
+        ? `Data de admissão: ${admissaoExibir}\n`
+        : '') +
       (form.status === 'COMISSIONADO' && form.matriculaComissionadoGdf.trim() ? `Matrícula Comissionado (GDF): ${form.matriculaComissionadoGdf.trim()}\n` : '') +
       (form.status === 'COMISSIONADO' && form.dataPosse ? `Data de posse: ${new Date(form.dataPosse + 'T12:00:00').toLocaleDateString('pt-BR')}\n` : '') +
       `Status: ${statusLabel}\n` +
@@ -860,17 +888,23 @@ export function PoliciaisSection({
         <Paper
           variant="outlined"
           sx={{
-            p: { xs: 2, sm: 2.5 },
+            p: { xs: 2, sm: 3 },
             borderRadius: 2,
             borderColor: 'var(--border-soft, rgba(0,0,0,0.12))',
-            bgcolor: 'var(--card-bg, transparent)',
+            bgcolor: 'transparent',
+            boxShadow: 'none',
           }}
         >
           <Stack spacing={3}>
-            <Stack spacing={2}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                Identificação
-              </Typography>
+            <PolicialFormSection title="Foto">
+              <PolicialFotoUpload
+                fotoUrl={fotoUrl}
+                onChange={setFotoUrl}
+                onError={setError}
+              />
+            </PolicialFormSection>
+
+            <PolicialFormSection title="Dados funcionais">
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                   <FormControl fullWidth size="small" required sx={formFieldSx}>
@@ -948,21 +982,6 @@ export function PoliciaisSection({
                     </Select>
                   </FormControl>
                 </Grid>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <TextField
-                    id="nome-input"
-                    label="Nome completo"
-                    fullWidth
-                    required
-                    size="small"
-                    value={form.nome}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, nome: e.target.value.toUpperCase() }))
-                    }
-                    placeholder="JOÃO PEREIRA DA SILVA"
-                    sx={formFieldSx}
-                  />
-                </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                   <TextField
                     id="matricula-input"
@@ -986,6 +1005,52 @@ export function PoliciaisSection({
                     sx={formFieldSx}
                   />
                 </Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                  <FormControl fullWidth required size="small" sx={formFieldSx}>
+                    <InputLabel id="status-select-label" shrink>
+                      Status
+                    </InputLabel>
+                    <Select
+                      id="status-select"
+                      labelId="status-select-label"
+                      label="Status"
+                      value={form.status}
+                      renderValue={(v) => POLICIAL_STATUS_OPTIONS_FORM.find((o) => o.value === v)?.label ?? v}
+                      onChange={(e) => {
+                        const novoStatus = e.target.value as PolicialStatus;
+                        setForm((prev) => ({
+                          ...prev,
+                          status: novoStatus,
+                        }));
+                        if (novoStatus === 'COMISSIONADO') {
+                          patchCamposComplementares({ dataAdmissao: '' });
+                        }
+                      }}
+                      MenuProps={{ sx: { zIndex: 1500 } }}
+                    >
+                      {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    id="nome-input"
+                    label="Nome completo"
+                    fullWidth
+                    required
+                    size="small"
+                    value={form.nome}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, nome: e.target.value.toUpperCase() }))
+                    }
+                    placeholder="JOÃO PEREIRA DA SILVA"
+                    sx={formFieldSx}
+                  />
+                </Grid>
                 <Grid size={{ xs: 12 }}>
                   <FormControlLabel
                     control={
@@ -1002,6 +1067,7 @@ export function PoliciaisSection({
                       />
                     }
                     label="Comissionado (GDF)"
+                    sx={{ m: 0, alignItems: 'center' }}
                   />
                 </Grid>
                 {form.status === 'COMISSIONADO' && (
@@ -1009,10 +1075,10 @@ export function PoliciaisSection({
                     <Box
                       sx={{
                         p: 2,
-                        borderRadius: 1,
+                        borderRadius: 1.5,
                         border: '1px dashed',
-                        borderColor: 'divider',
-                        bgcolor: 'action.hover',
+                        borderColor: 'var(--border-soft, divider)',
+                        bgcolor: 'rgba(0,0,0,0.12)',
                       }}
                     >
                       <Grid container spacing={2}>
@@ -1051,121 +1117,6 @@ export function PoliciaisSection({
                     </Box>
                   </Grid>
                 )}
-              </Grid>
-            </Stack>
-
-            <Divider />
-
-            <Stack spacing={2}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                Contato e dados pessoais
-              </Typography>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                  <TextField
-                    id="cpf-input"
-                    label="CPF"
-                    fullWidth
-                    size="small"
-                    value={form.cpf}
-                    onChange={(e) => {
-                      setForm((prev) => ({ ...prev, cpf: maskCpf(e.target.value) }));
-                      if (cpfError) setCpfError(null);
-                    }}
-                    onBlur={() => {
-                      const digits = cpfToDigits(form.cpf);
-                      if (digits.length === 11 && !validarCpf(form.cpf)) {
-                        setCpfError('CPF inválido (dígitos verificadores incorretos).');
-                      } else if (digits.length > 0 && digits.length !== 11) {
-                        setCpfError('CPF deve conter 11 dígitos.');
-                      } else {
-                        setCpfError(null);
-                      }
-                    }}
-                    placeholder="000.000.000-00"
-                    slotProps={{ htmlInput: { maxLength: 14 } }}
-                    error={!!cpfError}
-                    helperText={cpfError}
-                    sx={formFieldSx}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                  <TextField
-                    id="telefone-input"
-                    label="Telefone"
-                    fullWidth
-                    size="small"
-                    value={form.telefone}
-                    onChange={(e) => {
-                      setForm((prev) => ({ ...prev, telefone: maskTelefone(e.target.value) }));
-                      if (telefoneError) setTelefoneError(null);
-                    }}
-                    onBlur={() => {
-                      const digits = telefoneToDigits(form.telefone);
-                      if (digits.length > 0 && digits.length !== 11) {
-                        setTelefoneError('Telefone deve conter 11 dígitos.');
-                      } else {
-                        setTelefoneError(null);
-                      }
-                    }}
-                    placeholder="(00)00000-0000"
-                    slotProps={{ htmlInput: { maxLength: 14 } }}
-                    error={!!telefoneError}
-                    helperText={telefoneError}
-                    sx={formFieldSx}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                  <TextField
-                    id="data-nascimento-input"
-                    label="Data de nascimento"
-                    fullWidth
-                    size="small"
-                    type="date"
-                    value={form.dataNascimento}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, dataNascimento: e.target.value }))
-                    }
-                    slotProps={{ inputLabel: { shrink: true } }}
-                    sx={formFieldSx}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                  <TextField
-                    id="email-input"
-                    label="E-mail"
-                    fullWidth
-                    size="small"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => {
-                      setForm((prev) => ({ ...prev, email: e.target.value }));
-                      if (emailError) setEmailError(null);
-                    }}
-                    onBlur={() => {
-                      const v = form.email.trim();
-                      if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
-                        setEmailError('E-mail inválido.');
-                      } else {
-                        setEmailError(null);
-                      }
-                    }}
-                    placeholder="email@exemplo.com"
-                    error={!!emailError}
-                    helperText={emailError}
-                    sx={formFieldSx}
-                  />
-                </Grid>
-              </Grid>
-            </Stack>
-
-            <Divider />
-
-            <Stack spacing={2}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-                Função e lotação
-              </Typography>
-              <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 6 }}>
                   <FormControl fullWidth size="small" required error={!!funcaoError} sx={formFieldSx}>
                     <InputLabel id="funcao-select-label" shrink>
@@ -1217,33 +1168,6 @@ export function PoliciaisSection({
                         {funcaoError}
                       </Typography>
                     ) : null}
-                  </FormControl>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                  <FormControl fullWidth required size="small" sx={formFieldSx}>
-                    <InputLabel id="status-select-label" shrink>
-                      Status
-                    </InputLabel>
-                    <Select
-                      id="status-select"
-                      labelId="status-select-label"
-                      label="Status"
-                      value={form.status}
-                      renderValue={(v) => POLICIAL_STATUS_OPTIONS_FORM.find((o) => o.value === v)?.label ?? v}
-                      onChange={(e) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          status: e.target.value as PolicialStatus,
-                        }))
-                      }
-                      MenuProps={{ sx: { zIndex: 1500 } }}
-                    >
-                      {POLICIAL_STATUS_OPTIONS_FORM.map((option) => (
-                        <MenuItem key={option.value} value={option.value}>
-                          {option.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
                   </FormControl>
                 </Grid>
                 {mostrarEquipeForm && (
@@ -1317,19 +1241,82 @@ export function PoliciaisSection({
                     </FormControl>
                   </Grid>
                 )}
+                {form.status !== 'COMISSIONADO' ? (
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <TextField
+                      label="Data de admissão"
+                      fullWidth
+                      size="small"
+                      type="date"
+                      required
+                      value={camposComplementares.dataAdmissao}
+                      onChange={(e) => {
+                        patchCamposComplementares({ dataAdmissao: e.target.value });
+                        setCamposComplementaresErrors((prev) => ({ ...prev, dataAdmissao: null }));
+                      }}
+                      slotProps={{ inputLabel: { shrink: true } }}
+                      error={!!camposComplementaresErrors.dataAdmissao}
+                      helperText={camposComplementaresErrors.dataAdmissao}
+                      sx={formFieldSx}
+                    />
+                  </Grid>
+                ) : null}
               </Grid>
-            </Stack>
+            </PolicialFormSection>
 
-            <Divider />
+            <PolicialCamposComplementares
+              values={camposComplementares}
+              onChange={patchCamposComplementares}
+              errors={camposComplementaresErrors}
+              onClearError={(field) =>
+                setCamposComplementaresErrors((prev) => ({ ...prev, [field]: null }))
+              }
+              status={form.status}
+              formFieldSx={formFieldSx}
+              hideDataAdmissao
+              contactFields={{
+                cpf: form.cpf,
+                telefone: form.telefone,
+                dataNascimento: form.dataNascimento,
+                cpfError,
+                telefoneError,
+                onCpfChange: (value) => {
+                  setForm((prev) => ({ ...prev, cpf: value }));
+                  if (cpfError) setCpfError(null);
+                },
+                onTelefoneChange: (value) => {
+                  setForm((prev) => ({ ...prev, telefone: value }));
+                  if (telefoneError) setTelefoneError(null);
+                },
+                onDataNascimentoChange: (value) =>
+                  setForm((prev) => ({ ...prev, dataNascimento: value })),
+                onCpfBlur: () =>
+                  blurValidacaoCpfTelefone(form.cpf, form.telefone, setCpfError, setTelefoneError),
+                onTelefoneBlur: () =>
+                  blurValidacaoCpfTelefone(form.cpf, form.telefone, setCpfError, setTelefoneError),
+              }}
+            />
 
-            <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                pt: 1,
+                mt: 0.5,
+                borderTop: '1px solid',
+                borderColor: 'var(--border-soft, divider)',
+              }}
+            >
               <Button
                 type="submit"
                 variant="contained"
+                size="large"
                 disabled={submitting}
                 sx={{
-                  minWidth: 200,
+                  minWidth: 220,
+                  px: 4,
                   textTransform: 'none',
+                  fontWeight: 600,
                   bgcolor: 'var(--sentinela-blue)',
                   '&:hover': { bgcolor: 'var(--sentinela-blue)', opacity: 0.9 },
                 }}

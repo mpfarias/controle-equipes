@@ -15,12 +15,11 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    /** Porta dedicada (não 5174) para não coincidir com o “próximo livre” do Vite do SAD em 5173 ocupada. */
-    port: 5180,
+    port: 6180,
     strictPort: true,
   },
   preview: {
     host: '0.0.0.0',
-    port: 4180,
+    port: 5180,
   },
 });

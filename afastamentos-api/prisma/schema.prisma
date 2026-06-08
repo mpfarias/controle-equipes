@@ -37,6 +37,20 @@ model Quadro {
   @@map("quadro")
 }
 
+enum PolicialSexo {
+  MASCULINO
+  FEMININO
+}
+
+enum PolicialCategoriaCnh {
+  A
+  AB
+  B
+  C
+  D
+  E
+}
+
 model Policial {
   id                         Int                        @id @default(autoincrement())
   postoGraduacaoId           Int?
@@ -49,6 +63,27 @@ model Policial {
   telefone                   String?
   dataNascimento             DateTime?
   email                      String?
+  sexo                       PolicialSexo?
+  dataAdmissao               DateTime?                  @db.Date
+  cep                        String?                    @db.VarChar(8)
+  logradouro                 String?                    @db.VarChar(255)
+  complemento                String?                    @db.VarChar(100)
+  cidade                     String?                    @db.VarChar(120)
+  estado                     String?                    @db.VarChar(2)
+  enderecoSemCep             Boolean                    @default(false)
+  contatoEmergenciaNome      String?                    @db.VarChar(200)
+  contatoEmergenciaTelefone  String?                    @db.VarChar(11)
+  /** 0–5 = quantidade exata; 6 = «6 ou mais». */
+  quantidadeDependentes      Int?
+  /** [{ nome, condicao: CONJUGE|FILHO|OUTROS, condicaoOutros? }] */
+  dependentes                Json                       @default("[]")
+  doadorOrgaos               Boolean?
+  categoriaCnh               PolicialCategoriaCnh?
+  cnhNaoHabilitado           Boolean                    @default(false)
+  /** Lista de formações de nível superior. */
+  nivelSuperiorEm            Json                       @default("[]")
+  /** Lista de cursos civis e/ou militares. */
+  cursosCivisMilitares       Json                       @default("[]")
   matriculaComissionadoGdf   String?
   dataPosse                  DateTime?
   equipe                     String?

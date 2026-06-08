@@ -25,6 +25,7 @@ import type {
   Usuario,
 } from '../types';
 import {
+  AGENDA_ANO_MINIMO,
   anosReferenciaDisponiveis,
   chaveDiaLocal,
   diaLocalNoMes,
@@ -89,6 +90,30 @@ export function AgendaInicioSection({ usuario, publicErr, sessao }: AgendaInicio
   const [anoNum, setAnoNum] = useState(refInicial.ano);
   const mesRef = useMemo(() => montarMesReferencia(anoNum, mesNum), [anoNum, mesNum]);
   const anosDisponiveis = useMemo(() => anosReferenciaDisponiveis(), []);
+  const anoMaximo = anosDisponiveis[anosDisponiveis.length - 1] ?? AGENDA_ANO_MINIMO;
+
+  const podeMesAnterior = anoNum > AGENDA_ANO_MINIMO || (anoNum === AGENDA_ANO_MINIMO && mesNum > 1);
+  const podeMesProximo = anoNum < anoMaximo || (anoNum === anoMaximo && mesNum < 12);
+
+  function irMesAnterior() {
+    if (!podeMesAnterior) return;
+    if (mesNum === 1) {
+      setAnoNum((a) => a - 1);
+      setMesNum(12);
+    } else {
+      setMesNum((m) => m - 1);
+    }
+  }
+
+  function irMesProximo() {
+    if (!podeMesProximo) return;
+    if (mesNum === 12) {
+      setAnoNum((a) => a + 1);
+      setMesNum(1);
+    } else {
+      setMesNum((m) => m + 1);
+    }
+  }
   const [itens, setItens] = useState<OrionAgendaCompromisso[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -395,6 +420,10 @@ export function AgendaInicioSection({ usuario, publicErr, sessao }: AgendaInicio
             compromissosPorDia={compromissosPorDia}
             onAdicionarDia={abrirNovoCompromisso}
             onVerCompromisso={setDetalheCompromisso}
+            onMesAnterior={irMesAnterior}
+            onMesProximo={irMesProximo}
+            mesAnteriorDesabilitado={!podeMesAnterior}
+            mesProximoDesabilitado={!podeMesProximo}
           />
         )}
       </Paper>

@@ -59,6 +59,20 @@ export const muiTheme = createTheme({
         },
       },
     },
+    MuiFormControlLabel: {
+      styleOverrides: {
+        root: {
+          flexDirection: 'row',
+          alignItems: 'center',
+          marginLeft: 0,
+          marginRight: 8,
+        },
+        label: {
+          fontSize: '0.95rem',
+          color: designTokens.textPrimary,
+        },
+      },
+    },
     MuiAlert: {
       styleOverrides: {
         standardSuccess: {

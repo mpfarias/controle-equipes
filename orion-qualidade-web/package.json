@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "npx vite",
     "build": "tsc && npx vite build",
-    "preview": "npx vite preview"
+    "preview": "npx vite preview",
+    "start:prod": "vite preview --port 5182 --strictPort --host 0.0.0.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.2",

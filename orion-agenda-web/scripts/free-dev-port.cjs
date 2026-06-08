@@ -1,13 +1,13 @@
 /**
  * Libera a porta do Vite antes de `npm run dev` (evita EADDRINUSE ao reiniciar ou ao subir duas vezes).
- * Padrão 5186 — alinhar com `server.port` em `vite.config.ts` e com `VITE_ORION_AGENDA_PORT`.
- * Override: `AGENDA_DEV_PORT=5187 npm run dev`
+ * Padrão 6186 — alinhar com `vite.config.ts` e `.env.development`.
+ * Override: `AGENDA_DEV_PORT=6188 npm run dev`
  */
 const killPort = require('kill-port');
 
 const raw = process.env.AGENDA_DEV_PORT ?? process.env.VITE_ORION_AGENDA_PORT;
-const parsed = raw != null && String(raw).trim() !== '' ? Number(raw) : 5186;
-const port = Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 5186;
+const parsed = raw != null && String(raw).trim() !== '' ? Number(raw) : 6186;
+const port = Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : 6186;
 
 killPort(port)
   .catch(() => {

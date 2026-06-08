@@ -15,11 +15,11 @@ export default defineConfig({
   },
   server: {
     host: '0.0.0.0',
-    port: 5184,
+    port: 6184,
     strictPort: true,
   },
   preview: {
     host: '0.0.0.0',
-    port: 4184,
+    port: 5184,
   },
 });
