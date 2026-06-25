@@ -171,6 +171,14 @@ export type ResultadoFluxoSistemas =
 
 const STORAGE_KEY = 'orion.sistemaAtivo';
 
+/** Query ao voltar de um módulo Órion sem encerrar sessão — exibe o hub. */
+export const ORION_RETORNO_HUB_PARAM = 'orion_hub';
+
+/** Query enviada por módulos Órion ao fazer logoff — encerra sessão e exibe login no SAD. */
+export const ORION_LOGOUT_ECOSISTEMA_PARAM = 'orion_logout';
+
+const FORCAR_HUB_APOS_MODULO_KEY = 'orion.forcarHub';
+
 export function readSistemaSessao(): string | null {
   try {
     return sessionStorage.getItem(STORAGE_KEY);
@@ -190,6 +198,56 @@ export function writeSistemaSessao(sistemaId: string): void {
 export function clearSistemaSessao(): void {
   try {
     sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Lê `?orion_hub=1` — limpa último sistema e força hub (sessão permanece ativa). */
+export function consumirRetornoHubDaQuery(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(ORION_RETORNO_HUB_PARAM) !== '1') return false;
+    clearSistemaSessao();
+    sessionStorage.setItem(FORCAR_HUB_APOS_MODULO_KEY, '1');
+    params.delete(ORION_RETORNO_HUB_PARAM);
+    const qs = params.toString();
+    const clean = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', clean);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Lê `?orion_logout=1` (logoff em módulo Órion) e remove o parâmetro da URL. */
+export function consumirLogoutEcossistemaDaQuery(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get(ORION_LOGOUT_ECOSISTEMA_PARAM) !== '1') return false;
+    params.delete(ORION_LOGOUT_ECOSISTEMA_PARAM);
+    const qs = params.toString();
+    const clean = `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`;
+    window.history.replaceState(null, '', clean);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function deveForcarHubAposLogoutModulo(): boolean {
+  try {
+    return sessionStorage.getItem(FORCAR_HUB_APOS_MODULO_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function limparForcarHubAposLogoutModulo(): void {
+  try {
+    sessionStorage.removeItem(FORCAR_HUB_APOS_MODULO_KEY);
   } catch {
     /* ignore */
   }
@@ -228,8 +286,9 @@ function resultadoFluxoUmDestino(id: string): ResultadoFluxoSistemas {
 
 /**
  * Define se o usuário entra direto no app, é redirecionado para outro sistema ou deve escolher.
- * - Um único destino: grava sessão e segue (SAD, externo ou Órion Suporte).
- * - Vários destinos: após login sempre pede escolha; em nova carga da página reaproveita a escolha da sessão se válida.
+ * - Após login: sempre hub.
+ * - Recarga da página: só reentra direto no SAD; módulos Órion (Qualidade, Suporte, etc.)
+ *   nunca reabrem sozinhos — evita loop ao voltar do handoff ou dar F5 no hub.
  */
 export function resolverFluxoSistemas(
   usuario: Usuario,
@@ -238,15 +297,26 @@ export function resolverFluxoSistemas(
   const { aposLogin = false } = opcoes;
   const destinos = listaDestinosPosLogin(usuario);
 
-  if (destinos.length === 1) {
-    return resultadoFluxoUmDestino(destinos[0]);
+  if (aposLogin || deveForcarHubAposLogoutModulo()) {
+    return { acao: 'escolher-sistema' };
   }
 
-  if (!aposLogin) {
-    const salvo = readSistemaSessao();
-    if (salvo && destinos.includes(salvo)) {
-      return resultadoFluxoUmDestino(salvo);
-    }
+  const salvo = readSistemaSessao();
+
+  // Recarga com última escolha = SAD → permanece no painel SAD
+  if (salvo === SISTEMA_ID_APP_ATUAL && destinos.includes(SISTEMA_ID_APP_ATUAL)) {
+    writeSistemaSessao(SISTEMA_ID_APP_ATUAL);
+    return { acao: 'app' };
+  }
+
+  // Perfil com único destino SAD → entra direto (sem hub)
+  if (destinos.length === 1 && destinos[0] === SISTEMA_ID_APP_ATUAL) {
+    return resultadoFluxoUmDestino(SISTEMA_ID_APP_ATUAL);
+  }
+
+  // Qualquer outro caso (vários destinos, ou salvo = Qualidade/Suporte/etc.) → hub
+  if (salvo && salvo !== SISTEMA_ID_APP_ATUAL) {
+    clearSistemaSessao();
   }
 
   return { acao: 'escolher-sistema' };

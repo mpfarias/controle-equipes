@@ -14,6 +14,8 @@ export type ChamadaXlsxRow = {
   quemDesligou: string;
   atendente: string;
   motivoEncerramento: string;
+  recordFile: string;
+  recordFileUrl: string;
   longitude: string;
   latitude: string;
 };

@@ -6,6 +6,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { OrionQualidadeService } from './orion-qualidade.service';
 import { Public } from '../auth/public.decorator';
@@ -14,6 +15,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { CreateQualidadeRegistroDto } from './dto/create-qualidade-registro.dto';
 import { UpdateQualidadeRegistroDto } from './dto/update-qualidade-registro.dto';
 import { EquipesPorNomeDto } from './dto/equipes-por-nome.dto';
+import { LocalizacoesChamadasDto } from './dto/localizacoes-chamadas.dto';
 import type { UsuarioOrionQualidadeReq } from './orion-qualidade.service';
 
 /** Campos do `Usuario` Prisma usados pelo módulo Qualidade (JWT / CurrentUser). */
@@ -63,6 +65,86 @@ export class OrionQualidadeController {
     user: UsuarioQualidadeAuth,
   ) {
     return this.orionQualidadeService.statusIntegraSsp(toQualidadeUser(user));
+  }
+
+  @Get('v1/chamadas/listagem')
+  @AnyAuthenticated()
+  listarChamadasTabelaIntegraSsp(
+    @CurrentUser()
+    user: UsuarioQualidadeAuth,
+    @Query('page') page?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const pageNum = page ? Number.parseInt(page, 10) : 1;
+    return this.orionQualidadeService.listarChamadasTabelaIntegraSsp(toQualidadeUser(user), {
+      page: Number.isFinite(pageNum) ? pageNum : 1,
+      dataInicio,
+      dataFim,
+    });
+  }
+
+  @Get('v1/chamadas/:id/gravacao')
+  @AnyAuthenticated()
+  baixarGravacaoChamada(
+    @CurrentUser()
+    user: UsuarioQualidadeAuth,
+    @Param('id') id: string,
+  ) {
+    return this.orionQualidadeService.baixarGravacaoChamadaIntegraSsp(toQualidadeUser(user), id);
+  }
+
+  @Get('v1/chamadas')
+  @AnyAuthenticated()
+  listarChamadasIntegraSsp(
+    @CurrentUser()
+    user: UsuarioQualidadeAuth,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    return this.orionQualidadeService.listarChamadasIntegraSsp(toQualidadeUser(user), {
+      dataInicio,
+      dataFim,
+    });
+  }
+
+  @Post('v1/chamadas/localizacoes')
+  @AnyAuthenticated()
+  localizacoesChamadas(
+    @CurrentUser()
+    user: UsuarioQualidadeAuth,
+    @Body() dto: LocalizacoesChamadasDto,
+  ) {
+    return this.orionQualidadeService.localizacoesChamadasIntegraSsp(
+      toQualidadeUser(user),
+      dto.ids ?? [],
+    );
+  }
+
+  @Get('v1/ocorrencias/naturezas')
+  @AnyAuthenticated()
+  catalogoNaturezasIntegraSsp(
+    @CurrentUser()
+    user: UsuarioQualidadeAuth,
+  ) {
+    return this.orionQualidadeService.catalogoNaturezasIntegraSsp(toQualidadeUser(user));
+  }
+
+  @Get('v1/ocorrencias')
+  @AnyAuthenticated()
+  listarOcorrenciasIntegraSsp(
+    @CurrentUser()
+    user: UsuarioQualidadeAuth,
+    @Query('page') page?: string,
+    @Query('dataInicio') dataInicio?: string,
+    @Query('dataFim') dataFim?: string,
+  ) {
+    const pageNum = page ? Number.parseInt(page, 10) : 1;
+    return this.orionQualidadeService.listarOcorrenciasIntegraSsp(toQualidadeUser(user), {
+      page: Number.isFinite(pageNum) ? pageNum : 1,
+      dataInicio,
+      dataFim,
+    });
   }
 
   @Get('v1/registros')

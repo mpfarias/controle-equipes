@@ -8,6 +8,7 @@ import type { PermissoesPorTela } from '../../utils/permissions';
 import { DashboardSection } from './DashboardSection';
 import { AfastamentosSection } from './AfastamentosSection';
 import { GerarRestricaoAfastamentoSection } from './GerarRestricaoAfastamentoSection';
+import { LivroFeriasSection } from './LivroFeriasSection';
 
 interface AfastamentosGroupSectionProps {
   currentUser: Usuario;
@@ -97,6 +98,9 @@ export function AfastamentosGroupSection({
             openConfirm={openConfirm}
             permissoes={permissoes}
           />
+        )}
+        {subTabAtual === 'livro-ferias' && (
+          <LivroFeriasSection currentUser={currentUser} />
         )}
       </Box>
     </Box>

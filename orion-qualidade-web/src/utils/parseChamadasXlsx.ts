@@ -18,6 +18,8 @@ type ColunaSpec = {
   rotulo: string;
   /** Colunas numéricas longas (ID, Unique ID): prioriza texto exibido no Excel e evita notação científica. */
   modoId?: boolean;
+  /** Se ausente no XLSX, preenche com string vazia em vez de falhar a importação. */
+  opcional?: boolean;
 };
 
 /** Cabeçalhos esperados na primeira linha; `Unique ID` e `Chamador` são sempre duas colunas separadas. */
@@ -36,6 +38,7 @@ const COLUNAS_ESPERADAS: readonly ColunaSpec[] = [
   { campo: 'quemDesligou', rotulo: 'Quem Desligou' },
   { campo: 'atendente', rotulo: 'Atendente' },
   { campo: 'motivoEncerramento', rotulo: 'Motivo Encerramento' },
+  { campo: 'recordFile', rotulo: 'Record file', opcional: true },
   { campo: 'longitude', rotulo: 'Longitude' },
   { campo: 'latitude', rotulo: 'Latitude' },
 ] as const;
@@ -162,11 +165,11 @@ export function parseChamadasXlsxBuffer(buffer: ArrayBuffer): ParseChamadasXlsxR
   const indicePorCampo = new Map<ChamadaXlsxColunaCampo, ColunaSheet>();
   const faltando: string[] = [];
 
-  for (const { campo, rotulo } of COLUNAS_ESPERADAS) {
+  for (const { campo, rotulo, opcional } of COLUNAS_ESPERADAS) {
     const alvo = normalizarCabecalho(rotulo);
     const idx = headerNorm.findIndex((h) => h === alvo);
     if (idx === -1) {
-      faltando.push(rotulo);
+      if (!opcional) faltando.push(rotulo);
     } else {
       indicePorCampo.set(campo, colunasVisiveis[idx]!);
     }
@@ -191,8 +194,11 @@ export function parseChamadasXlsxBuffer(buffer: ArrayBuffer): ParseChamadasXlsxR
 
     const row = {} as ChamadaXlsxRow;
     for (const { campo, modoId } of COLUNAS_ESPERADAS) {
-      row[campo] = textoDaCelula(sheet, R, indicePorCampo.get(campo)!, modoId ?? false);
+      const colIdx = indicePorCampo.get(campo);
+      row[campo] =
+        colIdx == null ? '' : textoDaCelula(sheet, R, colIdx, modoId ?? false);
     }
+    row.recordFileUrl = '';
 
     rows.push(row);
   }

@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../../api';
+import { api, type ListPoliciaisPaginatedParams } from '../../api';
 import type {
   Afastamento,
+  Equipe,
+  EquipeOption,
+  FuncaoOption,
   Policial,
+  PolicialStatus,
   MotivoAfastamentoOption,
   Usuario,
   TrocaServicoAtivaListaItem,
@@ -11,10 +15,15 @@ import {
   STATUS_LABEL,
   POLICIAL_STATUS_OPTIONS,
   formatEquipeLabel,
+  funcoesParaSelecao,
   type PreencherCadastroAfastamentoInput,
 } from '../../constants';
 import { calcularDiasEntreDatas, formatDate, formatPeriodo, formatNome, formatMatricula } from '../../utils/dateUtils';
-import { deduplicarAfastamentosLista } from '../../utils/deduplicarAfastamentos';
+import {
+  deduplicarAfastamentosParaExibicao,
+  deduplicarAfastamentosPorId,
+} from '../../utils/deduplicarAfastamentos';
+import { afastamentoInterfereNasRegrasDoSistema } from '../../utils/afastamentoRegrasBloqueio';
 import { sortPorPatenteENome, sortAfastamentosPorPatenteENome } from '../../utils/sortPoliciais';
 import { createNormalizedInputHandler, handleKeyDownNormalized } from '../../utils/inputUtils';
 import type { PermissoesPorTela } from '../../utils/permissions';
@@ -43,6 +52,9 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Collapse,
+  Divider,
+  Grid,
   List,
   ListItem,
   ListItemText,
@@ -56,6 +68,8 @@ import {
   ToggleButtonGroup,
 } from '@mui/material';
 import ClearIcon from '@mui/icons-material/Clear';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CloseIcon from '@mui/icons-material/Close';
 import PersonIcon from '@mui/icons-material/Person';
 import BadgeIcon from '@mui/icons-material/Badge';
@@ -63,6 +77,8 @@ import GroupsIcon from '@mui/icons-material/Groups';
 import WorkIcon from '@mui/icons-material/Work';
 import EditIcon from '@mui/icons-material/Edit';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import AddIcon from '@mui/icons-material/Add';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
@@ -143,11 +159,6 @@ function tituloIconeDesativarAfastamento(af: Afastamento): string {
   return 'Desativar afastamento';
 }
 
-/** ATIVO e ENCERRADO entram em bloqueios e limites; DESATIVADO (manual) não conta para o sistema. */
-function afastamentoInterfereNasRegrasDoSistema(status: Afastamento['status']): boolean {
-  return status === 'ATIVO' || status === 'ENCERRADO';
-}
-
 const formFieldSx = {
   '& .MuiOutlinedInput-root': {
     backgroundColor: theme.cardBg,
@@ -179,6 +190,46 @@ interface AfastamentosSectionProps {
   onPreencherCadastroConsumed?: () => void;
 }
 
+function observacaoAfastamentoTexto(afastamento: Afastamento): string {
+  return (afastamento.descricao ?? '').trim();
+}
+
+function afastamentoTemObservacao(afastamento: Afastamento): boolean {
+  return observacaoAfastamentoTexto(afastamento).length > 0;
+}
+
+function usuarioPodeVerTodosPoliciaisPrevisao(user: Usuario): boolean {
+  const nivelNome = user.nivel?.nome;
+  return (
+    nivelNome === 'ADMINISTRADOR' ||
+    nivelNome === 'SAD' ||
+    nivelNome === 'COMANDO' ||
+    user.isAdmin === true
+  );
+}
+
+function aplicarFiltrosEquipeStatusFuncaoPrevisao(
+  params: ListPoliciaisPaginatedParams,
+  opcoes: {
+    usuarioPodeVerTodos: boolean;
+    equipeUsuario?: string | null;
+    equipesSelecionadas: Equipe[];
+    statusSelecionados: PolicialStatus[];
+    funcoesSelecionadas: number[];
+  },
+): ListPoliciaisPaginatedParams {
+  const { usuarioPodeVerTodos, equipeUsuario, equipesSelecionadas, statusSelecionados, funcoesSelecionadas } =
+    opcoes;
+  if (equipesSelecionadas.length > 0) {
+    params.equipes = equipesSelecionadas;
+  } else if (!usuarioPodeVerTodos && equipeUsuario) {
+    params.equipe = equipeUsuario;
+  }
+  if (statusSelecionados.length > 0) params.statuses = statusSelecionados;
+  if (funcoesSelecionadas.length > 0) params.funcaoIds = funcoesSelecionadas;
+  return params;
+}
+
 export function AfastamentosSection({
   currentUser,
   openConfirm,
@@ -199,12 +250,18 @@ export function AfastamentosSection({
   };
 
   const [afastamentos, setAfastamentos] = useState<Afastamento[]>([]);
+  /** Lista completa (sem colapso por chave) — usada nas validações de cadastro. */
+  const [afastamentosRegras, setAfastamentosRegras] = useState<Afastamento[]>([]);
   const [policiais, setPoliciais] = useState<Policial[]>([]);
   const [motivos, setMotivos] = useState<MotivoAfastamentoOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [cadastroFeedbackModal, setCadastroFeedbackModal] = useState<{
+    tipo: 'success' | 'error';
+    message: string;
+  } | null>(null);
   const [form, setForm] = useState(initialForm);
   const [motivoOutroTexto, setMotivoOutroTexto] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -251,6 +308,7 @@ export function AfastamentosSection({
   const [itensPorPagina, setItensPorPagina] = useState(20);
 
   const pdfImportInputRef = useRef<HTMLInputElement | null>(null);
+  const cadastroSucessoIrParaListaRef = useRef(false);
   const [pdfImportModalOpen, setPdfImportModalOpen] = useState(false);
   const [pdfImportLoading, setPdfImportLoading] = useState(false);
   const [pdfImportErro, setPdfImportErro] = useState<string | null>(null);
@@ -296,7 +354,7 @@ export function AfastamentosSection({
     if (!initialCadastro || motivos.length === 0) return;
     const motivoFerias = motivos.find((m) => m.nome?.toLowerCase() === 'férias');
     if (!motivoFerias) return;
-    setTabAtiva(0);
+    setTabAtiva(1);
     const inicioLista = Math.max(ANO_EXERCICIO_FERIAS_MINIMO, anoCivilAtual - 5);
     const anoExInformado = initialCadastro.anoExercicioFerias;
     const anoExValidoNaLista =
@@ -323,6 +381,12 @@ export function AfastamentosSection({
   const [mesFiltroPrevisao, setMesFiltroPrevisao] = useState<number | ''>('');
   /** Exercício da previsão na aba (lista, filtro por mês, 1/12 e gravação quando ainda não há registro). */
   const [anoFiltroPrevisao, setAnoFiltroPrevisao] = useState<number>(() => new Date().getFullYear());
+  const [filtrosPrevisaoExpanded, setFiltrosPrevisaoExpanded] = useState(false);
+  const [equipesSelecionadasPrevisao, setEquipesSelecionadasPrevisao] = useState<Equipe[]>([]);
+  const [statusSelecionadosPrevisao, setStatusSelecionadosPrevisao] = useState<PolicialStatus[]>([]);
+  const [funcoesSelecionadasPrevisao, setFuncoesSelecionadasPrevisao] = useState<number[]>([]);
+  const [equipesPrevisaoCatalogo, setEquipesPrevisaoCatalogo] = useState<EquipeOption[]>([]);
+  const [funcoesPrevisaoCatalogo, setFuncoesPrevisaoCatalogo] = useState<FuncaoOption[]>([]);
   const [modalPolicialOpen, setModalPolicialOpen] = useState(false);
   const [policialSelecionado, setPolicialSelecionado] = useState<Policial | null>(null);
   const policialInfoModalIdRef = useRef<number | null>(null);
@@ -379,6 +443,45 @@ export function AfastamentosSection({
   }>({ min: null, max: null });
   /** Uma vez: ao abrir a aba pela primeira vez, sugere o exercício mais recente com previsão. */
   const previsaoAnoInicialJaSugeridoRef = useRef(false);
+
+  const usuarioPodeVerTodosPrevisao = useMemo(
+    () => usuarioPodeVerTodosPoliciaisPrevisao(currentUser),
+    [currentUser],
+  );
+
+  const funcoesPrevisaoOrdenadas = useMemo(() => {
+    return [...funcoesParaSelecao(funcoesPrevisaoCatalogo).filter((f) => f.ativo !== false)].sort((a, b) =>
+      a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }),
+    );
+  }, [funcoesPrevisaoCatalogo]);
+
+  const equipesPrevisaoDisponiveis = useMemo(() => {
+    return [...equipesPrevisaoCatalogo]
+      .filter((e) => e.ativo && e.nome !== 'SEM_EQUIPE')
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }));
+  }, [equipesPrevisaoCatalogo]);
+
+  const opcoesFiltroPrevisao = useMemo(
+    () => ({
+      usuarioPodeVerTodos: usuarioPodeVerTodosPrevisao,
+      equipeUsuario: currentUser.equipe,
+      equipesSelecionadas: equipesSelecionadasPrevisao,
+      statusSelecionados: statusSelecionadosPrevisao,
+      funcoesSelecionadas: funcoesSelecionadasPrevisao,
+    }),
+    [
+      usuarioPodeVerTodosPrevisao,
+      currentUser.equipe,
+      equipesSelecionadasPrevisao,
+      statusSelecionadosPrevisao,
+      funcoesSelecionadasPrevisao,
+    ],
+  );
+
+  const temFiltrosAvancadosPrevisao =
+    equipesSelecionadasPrevisao.length > 0 ||
+    statusSelecionadosPrevisao.length > 0 ||
+    funcoesSelecionadasPrevisao.length > 0;
 
   const anosSelectFiltroPrevisao = useMemo(() => {
     const civil = anoCivilAtual;
@@ -529,7 +632,9 @@ export function AfastamentosSection({
           })
         : afastamentosData;
       
-      setAfastamentos(deduplicarAfastamentosLista(afastamentosFiltrados));
+      const listaPorId = deduplicarAfastamentosPorId(afastamentosFiltrados);
+      setAfastamentosRegras(listaPorId);
+      setAfastamentos(deduplicarAfastamentosParaExibicao(listaPorId));
       setPoliciais(policiaisFiltrados);
       setError(null);
     } catch (err) {
@@ -607,16 +712,9 @@ export function AfastamentosSection({
     ) => {
     try {
       setLoadingPrevisao(true);
-      const nivelNome = currentUser.nivel?.nome;
-      const usuarioPodeVerTodos =
-        nivelNome === 'ADMINISTRADOR' ||
-        nivelNome === 'SAD' ||
-        nivelNome === 'COMANDO' ||
-        currentUser.isAdmin === true;
-
       const anoListagem = opts?.feriasAnoOverride ?? anoFiltroPrevisao;
       
-      const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+      const params: ListPoliciaisPaginatedParams = {
         page,
         pageSize,
         includeAfastamentos: false,
@@ -631,9 +729,7 @@ export function AfastamentosSection({
         params.mesPrevisaoFerias = mesFiltroPrevisao;
         params.anoPrevisaoFerias = anoListagem;
       }
-      if (!usuarioPodeVerTodos && currentUser.equipe) {
-        params.equipe = currentUser.equipe;
-      }
+      aplicarFiltrosEquipeStatusFuncaoPrevisao(params, opcoesFiltroPrevisao);
       
       const data = await api.listPoliciaisPaginated(params);
       setPoliciaisPrevisao(data.Policiales);
@@ -649,25 +745,18 @@ export function AfastamentosSection({
       setLoadingPrevisao(false);
     }
   },
-  [currentUser, searchTermPrevisao, mesFiltroPrevisao, anoFiltroPrevisao],
+  [searchTermPrevisao, mesFiltroPrevisao, anoFiltroPrevisao, opcoesFiltroPrevisao],
   );
 
   useEffect(() => {
-    if (tabAtiva === 1) {
+    if (tabAtiva === 2) {
       void carregarPoliciaisPrevisao(paginaAtualPrevisao, itensPorPaginaPrevisao);
     }
   }, [tabAtiva, paginaAtualPrevisao, itensPorPaginaPrevisao, carregarPoliciaisPrevisao]);
 
   // Carregar dados para "Excesso de policiais" (1/12 do efetivo) quando estiver na aba Previsão de férias
   useEffect(() => {
-    if (tabAtiva !== 1) return;
-    const nivelNome = currentUser.nivel?.nome;
-    const usuarioPodeVerTodos =
-      nivelNome === 'ADMINISTRADOR' ||
-      nivelNome === 'SAD' ||
-      nivelNome === 'COMANDO' ||
-      currentUser.isAdmin === true;
-    const equipeParam = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
+    if (tabAtiva !== 2) return;
     const anoRef = anoFiltroPrevisao;
     const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -675,7 +764,7 @@ export function AfastamentosSection({
       setLoadingExcesso(true);
       try {
         /** Efetivo para 1/12: exclui DESATIVADO e COMISSIONADO (comissionados não entram no limite). */
-        const baseParams: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        const baseParams: ListPoliciaisPaginatedParams = {
           page: 1,
           pageSize: 1,
           includeAfastamentos: false,
@@ -683,7 +772,7 @@ export function AfastamentosSection({
           feriasAno: anoRef,
           excluirComissionadosParaLimiteFerias: true,
         };
-        if (equipeParam) baseParams.equipe = equipeParam;
+        aplicarFiltrosEquipeStatusFuncaoPrevisao(baseParams, opcoesFiltroPrevisao);
         const resEfetivo = await api.listPoliciaisPaginated(baseParams);
         const efetivoTotal = resEfetivo.totalDisponiveis ?? resEfetivo.total ?? 0;
         const limitePorMes = Math.floor(efetivoTotal / 12);
@@ -691,7 +780,7 @@ export function AfastamentosSection({
         const porMes: { mes: number; nome: string; total: number }[] = [];
         await Promise.all(
           [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(async (mes) => {
-            const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+            const params: ListPoliciaisPaginatedParams = {
               page: 1,
               pageSize: 1,
               includeAfastamentos: false,
@@ -701,7 +790,7 @@ export function AfastamentosSection({
               anoPrevisaoFerias: anoRef,
               excluirComissionadosParaLimiteFerias: true,
             };
-            if (equipeParam) params.equipe = equipeParam;
+            aplicarFiltrosEquipeStatusFuncaoPrevisao(params, opcoesFiltroPrevisao);
             const res = await api.listPoliciaisPaginated(params);
             porMes.push({ mes, nome: nomesMeses[mes - 1], total: res.total });
           })
@@ -717,7 +806,7 @@ export function AfastamentosSection({
       }
     };
     void carregarExcesso();
-  }, [tabAtiva, currentUser, anoFiltroPrevisao]);
+  }, [tabAtiva, anoFiltroPrevisao, opcoesFiltroPrevisao]);
 
   const abrirModalExcessoMes = useCallback(
     async (mes: number, nome: string) => {
@@ -726,14 +815,7 @@ export function AfastamentosSection({
       setPoliciaisExcessoMes([]);
       setLoadingPoliciaisExcesso(true);
       try {
-        const nivelNome = currentUser.nivel?.nome;
-        const usuarioPodeVerTodos =
-          nivelNome === 'ADMINISTRADOR' ||
-          nivelNome === 'SAD' ||
-          nivelNome === 'COMANDO' ||
-          currentUser.isAdmin === true;
-        const equipeParam = !usuarioPodeVerTodos && currentUser.equipe ? currentUser.equipe : undefined;
-        const params: Parameters<typeof api.listPoliciaisPaginated>[0] = {
+        const params: ListPoliciaisPaginatedParams = {
           page: 1,
           pageSize: 500,
           includeAfastamentos: false,
@@ -743,7 +825,7 @@ export function AfastamentosSection({
           anoPrevisaoFerias: anoFiltroPrevisao,
           excluirComissionadosParaLimiteFerias: true,
         };
-        if (equipeParam) params.equipe = equipeParam;
+        aplicarFiltrosEquipeStatusFuncaoPrevisao(params, opcoesFiltroPrevisao);
         const res = await api.listPoliciaisPaginated(params);
         setPoliciaisExcessoMes(res.Policiales ?? []);
       } catch (err) {
@@ -752,7 +834,7 @@ export function AfastamentosSection({
         setLoadingPoliciaisExcesso(false);
       }
     },
-    [currentUser, anoFiltroPrevisao]
+    [anoFiltroPrevisao, opcoesFiltroPrevisao],
   );
 
   const mesesPrevisao = [
@@ -772,7 +854,7 @@ export function AfastamentosSection({
   ];
 
   useEffect(() => {
-    if (tabAtiva !== 1) return;
+    if (tabAtiva !== 2) return;
     void (async () => {
       try {
         const { ano, anoMinimo } = await api.getUltimoAnoPrevisaoFerias();
@@ -811,12 +893,34 @@ export function AfastamentosSection({
   );
 
   useEffect(() => {
-    if (tabAtiva === 1) {
+    if (tabAtiva === 2) {
       setPaginaAtualPrevisao(1);
     } else {
       setSearchTermPrevisao('');
     }
   }, [searchTermPrevisao, tabAtiva]);
+
+  useEffect(() => {
+    if (tabAtiva !== 2) return;
+    setPaginaAtualPrevisao(1);
+  }, [
+    tabAtiva,
+    mesFiltroPrevisao,
+    anoFiltroPrevisao,
+    equipesSelecionadasPrevisao,
+    statusSelecionadosPrevisao,
+    funcoesSelecionadasPrevisao,
+  ]);
+
+  useEffect(() => {
+    if (tabAtiva !== 2) return;
+    void Promise.all([api.listEquipes(), api.listFuncoes()])
+      .then(([equipes, funcoes]) => {
+        setEquipesPrevisaoCatalogo(equipes);
+        setFuncoesPrevisaoCatalogo(funcoes);
+      })
+      .catch((err) => console.error('Erro ao carregar filtros da previsão de férias:', err));
+  }, [tabAtiva]);
 
   // Função calcularDiasEntreDatas importada de utils/dateUtils
 
@@ -828,8 +932,8 @@ export function AfastamentosSection({
     opts?: { porExercicioFerias?: boolean },
   ): number => {
     const porExercicio = opts?.porExercicioFerias ?? false;
-    const afastamentosDoAno = afastamentos.filter((afastamento) => {
-      if (!afastamentoInterfereNasRegrasDoSistema(afastamento.status)) {
+    const afastamentosDoAno = afastamentosRegras.filter((afastamento) => {
+      if (!afastamentoInterfereNasRegrasDoSistema(afastamento)) {
         return false;
       }
       if (afastamento.policialId !== policialId || afastamento.motivoId !== motivoId) {
@@ -854,7 +958,7 @@ export function AfastamentosSection({
     }
 
     return totalDias;
-  }, [afastamentos]);
+  }, [afastamentosRegras]);
 
 
   // Função para verificar se dois períodos se sobrepõem
@@ -949,8 +1053,8 @@ export function AfastamentosSection({
 
     // Afastamentos ativos ou encerrados (gozo já ocorrido) que se sobrepõem ao período; desativado manual não conta.
     // Excluindo o próprio policial que está sendo cadastrado
-    const conflitos = afastamentos.filter((afastamento) => {
-      if (!afastamentoInterfereNasRegrasDoSistema(afastamento.status)) {
+    const conflitos = afastamentosRegras.filter((afastamento) => {
+      if (!afastamentoInterfereNasRegrasDoSistema(afastamento)) {
         return false;
       }
       // Excluir o próprio policial
@@ -968,7 +1072,7 @@ export function AfastamentosSection({
     });
 
     return conflitos;
-  }, [afastamentos, periodosSobrepostos]);
+  }, [afastamentosRegras, periodosSobrepostos]);
 
   const verificarConflitoTrocaServico = useCallback(
     async (policialId: number, dataInicio: string, dataFim?: string | null): Promise<{
@@ -1009,6 +1113,23 @@ export function AfastamentosSection({
     },
     [],
   );
+
+  const mostrarErroCadastro = useCallback((message: string) => {
+    setCadastroFeedbackModal({ tipo: 'error', message });
+  }, []);
+
+  const mostrarSucessoCadastro = useCallback((message: string) => {
+    cadastroSucessoIrParaListaRef.current = true;
+    setCadastroFeedbackModal({ tipo: 'success', message });
+  }, []);
+
+  const fecharFeedbackCadastro = useCallback(() => {
+    if (cadastroSucessoIrParaListaRef.current) {
+      cadastroSucessoIrParaListaRef.current = false;
+      setTabAtiva(0);
+    }
+    setCadastroFeedbackModal(null);
+  }, []);
 
   const submeterAfastamento = useCallback(async () => {
     if (submitting) return;
@@ -1061,7 +1182,7 @@ export function AfastamentosSection({
         dataFim: dataFimFinal || undefined,
         ...(cadastroEhFerias && anoExValido ? { anoExercicioFerias: anoExNum } : {}),
       });
-      setSuccess('Afastamento cadastrado com sucesso.');
+      mostrarSucessoCadastro('Afastamento cadastrado com sucesso.');
       setForm(initialForm);
       setCalcularPeriodo(false);
       setQuantidadeDias('');
@@ -1074,12 +1195,12 @@ export function AfastamentosSection({
       if (isApiErroSobreposicaoPeriodoPolicial(msg)) {
         setPeriodoMismoPolicialModal({ open: true, message: msg });
       } else {
-        setError(msg || 'Não foi possível criar o afastamento.');
+        mostrarErroCadastro(msg || 'Não foi possível criar o afastamento.');
       }
     } finally {
       setSubmitting(false);
     }
-  }, [form, calcularPeriodo, quantidadeDias, motivos, motivoOutroTexto, carregarDados, onChanged, submitting]);
+  }, [form, calcularPeriodo, quantidadeDias, motivos, motivoOutroTexto, carregarDados, onChanged, submitting, mostrarSucessoCadastro, mostrarErroCadastro]);
 
   const abrirConfirmacaoCadastro = useCallback(
     (dataFimParaValidacao: string | null) => {
@@ -1127,40 +1248,41 @@ export function AfastamentosSection({
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-      setError(null);
-      setSuccess(null);
+    setError(null);
+    setSuccess(null);
+    setCadastroFeedbackModal(null);
 
     if (!form.policialId) {
-      setError('Selecione um policial.');
+      mostrarErroCadastro('Selecione um policial.');
       return;
     }
 
     if (!form.motivoId || form.motivoId === 0) {
-      setError('Selecione um motivo do afastamento.');
+      mostrarErroCadastro('Selecione um motivo do afastamento.');
       return;
     }
 
     if (!form.seiNumero.trim()) {
-      setError('Informe o SEI nº.');
+      mostrarErroCadastro('Informe o SEI nº.');
       return;
     }
 
     // Buscar o motivo selecionado
     const motivoSelecionado = motivos.find((m) => m.id === form.motivoId);
     if (!motivoSelecionado) {
-      setError('Motivo selecionado não encontrado.');
+      mostrarErroCadastro('Motivo selecionado não encontrado.');
       return;
     }
     const motivoNome = motivoSelecionado.nome;
     const motivoEhOutro =
       motivoNome.toLowerCase() === 'outro' || motivoNome.toLowerCase() === 'outros';
     if (motivoEhOutro && !motivoOutroTexto.trim()) {
-      setError('Informe o motivo quando selecionar "Outro".');
+      mostrarErroCadastro('Informe o motivo quando selecionar "Outro".');
       return;
     }
 
     if (!form.dataInicio) {
-      setError('Informe a data de início.');
+      mostrarErroCadastro('Informe a data de início.');
       return;
     }
 
@@ -1184,9 +1306,9 @@ export function AfastamentosSection({
       }
     }
     
-    const afastamentosDoMesmoPolicial = afastamentos.filter(
+    const afastamentosDoMesmoPolicial = afastamentosRegras.filter(
       (afastamento) =>
-        afastamento.policialId === policialId && afastamentoInterfereNasRegrasDoSistema(afastamento.status),
+        afastamento.policialId === policialId && afastamentoInterfereNasRegrasDoSistema(afastamento),
     );
 
     // Verificar se algum afastamento do mesmo policial se sobrepõe com o período informado
@@ -1232,11 +1354,11 @@ export function AfastamentosSection({
       // Verificar se o policial tem previsão de férias cadastrada
       const policialSelecionado = policiais.find((p) => p.id.toString() === form.policialId);
       if (!policialSelecionado) {
-        setError('Selecione um policial.');
+        mostrarErroCadastro('Selecione um policial.');
         return;
       }
       if (!policialTemPrevisaoFeriasParaGozo(policialSelecionado)) {
-        setError(
+        mostrarErroCadastro(
           'Não é possível cadastrar férias sem previsão de férias para o exercício. Cadastre a previsão na aba Previsão de férias (para exercícios anteriores basta informar o ano; no gozo informe data de início e data de término).',
         );
         return;
@@ -1248,12 +1370,12 @@ export function AfastamentosSection({
       // Se calcularPeriodo estiver marcado, validar quantidadeDias
       if (calcularPeriodo) {
         if (!quantidadeDias || parseInt(quantidadeDias, 10) <= 0) {
-          setError('Para férias e abono, é necessário informar a quantidade de dias.');
+          mostrarErroCadastro('Para férias e abono, é necessário informar a quantidade de dias.');
           return;
         }
       } else {
         if (!form.dataFim) {
-          setError('Para férias e abono, é necessário informar a data de término.');
+          mostrarErroCadastro('Para férias e abono, é necessário informar a data de término.');
           return;
         }
       }
@@ -1264,11 +1386,11 @@ export function AfastamentosSection({
       if (motivoNome === 'Férias') {
         const motivoFeriasId = motivos.find((m) => m.nome === 'Férias')?.id;
         if (motivoFeriasId) {
-          const fériasExistentes = afastamentos.filter(
+          const fériasExistentes = afastamentosRegras.filter(
             (afastamento) =>
               afastamento.policialId === policialId &&
               afastamento.motivoId === motivoFeriasId &&
-              afastamentoInterfereNasRegrasDoSistema(afastamento.status),
+              afastamentoInterfereNasRegrasDoSistema(afastamento),
           );
 
         for (const feriasExistente of fériasExistentes) {
@@ -1281,7 +1403,7 @@ export function AfastamentosSection({
           );
 
           if (haSobreposicao) {
-            setError(
+            mostrarErroCadastro(
               'Policial já em usufruto de férias no período selecionado. Alterar a data.',
             );
             return;
@@ -1299,11 +1421,11 @@ export function AfastamentosSection({
           : anoGozo;
 
       if (motivoNome === 'Férias' && form.anoExercicioFerias !== '' && Number.isNaN(anoRef)) {
-        setError('Selecione um ano de exercício válido ou deixe o padrão (mesmo ano do gozo).');
+        mostrarErroCadastro('Selecione um ano de exercício válido ou deixe o padrão (mesmo ano do gozo).');
         return;
       }
       if (motivoNome === 'Férias' && form.anoExercicioFerias !== '' && anoRef > anoGozo) {
-        setError('O ano de exercício não pode ser posterior ao ano da data de início do gozo.');
+        mostrarErroCadastro('O ano de exercício não pode ser posterior ao ano da data de início do gozo.');
         return;
       }
 
@@ -1322,7 +1444,7 @@ export function AfastamentosSection({
 
       // Validar se o período solicitado ultrapassa o limite individual
       if (diasSolicitados > limiteDias) {
-        setError(
+        mostrarErroCadastro(
           `O período de ${motivoNome} não pode ser superior a ${limiteDias} dias. Período informado: ${diasSolicitados} dias.`,
         );
         return;
@@ -1332,7 +1454,7 @@ export function AfastamentosSection({
       if (totalAposCadastro > limiteDias) {
         const diasRestantes = limiteDias - diasUsados;
         const rotuloPrazo = motivoNome === 'Férias' ? `no exercício de ${anoRef}` : 'no ano';
-        setError(
+        mostrarErroCadastro(
           `O policial já usufruiu ${diasUsados} dias de ${motivoNome} ${rotuloPrazo}, restando apenas ${diasRestantes} dias. O período solicitado de ${diasSolicitados} dias ultrapassa o limite de ${limiteDias} dias.`,
         );
         return;
@@ -1353,7 +1475,7 @@ export function AfastamentosSection({
         return;
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao verificar conflito com troca de serviço.');
+      mostrarErroCadastro(e instanceof Error ? e.message : 'Falha ao verificar conflito com troca de serviço.');
       return;
     }
 
@@ -1394,7 +1516,7 @@ export function AfastamentosSection({
         return;
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao verificar conflito com troca de serviço.');
+      mostrarErroCadastro(e instanceof Error ? e.message : 'Falha ao verificar conflito com troca de serviço.');
       return;
     }
 
@@ -1907,12 +2029,13 @@ export function AfastamentosSection({
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={tabAtiva} onChange={(_, newValue) => setTabAtiva(newValue)}>
+          <Tab label="Listar afastamentos" />
           <Tab label="Cadastrar afastamento" />
           <Tab label="Previsão de férias" />
         </Tabs>
       </Box>
 
-      {tabAtiva === 0 && (
+      {tabAtiva === 1 && (
         <>
         {EXIBIR_BOTAO_TESTE_PDF ? (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5, mb: 2 }}>
@@ -2277,7 +2400,11 @@ export function AfastamentosSection({
           </Button>
         </Box>
       </form>
+        </>
+      )}
 
+      {tabAtiva === 0 && (
+      <>
       <div>
         <div className="section-header">
           <h3>Lista de afastamentos</h3>
@@ -2477,15 +2604,37 @@ export function AfastamentosSection({
                   </td>
                   <td>{formatMatricula(afastamento.policial.matricula)}</td>
                   <td>
-                    <div>{formatNome(afastamento.motivo.nome)}</div>
-                    {afastamento.motivo.nome === 'Férias' &&
-                      afastamento.anoExercicioFerias != null && (
-                        <Chip
-                          size="small"
-                          label={`Exercício ${afastamento.anoExercicioFerias}`}
-                          sx={{ mt: 0.5, height: 22, fontSize: '0.7rem' }}
-                        />
+                    <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75 }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <div>{formatNome(afastamento.motivo.nome)}</div>
+                        {afastamento.motivo.nome === 'Férias' &&
+                          afastamento.anoExercicioFerias != null && (
+                            <Chip
+                              size="small"
+                              label={`Exercício ${afastamento.anoExercicioFerias}`}
+                              sx={{ mt: 0.5, height: 22, fontSize: '0.7rem' }}
+                            />
+                          )}
+                      </Box>
+                      {afastamentoTemObservacao(afastamento) && (
+                        <Tooltip
+                          title={observacaoAfastamentoTexto(afastamento)}
+                          arrow
+                          placement="top"
+                          slotProps={{
+                            tooltip: {
+                              sx: { maxWidth: 360, whiteSpace: 'pre-wrap', fontSize: '0.8125rem' },
+                            },
+                          }}
+                        >
+                          <WarningAmberIcon
+                            fontSize="small"
+                            sx={{ color: theme.warning, flexShrink: 0, mt: 0.25, cursor: 'help' }}
+                            aria-label="Observação cadastrada"
+                          />
+                        </Tooltip>
                       )}
+                    </Box>
                   </td>
                   <td>{afastamento.seiNumero}</td>
                   <td>
@@ -2786,7 +2935,7 @@ export function AfastamentosSection({
         </>
       )}
 
-      {tabAtiva === 1 && (
+      {tabAtiva === 2 && (
         <Box sx={{ p: 3 }}>
           {/* Excesso de policiais (1/12 do efetivo) */}
           <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -2932,7 +3081,210 @@ export function AfastamentosSection({
                 <MenuItem value={100}>100</MenuItem>
               </Select>
             </FormControl>
+            <Button
+              variant="outlined"
+              size="medium"
+              endIcon={filtrosPrevisaoExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              onClick={() => setFiltrosPrevisaoExpanded((v) => !v)}
+            >
+              Filtros
+              {temFiltrosAvancadosPrevisao ? (
+                <Chip
+                  size="small"
+                  label={
+                    equipesSelecionadasPrevisao.length +
+                    statusSelecionadosPrevisao.length +
+                    funcoesSelecionadasPrevisao.length
+                  }
+                  sx={{ ml: 1, height: 20, minWidth: 20 }}
+                />
+              ) : null}
+            </Button>
           </Box>
+
+          <Collapse in={filtrosPrevisaoExpanded}>
+            <Paper
+              elevation={2}
+              sx={{
+                p: 3,
+                mb: 2,
+                backgroundColor: theme.cardBg,
+                border: `1px solid ${theme.borderSoft}`,
+              }}
+            >
+              <Grid container spacing={3} direction="column">
+                {usuarioPodeVerTodosPrevisao ? (
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                      Filtrar por equipe
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(equipesPrevisaoDisponiveis.length / 2))}, 1fr)`,
+                        gap: '8px 16px',
+                        mb: 2,
+                      }}
+                    >
+                      {equipesPrevisaoDisponiveis.map((equipe) => (
+                        <Box key={equipe.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Checkbox
+                            checked={equipesSelecionadasPrevisao.includes(equipe.nome)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setEquipesSelecionadasPrevisao([...equipesSelecionadasPrevisao, equipe.nome]);
+                              } else {
+                                setEquipesSelecionadasPrevisao(
+                                  equipesSelecionadasPrevisao.filter((eq) => eq !== equipe.nome),
+                                );
+                              }
+                            }}
+                            size="small"
+                          />
+                          <Typography variant="body2">{formatNome(equipe.nome)}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() =>
+                          setEquipesSelecionadasPrevisao(equipesPrevisaoDisponiveis.map((eq) => eq.nome))
+                        }
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Selecionar todos
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => setEquipesSelecionadasPrevisao([])}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Limpar
+                      </Button>
+                    </Box>
+                  </Grid>
+                ) : null}
+
+                <Grid size={{ xs: 12 }}>
+                  {usuarioPodeVerTodosPrevisao ? <Divider sx={{ my: 1 }} /> : null}
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                    Filtrar por status
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                    {POLICIAL_STATUS_OPTIONS.map((status) => (
+                      <Box key={status.value} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Checkbox
+                          checked={statusSelecionadosPrevisao.includes(status.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setStatusSelecionadosPrevisao([...statusSelecionadosPrevisao, status.value]);
+                            } else {
+                              setStatusSelecionadosPrevisao(
+                                statusSelecionadosPrevisao.filter((s) => s !== status.value),
+                              );
+                            }
+                          }}
+                          size="small"
+                        />
+                        <Typography variant="body2">{status.label}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() =>
+                        setStatusSelecionadosPrevisao(POLICIAL_STATUS_OPTIONS.map((s) => s.value))
+                      }
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Selecionar todos
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setStatusSelecionadosPrevisao([])}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Limpar
+                    </Button>
+                  </Box>
+                </Grid>
+
+                <Grid size={{ xs: 12 }}>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
+                    Filtrar por função
+                  </Typography>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${Math.max(1, Math.ceil(funcoesPrevisaoOrdenadas.length / 2))}, 1fr)`,
+                      gap: '8px 16px',
+                      mb: 2,
+                    }}
+                  >
+                    {funcoesPrevisaoOrdenadas.map((funcao) => (
+                      <Box key={funcao.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Checkbox
+                          checked={funcoesSelecionadasPrevisao.includes(funcao.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFuncoesSelecionadasPrevisao([...funcoesSelecionadasPrevisao, funcao.id]);
+                            } else {
+                              setFuncoesSelecionadasPrevisao(
+                                funcoesSelecionadasPrevisao.filter((id) => id !== funcao.id),
+                              );
+                            }
+                          }}
+                          size="small"
+                        />
+                        <Typography variant="body2">{formatNome(funcao.nome)}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setFuncoesSelecionadasPrevisao(funcoesPrevisaoOrdenadas.map((f) => f.id))}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Selecionar todos
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => setFuncoesSelecionadasPrevisao([])}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Limpar
+                    </Button>
+                  </Box>
+                </Grid>
+              </Grid>
+
+              <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                <Button
+                  variant="text"
+                  size="small"
+                  disabled={!temFiltrosAvancadosPrevisao}
+                  onClick={() => {
+                    setEquipesSelecionadasPrevisao([]);
+                    setStatusSelecionadosPrevisao([]);
+                    setFuncoesSelecionadasPrevisao([]);
+                  }}
+                  sx={{ textTransform: 'none' }}
+                >
+                  Limpar todos os filtros
+                </Button>
+              </Box>
+            </Paper>
+          </Collapse>
 
           {/* Contador de Registros */}
           <div style={{ 
@@ -2948,9 +3300,11 @@ export function AfastamentosSection({
             ) : (
               <>
                 {totalPoliciaisPrevisao === 0 ? (
-                  'Nenhum policial encontrado'
+                  temFiltrosAvancadosPrevisao || searchTermPrevisao.trim() || mesFiltroPrevisao !== ''
+                    ? 'Nenhum policial encontrado com os filtros atuais'
+                    : 'Nenhum policial encontrado'
                 ) : (
-                  `Total: ${totalPoliciaisPrevisao} policial(is)`
+                  `Total: ${totalPoliciaisPrevisao} policial(is)${temFiltrosAvancadosPrevisao ? ' (com filtros aplicados)' : ''}`
                 )}
               </>
             )}
@@ -3309,6 +3663,62 @@ export function AfastamentosSection({
           </Dialog>
         </Box>
       )}
+
+      {/* Modal — resultado do cadastro de afastamento */}
+      <Dialog
+        open={Boolean(cadastroFeedbackModal)}
+        onClose={fecharFeedbackCadastro}
+        maxWidth="sm"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              backgroundColor: 'var(--card-bg)',
+              border: '1px solid var(--border-soft)',
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, fontWeight: 700, pb: 1 }}>
+          {cadastroFeedbackModal?.tipo === 'success' ? (
+            <>
+              <CheckCircleIcon sx={{ color: theme.success, fontSize: 28 }} />
+              Cadastro realizado
+            </>
+          ) : (
+            <>
+              <ErrorOutlineIcon sx={{ color: theme.error, fontSize: 28 }} />
+              Não foi possível cadastrar
+            </>
+          )}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', color: 'var(--text-secondary)' }}>
+            {cadastroFeedbackModal?.message}
+          </Typography>
+          {cadastroFeedbackModal?.tipo === 'success' ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+              O registro já está disponível na lista de afastamentos.
+            </Typography>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button
+            variant="contained"
+            onClick={fecharFeedbackCadastro}
+            sx={{
+              textTransform: 'none',
+              bgcolor: cadastroFeedbackModal?.tipo === 'success' ? theme.success : theme.error,
+              '&:hover': {
+                bgcolor: cadastroFeedbackModal?.tipo === 'success' ? theme.success : theme.error,
+                opacity: 0.9,
+              },
+            }}
+          >
+            {cadastroFeedbackModal?.tipo === 'success' ? 'Ver lista' : 'Entendi'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Modal de Conflitos de Afastamento */}
       {conflitosModal.open && (

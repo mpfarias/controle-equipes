@@ -215,6 +215,72 @@ export class PoliciaisController {
     return this.policiaisService.findPoliciaisComFeriasAtrasadasSemAfastamento(equipe ?? undefined);
   }
 
+  @Get('livro-ferias')
+  listLivroFerias(
+    @Query('mes') mes?: string,
+    @Query('ano') ano?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+    @Query('equipe') equipe?: string,
+    @Query('equipes') equipes?: string,
+    @Query('orderBy') orderBy?: string,
+    @Query('orderDir') orderDir?: string,
+  ) {
+    const mesParsed = mes ? Number.parseInt(mes, 10) : Number.NaN;
+    const anoParsed = ano ? Number.parseInt(ano, 10) : Number.NaN;
+    if (Number.isNaN(mesParsed) || mesParsed < 1 || mesParsed > 12) {
+      throw new BadRequestException('O parâmetro mes é obrigatório e deve ser numérico (1-12).');
+    }
+    if (Number.isNaN(anoParsed)) {
+      throw new BadRequestException('O parâmetro ano é obrigatório e deve ser numérico.');
+    }
+    const civilLista = new Date().getFullYear();
+    const minAno = 1985;
+    const maxAno = civilLista + 1;
+    if (anoParsed < minAno || anoParsed > maxAno) {
+      throw new BadRequestException(`O ano deve estar entre ${minAno} e ${maxAno}.`);
+    }
+    const orderByAllowed =
+      orderBy === 'nome' ||
+      orderBy === 'postoGraduacao' ||
+      orderBy === 'matricula' ||
+      orderBy === 'equipe' ||
+      orderBy === 'status' ||
+      orderBy === 'funcao' ||
+      orderBy === 'dataDesligamento';
+    if (orderBy && !orderByAllowed) {
+      throw new BadRequestException(
+        'O orderBy deve ser nome, postoGraduacao, matricula, equipe, status, funcao ou dataDesligamento.',
+      );
+    }
+    const orderDirAllowed = orderDir === 'asc' || orderDir === 'desc';
+    if (orderDir && !orderDirAllowed) {
+      throw new BadRequestException('O orderDir deve ser asc ou desc.');
+    }
+    const equipesParsed = equipes ? equipes.split(',').map((e) => e.trim()).filter(Boolean) : undefined;
+    return this.policiaisService.listLivroFerias({
+      mes: mesParsed,
+      ano: anoParsed,
+      page: page ? Number.parseInt(page, 10) : 1,
+      pageSize: pageSize ? Number.parseInt(pageSize, 10) : 50,
+      search: search || undefined,
+      equipe: !equipesParsed?.length ? (equipe || undefined) : undefined,
+      equipes: equipesParsed?.length ? equipesParsed : undefined,
+      orderBy: orderByAllowed
+        ? (orderBy as
+            | 'nome'
+            | 'postoGraduacao'
+            | 'matricula'
+            | 'equipe'
+            | 'status'
+            | 'funcao'
+            | 'dataDesligamento')
+        : undefined,
+      orderDir: orderDirAllowed ? (orderDir as 'asc' | 'desc') : undefined,
+    });
+  }
+
   @Get('postos-graduacao')
   listPostosGraduacao() {
     return this.policiaisService.listPostosGraduacao();

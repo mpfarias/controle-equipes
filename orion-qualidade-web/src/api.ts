@@ -1,6 +1,10 @@
 import type {
   EquipeAtendenteSadItem,
   IntegraSspStatus,
+  ListChamadasIntegraSspResponse,
+  ListChamadasIntegraTabelaResponse,
+  CatalogoNaturezasIntegraSspResponse,
+  ListOcorrenciasIntegraSspResponse,
   LoginInput,
   QualidadeRegistro,
   QualidadeRegistroStatus,
@@ -11,6 +15,7 @@ import {
   gravarTokenSession,
   migrarELerAcessoIdSession,
   migrarELerTokenSession,
+  extrairAcessoIdDoJwt,
   removerAcessoIdSession,
   removerTokenSession,
 } from './constants/orionEcossistemaAuth';
@@ -116,19 +121,22 @@ export const api = {
   },
 
   async logout(): Promise<void> {
-    const acessoId = getAcessoId();
-    if (acessoId) {
-      try {
-        await request('/acessos/logout', {
-          method: 'POST',
-          body: JSON.stringify({ acessoId }),
-        });
-      } catch {
-        /* ignora */
-      }
-    }
+    const token = getToken();
+    const acessoId = getAcessoId() ?? extrairAcessoIdDoJwt(token);
     removeToken();
     removeAcessoId();
+
+    if (!acessoId) return;
+
+    try {
+      await fetch(`${API_URL}/acessos/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acessoId }),
+      });
+    } catch {
+      /* ignora falha de rede — sessão local já encerrada */
+    }
   },
 
   async getMe(): Promise<Usuario> {
@@ -170,6 +178,64 @@ export const api = {
    */
   async getIntegraSspStatus(): Promise<IntegraSspStatus> {
     return request<IntegraSspStatus>('/orion-qualidade/v1/integra-ssp/status');
+  },
+
+  /** Chamadas do HEFESTO (Integra SSP). Sem parâmetros: dia atual a partir de 00:01 (Brasília). */
+  async listarChamadasIntegraSsp(
+    params?: { dataInicio?: string; dataFim?: string },
+    signal?: AbortSignal,
+  ): Promise<ListChamadasIntegraSspResponse> {
+    const qs = new URLSearchParams();
+    if (params?.dataInicio) qs.set('dataInicio', params.dataInicio);
+    if (params?.dataFim) qs.set('dataFim', params.dataFim);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<ListChamadasIntegraSspResponse>(`/orion-qualidade/v1/chamadas${suffix}`, { signal });
+  },
+
+  /** Localização (lat/long) de chamadas específicas — carregamento sob demanda na modal. */
+  async buscarLocalizacoesChamadas(
+    ids: number[],
+  ): Promise<{ itens: Array<{ id: number; latitude: string; longitude: string }> }> {
+    return request<{ itens: Array<{ id: number; latitude: string; longitude: string }> }>(
+      '/orion-qualidade/v1/chamadas/localizacoes',
+      {
+        method: 'POST',
+        body: JSON.stringify({ ids }),
+      },
+    );
+  },
+
+  /** Ocorrências HEFESTO (Integra SSP) — paginado. */
+  async listarOcorrenciasIntegraSsp(params?: {
+    page?: number;
+    dataInicio?: string;
+    dataFim?: string;
+  }): Promise<ListOcorrenciasIntegraSspResponse> {
+    const qs = new URLSearchParams();
+    if (params?.page != null) qs.set('page', String(params.page));
+    if (params?.dataInicio) qs.set('dataInicio', params.dataInicio);
+    if (params?.dataFim) qs.set('dataFim', params.dataFim);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<ListOcorrenciasIntegraSspResponse>(`/orion-qualidade/v1/ocorrencias${suffix}`);
+  },
+
+  /** CHAMADAS HEFESTO (Integra SSP) — paginado (aba Ocorrências). */
+  async listarChamadasTabelaIntegraSsp(params?: {
+    page?: number;
+    dataInicio?: string;
+    dataFim?: string;
+  }): Promise<ListChamadasIntegraTabelaResponse> {
+    const qs = new URLSearchParams();
+    if (params?.page != null) qs.set('page', String(params.page));
+    if (params?.dataInicio) qs.set('dataInicio', params.dataInicio);
+    if (params?.dataFim) qs.set('dataFim', params.dataFim);
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return request<ListChamadasIntegraTabelaResponse>(`/orion-qualidade/v1/chamadas/listagem${suffix}`);
+  },
+
+  /** Catálogo código NAT-* → descrição (inferido da narrativa). */
+  async catalogoNaturezasIntegraSsp(): Promise<CatalogoNaturezasIntegraSspResponse> {
+    return request<CatalogoNaturezasIntegraSspResponse>('/orion-qualidade/v1/ocorrencias/naturezas');
   },
 
   async atualizarRegistroQualidade(

@@ -108,6 +108,7 @@
 
 html {
   min-height: 100%;
+  scrollbar-gutter: stable;
   /* Camadas: primeiro = por cima. Base escura + emblema + halos + vinheta + scrim legível */
   background-color: var(--bg-orion-base);
   background-image:
@@ -189,6 +190,11 @@ body {
   background-color: transparent;
 }
 
+html.scroll-locked,
+html.scroll-locked body {
+  overflow: hidden;
+}
+
 #root {
   min-height: 100vh;
   background-color: transparent;
@@ -234,6 +240,81 @@ body {
   .app-container--auth .auth-shell {
     justify-content: flex-start;
     padding-bottom: 8px;
+  }
+}
+
+/* Hub pós-login — viewport fixo, sem scroll */
+.app-container--hub {
+  --bg-hub-brasao-height: min(38vh, 360px);
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  justify-content: flex-start;
+  padding-top: clamp(6px, 1.2vh, 14px);
+  padding-bottom: 0;
+  background-color: var(--bg-orion-base);
+  background-image:
+    linear-gradient(
+      168deg,
+      var(--bg-orion-scrim-top) 0%,
+      var(--bg-orion-scrim-mid) 42%,
+      var(--bg-orion-scrim-bot) 100%
+    ),
+    radial-gradient(ellipse 110% 95% at 50% 50%, transparent 32%, var(--bg-orion-vignette) 100%),
+    radial-gradient(ellipse 55% 48% at 50% 40%, var(--bg-orion-halo-cyan) 0%, transparent 72%),
+    url('/brasao.png');
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    auto var(--bg-hub-brasao-height);
+  background-position:
+    center,
+    center,
+    center,
+    center center;
+  background-repeat: no-repeat;
+}
+
+@media (max-width: 900px) {
+  .app-container--hub {
+    --bg-hub-brasao-height: min(30vh, 220px);
+  }
+}
+
+.app-container--hub .orion-hub-shell {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  max-width: 1360px;
+  margin-inline: auto;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+  width: 100%;
+}
+
+.app-container--hub .app-footer--auth {
+  margin-top: 0;
+  padding: 6px clamp(12px, 2vw, 20px) clamp(8px, 1.2vh, 12px);
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+}
+
+.app-container--hub .app-footer--auth .app-footer__label,
+.app-container--hub .app-footer--auth .app-footer__meta {
+  font-size: 0.65rem;
+}
+
+.app-container--hub .app-footer--auth .app-footer__name {
+  font-size: 0.72rem;
+}
+
+@media (max-width: 899px) {
+  .app-container--hub .orion-hub-grid {
+    max-width: 100%;
   }
 }
 

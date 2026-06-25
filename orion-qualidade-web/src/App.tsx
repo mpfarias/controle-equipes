@@ -36,11 +36,13 @@ import {
 } from '@mui/icons-material';
 import { LoginQualidadeView } from './auth/LoginQualidadeView';
 import { ImageCropper } from './components/common/ImageCropper';
+import { OcorrenciasIntegraSection } from './components/OcorrenciasIntegraSection';
 import { QualidadeInicioCharts } from './components/QualidadeInicioCharts';
 import { RegistrosQualidadeSection } from './components/RegistrosQualidadeSection';
 import { ChamadasImportProvider } from './context/ChamadasImportContext';
 import { api, getToken, removeToken } from './api';
-import { buildUrlComHandoffJwt } from './constants/orionEcossistemaAuth';
+import { buildUrlComHandoffJwt, sincronizarAcessoIdDoJwt } from './constants/orionEcossistemaAuth';
+import { getUrlOrionSADLogout } from './constants/orionSAD';
 import type { IntegraSspStatus, Usuario } from './types';
 import { formatMatricula } from './utils/formatMatricula';
 import {
@@ -87,9 +89,7 @@ function renderIntegraSspStatusBanner(state: IntegraRemoteState) {
     return (
       <Alert severity="info" variant="outlined" sx={{ borderColor: 'divider' }}>
         <Stack spacing={1}>
-          <Typography variant="body2">
-            Verificando conexão com o banco remoto <strong>Integra SSP</strong>…
-          </Typography>
+          <Typography variant="body2">Carregando…</Typography>
           <LinearProgress />
         </Stack>
       </Alert>
@@ -99,44 +99,25 @@ function renderIntegraSspStatusBanner(state: IntegraRemoteState) {
   if (state.phase === 'error') {
     return (
       <Alert severity="warning" variant="outlined" sx={{ borderColor: 'divider' }}>
-        <Typography variant="body2" component="span" fontWeight={700}>
-          Banco remoto Integra SSP:{' '}
-        </Typography>
-        não foi possível verificar ({state.message}). O login continua no banco principal (Prisma).
+        Não foi possível verificar a conexão com a base de chamadas. Tente recarregar a página.
       </Alert>
     );
   }
 
   const { data } = state;
+  if (data.conectado) return null;
+
   if (!data.configurado) {
     return (
       <Alert severity="info" variant="outlined" sx={{ borderColor: 'divider' }}>
-        <Typography variant="body2" component="span" fontWeight={700}>
-          Banco remoto Integra SSP:{' '}
-        </Typography>
-        não configurado na API. Defina <code>INTEGRA_SSP_DATABASE_URL</code> no servidor. Login e permissões usam o
-        Prisma (<code>DATABASE_URL</code>).
-      </Alert>
-    );
-  }
-
-  if (data.conectado) {
-    return (
-      <Alert severity="success" variant="outlined" sx={{ borderColor: 'divider' }}>
-        <Typography variant="body2" component="span" fontWeight={700}>
-          Banco remoto Integra SSP:{' '}
-        </Typography>
-        conectado ao PostgreSQL «{data.bancoAtual ?? '—'}». Autenticação do sistema permanece no banco Prisma.
+        Consulta de chamadas e ocorrências indisponível no momento. Contate o suporte técnico.
       </Alert>
     );
   }
 
   return (
     <Alert severity="error" variant="outlined" sx={{ borderColor: 'divider' }}>
-      <Typography variant="body2" component="span" fontWeight={700}>
-        Banco remoto Integra SSP:{' '}
-      </Typography>
-      não conectou. {data.mensagem ?? 'Erro desconhecido.'}
+      Não foi possível conectar à base de chamadas. {data.mensagem ?? 'Tente novamente mais tarde.'}
     </Alert>
   );
 }
@@ -163,7 +144,7 @@ export default function App() {
   const [showSenhaNova, setShowSenhaNova] = useState(false);
   const [showSenhaConfirmar, setShowSenhaConfirmar] = useState(false);
   const [senhaConfirmarValidarAoSair, setSenhaConfirmarValidarAoSair] = useState(false);
-  const [abaModulo, setAbaModulo] = useState<'inicio' | 'registros'>('registros');
+  const [abaModulo, setAbaModulo] = useState<'inicio' | 'registros' | 'ocorrencias'>('registros');
   const [integraRemote, setIntegraRemote] = useState<IntegraRemoteState>({ phase: 'idle' });
 
   const outrosSistemasMenu = useMemo(
@@ -178,6 +159,7 @@ export default function App() {
       setLoading(false);
       return;
     }
+    sincronizarAcessoIdDoJwt(token);
     try {
       const me = await api.getMe();
       if (!usuarioPodeAcessarOrionQualidade(me)) {
@@ -253,9 +235,13 @@ export default function App() {
 
   async function handleLogout() {
     setAvatarMenuAnchor(null);
-    await api.logout();
+    setFotoModalOpen(false);
+    setSenhaModalOpen(false);
     setCurrentUser(null);
     setBootstrapError(null);
+    setIntegraRemote({ phase: 'idle' });
+    await api.logout();
+    window.location.assign(getUrlOrionSADLogout());
   }
 
   const openFotoModal = () => {
@@ -894,8 +880,15 @@ export default function App() {
             >
               <Tab label="Registros" value="registros" />
               <Tab label="Gráficos" value="inicio" />
+              <Tab label="Ocorrências" value="ocorrencias" />
             </Tabs>
-            {abaModulo === 'inicio' ? <QualidadeInicioCharts /> : <RegistrosQualidadeSection />}
+            {abaModulo === 'inicio' ? (
+              <QualidadeInicioCharts />
+            ) : abaModulo === 'ocorrencias' ? (
+              <OcorrenciasIntegraSection />
+            ) : (
+              <RegistrosQualidadeSection />
+            )}
           </Stack>
         </ChamadasImportProvider>
       </main>

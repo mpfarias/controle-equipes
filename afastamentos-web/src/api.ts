@@ -714,6 +714,35 @@ export const api = {
     return data;
   },
 
+  /** Livro de Férias: policiais com previsão de gozo iniciando no mês civil informado. */
+  async listLivroFerias(params: {
+    mes: number;
+    ano: number;
+    page: number;
+    pageSize: number;
+    search?: string;
+    equipe?: string;
+    orderBy?: PolicialListOrderBy;
+    orderDir?: 'asc' | 'desc';
+  }): Promise<{
+    Policiales: Policial[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    const searchParams = new URLSearchParams();
+    searchParams.append('mes', String(params.mes));
+    searchParams.append('ano', String(params.ano));
+    searchParams.append('page', String(params.page));
+    searchParams.append('pageSize', String(params.pageSize));
+    if (params.search) searchParams.append('search', params.search);
+    if (params.equipe) searchParams.append('equipe', params.equipe);
+    if (params.orderBy) searchParams.append('orderBy', params.orderBy);
+    if (params.orderDir) searchParams.append('orderDir', params.orderDir);
+    return request(`/policiais/livro-ferias?${searchParams.toString()}`);
+  },
+
   /** Maior ano com `FeriasPolicial` cadastrado (sistema ou de um policial). */
   async getUltimoAnoPrevisaoFerias(params?: {
     policialId?: number;

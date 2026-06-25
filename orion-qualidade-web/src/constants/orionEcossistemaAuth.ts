@@ -63,6 +63,27 @@ export function gravarAcessoIdSession(acessoId: number): void {
   for (const k of LEGACY_ACESSO_KEYS) sessionStorage.removeItem(k);
 }
 
+/** Lê `acessoId` do payload JWT (login ou handoff SSO do SAD). */
+export function extrairAcessoIdDoJwt(token: string | null | undefined): number | null {
+  if (!token?.trim()) return null;
+  try {
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+    const padded = segment.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(atob(padded)) as { acessoId?: unknown };
+    const id = json.acessoId;
+    return typeof id === 'number' && Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Persiste `acessoId` do JWT quando a sessão veio por handoff (sem POST /auth/login neste app). */
+export function sincronizarAcessoIdDoJwt(token: string | null | undefined): void {
+  const id = extrairAcessoIdDoJwt(token);
+  if (id) gravarAcessoIdSession(id);
+}
+
 export function removerAcessoIdSession(): void {
   sessionStorage.removeItem(ORION_ECOSISTEMA_ACESSO_ID_KEY);
   for (const k of LEGACY_ACESSO_KEYS) sessionStorage.removeItem(k);

@@ -23,7 +23,7 @@ type AfastamentoWithPolicialResponse = Omit<AfastamentoWithPolicial, 'policial'>
   policial: Omit<AfastamentoWithPolicial['policial'], 'status'> & { status: string };
 };
 
-/** ATIVO e ENCERRADO entram em bloqueios, limites e sobreposição; DESATIVADO (manual) não. */
+/** ATIVO e ENCERRADO automático entram em bloqueios; DESATIVADO (manual) não. */
 const AFASTAMENTO_STATUS_RELEVANTES: AfastamentoStatus[] = [
   AfastamentoStatus.ATIVO,
   AfastamentoStatus.ENCERRADO,
@@ -39,6 +39,58 @@ export class AfastamentosService {
     @Inject(forwardRef(() => RestricoesAfastamentoService))
     private readonly restricoesAfastamentoService: RestricoesAfastamentoService,
   ) {}
+
+  /** ENCERRADO com auditoria de desativação manual (legado ou pós-migração incompleta) não bloqueia. */
+  private afastamentoRegistroBloqueiaParaRegras(
+    status: AfastamentoStatus,
+    desativadoPorId: number | null,
+    desativadoPorNome: string | null,
+  ): boolean {
+    if (status === AfastamentoStatus.DESATIVADO) return false;
+    if (status === AfastamentoStatus.ATIVO) return true;
+    if (status === AfastamentoStatus.ENCERRADO) {
+      if (desativadoPorId != null) return false;
+      const por = desativadoPorNome?.trim();
+      if (por && por !== 'Sistema') return false;
+      return true;
+    }
+    return true;
+  }
+
+  private buildWhereAfastamentosBloqueantes(
+    policialId: number,
+    excluirAfastamentoId?: number,
+  ): Prisma.AfastamentoWhereInput {
+    return {
+      policialId,
+      ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
+      OR: [
+        { status: AfastamentoStatus.ATIVO },
+        {
+          status: AfastamentoStatus.ENCERRADO,
+          desativadoPorId: null,
+          OR: [
+            { desativadoPorNome: null },
+            { desativadoPorNome: '' },
+            { desativadoPorNome: 'Sistema' },
+          ],
+        },
+      ],
+    };
+  }
+
+  private rotuloStatusAfastamento(status: AfastamentoStatus): string {
+    if (status === AfastamentoStatus.ATIVO) return 'Ativo';
+    if (status === AfastamentoStatus.ENCERRADO) return 'Encerrado';
+    if (status === AfastamentoStatus.DESATIVADO) return 'Desativado';
+    return status;
+  }
+
+  private formatPeriodoAfastamentoMsg(dataInicio: Date, dataFim: Date | null): string {
+    const fmt = (d: Date) =>
+      d.toLocaleDateString('pt-BR', { timeZone: TZ_AFASTAMENTO });
+    return dataFim ? `${fmt(dataInicio)} até ${fmt(dataFim)}` : `${fmt(dataInicio)} (em aberto)`;
+  }
 
   private sanitizeTexto(value: string): string {
     return value.trim();
@@ -229,10 +281,8 @@ export class AfastamentosService {
 
     const existentes = await this.prisma.afastamento.findMany({
       where: {
-        policialId,
+        ...this.buildWhereAfastamentosBloqueantes(policialId, excluirAfastamentoId),
         motivoId,
-        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
-        ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
       },
       select: { dataInicio: true, dataFim: true, seiNumero: true },
     });
@@ -264,15 +314,14 @@ export class AfastamentosService {
     seiNumeroNovo: string,
   ): Promise<void> {
     const existentes = await this.prisma.afastamento.findMany({
-      where: {
-        policialId,
-        status: { in: AFASTAMENTO_STATUS_RELEVANTES },
-        ...(excluirAfastamentoId != null ? { id: { not: excluirAfastamentoId } } : {}),
-      },
+      where: this.buildWhereAfastamentosBloqueantes(policialId, excluirAfastamentoId),
       select: {
+        id: true,
+        status: true,
         dataInicio: true,
         dataFim: true,
         seiNumero: true,
+        motivo: { select: { nome: true } },
       },
     });
 
@@ -284,10 +333,17 @@ export class AfastamentosService {
       ) {
         const mesmoSei =
           seiNorm.length > 0 && ex.seiNumero.trim() === seiNorm;
+        const detalheBloqueio =
+          `\n\nRegistro que impede o cadastro:\n` +
+          `• ${ex.motivo.nome} — ${this.rotuloStatusAfastamento(ex.status)}\n` +
+          `• Período: ${this.formatPeriodoAfastamentoMsg(ex.dataInicio, ex.dataFim)}\n` +
+          `• SEI nº: ${ex.seiNumero.trim() || '—'}`;
         throw new BadRequestException(
           mesmoSei
-            ? 'Já existe um registro de afastamento para este policial no mesmo período e com o mesmo número de processo (SEI). Não é permitido lançar em duplicidade.'
-            : 'Já existe um registro de afastamento para este policial que cobre parte ou a totalidade deste período (ativos e encerrados pelo fim do período; desativações manuais não bloqueiam). Ajuste as datas ou exclua o registro anterior antes de lançar outro.',
+            ? 'Já existe um registro de afastamento para este policial no mesmo período e com o mesmo número de processo (SEI). Não é permitido lançar em duplicidade.' +
+                detalheBloqueio
+            : 'Já existe um registro de afastamento para este policial que cobre parte ou a totalidade deste período (ativos e encerrados pelo fim do período; desativações manuais não bloqueiam). Ajuste as datas ou exclua o registro anterior antes de lançar outro.' +
+                detalheBloqueio,
         );
       }
     }
@@ -514,12 +570,13 @@ export class AfastamentosService {
     // Aplicar regras diferentes baseado no status
     const statusNome = policial.status?.nome;
     const isComissionado = statusNome === 'COMISSIONADO';
-    const isAtivoPTTCouDesignado = 
+    const podeUsufruirFeriasComRegraPadrao =
       statusNome === 'ATIVO' ||
       statusNome === 'PTTC' ||
-      statusNome === 'DESIGNADO';
+      statusNome === 'DESIGNADO' ||
+      statusNome === 'DESATIVADO';
 
-    if (!isComissionado && !isAtivoPTTCouDesignado) {
+    if (!isComissionado && !podeUsufruirFeriasComRegraPadrao) {
       throw new BadRequestException(
         `Policiais com status ${statusNome ?? 'INDEFINIDO'} não podem tirar férias.`,
       );
@@ -529,7 +586,7 @@ export class AfastamentosService {
     const minimoDiasPorPeriodo = isComissionado ? 10 : 5;
     if (diasSolicitados < minimoDiasPorPeriodo) {
       throw new BadRequestException(
-        `O período de férias deve ter no mínimo ${minimoDiasPorPeriodo} dias para policiais ${isComissionado ? 'comissionados' : 'ativos, PTTC ou designados'}. Período informado: ${diasSolicitados} dias.`,
+        `O período de férias deve ter no mínimo ${minimoDiasPorPeriodo} dias para policiais ${isComissionado ? 'comissionados' : 'ativos, PTTC, designados ou desativados'}. Período informado: ${diasSolicitados} dias.`,
       );
     }
 
@@ -663,11 +720,11 @@ export class AfastamentosService {
       );
     }
 
-    // REGRAS PARA POLICIAIS ATIVOS, PTTC OU DESIGNADOS
-    if (isAtivoPTTCouDesignado) {
+    // REGRAS PARA POLICIAIS ATIVOS, PTTC, DESIGNADOS OU DESATIVADOS
+    if (podeUsufruirFeriasComRegraPadrao) {
       // Validação de máximo de períodos já feita acima
 
-      // Para ATIVO/PTTC/DESIGNADO: sem intervalo mínimo entre períodos
+      // Para ATIVO/PTTC/DESIGNADO/DESATIVADO: sem intervalo mínimo entre períodos
       // Não precisa validar intervalo entre períodos
     }
 

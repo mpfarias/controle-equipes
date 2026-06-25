@@ -66,6 +66,7 @@ export function NiveisAcessoSection({ currentUser, embedded = false, permissoes 
     'dashboard',
     'calendario',
     'afastamentos-mes',
+    'livro-ferias',
     'relatorios',
     'relatorios-sistema',
     'relatorios-servico',

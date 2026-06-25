@@ -239,6 +239,9 @@ export interface Policial {
   previsaoFeriasSomenteAno?: boolean;
   /** Presente em `GET /policiais/:id`: todos os exercícios com previsão cadastrada. */
   previsoesFeriasPorExercicio?: PrevisaoFeriasPorExercicioItem[];
+  /** Livro de Férias: início/término do período previsto no mês filtrado. */
+  dataInicioPrevisaoFerias?: string;
+  dataFimPrevisaoFerias?: string;
   createdAt: string;
   updatedAt: string;
   dataDesativacaoAPartirDe?: string | null;

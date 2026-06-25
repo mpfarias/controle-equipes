@@ -65,6 +65,24 @@ async function main() {
 
   console.log('✅ Níveis de usuário criados/verificados!\n');
 
+  console.log('📋 Permissão Livro de Férias (somente ADMINISTRADOR)...');
+  await prisma.usuarioNivelPermissao.upsert({
+    where: {
+      nivelId_telaKey_acao: {
+        nivelId: nivelAdministrador.id,
+        telaKey: 'livro-ferias',
+        acao: 'VISUALIZAR',
+      },
+    },
+    update: {},
+    create: {
+      nivelId: nivelAdministrador.id,
+      telaKey: 'livro-ferias',
+      acao: 'VISUALIZAR',
+    },
+  });
+  console.log('✅ Permissão livro-ferias (VISUALIZAR) garantida para ADMINISTRADOR.\n');
+
   // Criar equipes padrão
   console.log('📋 Criando equipes padrão...');
   const equipes = [

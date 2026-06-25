@@ -1,12 +1,15 @@
-import { useMemo } from 'react';
-import { Alert, Box, Divider, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableRow, Typography } from '@mui/material';
+import { useEffect, useMemo, useState } from 'react';
+import { Alert, Box, Divider, Link, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableFooter, TableHead, TableRow, Typography } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
+import { api } from '../api';
 import type { EquipesSadResolucao } from '../context/ChamadasImportContext';
 import { useChamadasImport } from '../context/ChamadasImportContext';
+import type { ChamadaXlsxRow } from '../types/chamadasXlsx';
 import { agregarAtendidasPorAtendente } from '../utils/agregarAtendidasPorAtendente';
+import { filtrarChamadasPorAtendente } from '../utils/filtrarChamadasPorAtendente';
 import { resumoPeriodoDatasChamadas, tituloComPeriodoChamadas } from '../utils/periodoDatasChamadas';
 import { filtrarChamadasPorTurno } from '../utils/periodoTurnoChamada';
-
+import { ChamadasAtendenteModal } from './ChamadasAtendenteModal';
 const cellPad = { py: 1.25, px: 2 };
 
 function textoEquipeSad(
@@ -30,6 +33,7 @@ function TabelaAtendidasTurno({
   equipePorNomeAtendente,
   encontradoSadPorNomeAtendente,
   equipesResolucao,
+  onNomeClick,
 }: {
   tituloPainel: string;
   subtitulo: string;
@@ -38,6 +42,7 @@ function TabelaAtendidasTurno({
   equipePorNomeAtendente: Record<string, string | null>;
   encontradoSadPorNomeAtendente: Record<string, boolean>;
   equipesResolucao: EquipesSadResolucao;
+  onNomeClick: (nome: string) => void;
 }) {
   const theme = useTheme();
   const accentColor = accent === 'diurno' ? theme.palette.primary.main : theme.palette.secondary.main;
@@ -171,7 +176,25 @@ function TabelaAtendidasTurno({
                       fontWeight: 500,
                     }}
                   >
-                    {r.nome}
+                    <Link
+                      component="button"
+                      type="button"
+                      variant="body2"
+                      underline="hover"
+                      onClick={() => onNomeClick(r.nome)}
+                      sx={{
+                        fontWeight: 500,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        color: 'primary.light',
+                        border: 0,
+                        background: 'none',
+                        p: 0,
+                        font: 'inherit',
+                      }}
+                    >
+                      {r.nome}
+                    </Link>
                   </TableCell>
                   <TableCell
                     sx={{
@@ -248,14 +271,64 @@ function TabelaAtendidasTurno({
 
 export function AtendidasPorTurnoTables() {
   const theme = useTheme();
-  const {
-    chamadasRows,
+  const [atendenteSelecionado, setAtendenteSelecionado] = useState<string | null>(null);
+  const [registrosModal, setRegistrosModal] = useState<ChamadaXlsxRow[]>([]);
+  const [localizacaoCarregamento, setLocalizacaoCarregamento] = useState(false);
+  const {    chamadasRows,
+    chamadasCarregamento,
     equipePorNomeAtendente,
     encontradoSadPorNomeAtendente,
     equipesResolucao,
     equipesResolucaoErro,
   } = useChamadasImport();
 
+  const registrosAtendenteModal = useMemo(() => {
+    if (!atendenteSelecionado) return [];
+    return filtrarChamadasPorAtendente(chamadasRows, atendenteSelecionado);
+  }, [chamadasRows, atendenteSelecionado]);
+
+  useEffect(() => {
+    if (!atendenteSelecionado) {
+      setRegistrosModal([]);
+      setLocalizacaoCarregamento(false);
+      return;
+    }
+    setRegistrosModal(registrosAtendenteModal);
+    const ids = registrosAtendenteModal
+      .map((row) => Number.parseInt(String(row.id), 10))
+      .filter((id) => Number.isInteger(id) && id > 0);
+    if (ids.length === 0) {
+      setLocalizacaoCarregamento(false);
+      return;
+    }
+
+    let cancelado = false;
+    setLocalizacaoCarregamento(true);
+    void api
+      .buscarLocalizacoesChamadas(ids)
+      .then((res) => {
+        if (cancelado) return;
+        const porId = new Map(res.itens.map((it) => [String(it.id), it]));
+        setRegistrosModal(
+          registrosAtendenteModal.map((row) => {
+            const loc = porId.get(String(row.id));
+            if (!loc) return row;
+            return { ...row, latitude: loc.latitude, longitude: loc.longitude };
+          }),
+        );
+      })
+      .catch(() => {
+        if (cancelado) return;
+        setRegistrosModal(registrosAtendenteModal);
+      })
+      .finally(() => {
+        if (!cancelado) setLocalizacaoCarregamento(false);
+      });
+
+    return () => {
+      cancelado = true;
+    };
+  }, [atendenteSelecionado, registrosAtendenteModal]);
   const resumoPeriodoArquivo = useMemo(() => resumoPeriodoDatasChamadas(chamadasRows), [chamadasRows]);
 
   const { diurno, noturno } = useMemo(() => {
@@ -266,6 +339,14 @@ export function AtendidasPorTurnoTables() {
       noturno: agregarAtendidasPorAtendente(n),
     };
   }, [chamadasRows]);
+
+  if (chamadasCarregamento === 'loading') {
+    return null;
+  }
+
+  if (chamadasCarregamento === 'error') {
+    return null;
+  }
 
   if (chamadasRows.length === 0) {
     return (
@@ -280,7 +361,7 @@ export function AtendidasPorTurnoTables() {
         }}
       >
         <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-          Importe um arquivo XLSX na seção acima para montar as tabelas de atendidas por turno.
+          Nenhum registro no período selecionado.
         </Typography>
       </Paper>
     );
@@ -288,7 +369,13 @@ export function AtendidasPorTurnoTables() {
 
   return (
     <Stack spacing={2.5}>
-      <Typography variant="h6" component="h2" fontWeight={700}>
+      <ChamadasAtendenteModal
+        aberto={atendenteSelecionado != null}
+        nomeAtendente={atendenteSelecionado}
+        registros={registrosModal}
+        localizacaoCarregamento={localizacaoCarregamento}
+        onFechar={() => setAtendenteSelecionado(null)}
+      />      <Typography variant="h6" component="h2" fontWeight={700}>
         {tituloComPeriodoChamadas('Atendidas por turno', chamadasRows)}
       </Typography>
       {!resumoPeriodoArquivo.identificado ? (
@@ -323,6 +410,7 @@ export function AtendidasPorTurnoTables() {
           equipePorNomeAtendente={equipePorNomeAtendente}
           encontradoSadPorNomeAtendente={encontradoSadPorNomeAtendente}
           equipesResolucao={equipesResolucao}
+          onNomeClick={setAtendenteSelecionado}
         />
         <TabelaAtendidasTurno
           accent="noturno"
@@ -332,6 +420,7 @@ export function AtendidasPorTurnoTables() {
           equipePorNomeAtendente={equipePorNomeAtendente}
           encontradoSadPorNomeAtendente={encontradoSadPorNomeAtendente}
           equipesResolucao={equipesResolucao}
+          onNomeClick={setAtendenteSelecionado}
         />
       </Stack>
     </Stack>

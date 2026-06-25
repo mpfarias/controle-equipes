@@ -4,24 +4,34 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { api, getToken } from '../api';
 import type { ChamadaXlsxRow } from '../types/chamadasXlsx';
+import type { CoberturaIntegraChamadas } from '../types';
+import { filtroPadraoDiaAtualIso } from '../utils/chamadasFiltroBrasilia';
+import { filtrarChamadasRamal71 } from '../utils/filtrarChamadasRamal71';
 import { formatarNomeTitulo } from '../utils/formatNomeTitulo';
 
 export type EquipesSadResolucao = 'idle' | 'loading' | 'ok' | 'error' | 'skipped';
+export type ChamadasCarregamento = 'idle' | 'loading' | 'ok' | 'error' | 'skipped';
+
+export type ChamadasFiltroConsulta = {
+  dataInicio: string;
+  dataFim: string;
+};
 
 export type ChamadasImportContextValue = {
   chamadasRows: ChamadaXlsxRow[];
-  arquivoNome: string | null;
-  abaNome: string | null;
-  importarChamadas: (payload: { rows: ChamadaXlsxRow[]; arquivoNome: string; abaNome: string }) => void;
-  limparChamadasImportadas: () => void;
-  /** Chave = nome do atendente como na agregação/tabela (`formatarNomeTitulo`). Valor = equipe no cadastro SAD ou null. */
+  chamadasCarregamento: ChamadasCarregamento;
+  chamadasErro: string | null;
+  coberturaIntegra: CoberturaIntegraChamadas | null;
+  filtroAtivo: ChamadasFiltroConsulta | null;
+  buscarChamadas: (filtro: ChamadasFiltroConsulta) => void;
+  recarregarChamadas: () => void;
   equipePorNomeAtendente: Record<string, string | null>;
-  /** Se houve policial com aquele nome normalizado no cadastro. */
   encontradoSadPorNomeAtendente: Record<string, boolean>;
   equipesResolucao: EquipesSadResolucao;
   equipesResolucaoErro: string | null;
@@ -31,30 +41,85 @@ const ChamadasImportContext = createContext<ChamadasImportContextValue | null>(n
 
 export function ChamadasImportProvider({ children }: { children: ReactNode }) {
   const [chamadasRows, setChamadasRows] = useState<ChamadaXlsxRow[]>([]);
-  const [arquivoNome, setArquivoNome] = useState<string | null>(null);
-  const [abaNome, setAbaNome] = useState<string | null>(null);
+  const [chamadasCarregamento, setChamadasCarregamento] = useState<ChamadasCarregamento>('idle');
+  const [chamadasErro, setChamadasErro] = useState<string | null>(null);
+  const [coberturaIntegra, setCoberturaIntegra] = useState<CoberturaIntegraChamadas | null>(null);
+  const [filtroAtivo, setFiltroAtivo] = useState<ChamadasFiltroConsulta | null>(null);
   const [equipePorNomeAtendente, setEquipePorNomeAtendente] = useState<Record<string, string | null>>({});
   const [encontradoSadPorNomeAtendente, setEncontradoSadPorNomeAtendente] = useState<Record<string, boolean>>(
     {},
   );
   const [equipesResolucao, setEquipesResolucao] = useState<EquipesSadResolucao>('idle');
   const [equipesResolucaoErro, setEquipesResolucaoErro] = useState<string | null>(null);
+  const cargaInicialFeita = useRef(false);
+  const buscaAbortRef = useRef<AbortController | null>(null);
+  const buscaSeqRef = useRef(0);
 
-  const importarChamadas = useCallback((payload: { rows: ChamadaXlsxRow[]; arquivoNome: string; abaNome: string }) => {
-    setChamadasRows(payload.rows);
-    setArquivoNome(payload.arquivoNome);
-    setAbaNome(payload.abaNome);
+  const executarBusca = useCallback((filtro: ChamadasFiltroConsulta) => {
+    const token = getToken();
+    if (!token) {
+      setChamadasRows([]);
+      setFiltroAtivo(null);
+      setCoberturaIntegra(null);
+      setChamadasCarregamento('skipped');
+      setChamadasErro(null);
+      return;
+    }
+
+    buscaAbortRef.current?.abort();
+    const abort = new AbortController();
+    buscaAbortRef.current = abort;
+    const seq = ++buscaSeqRef.current;
+
+    setFiltroAtivo(filtro);
+    setChamadasCarregamento('loading');
+    setChamadasErro(null);
+
+    void api
+      .listarChamadasIntegraSsp(filtro, abort.signal)
+      .then((res) => {
+        if (abort.signal.aborted || seq !== buscaSeqRef.current) return;
+        setChamadasRows(filtrarChamadasRamal71(res.rows));
+        setCoberturaIntegra(res.coberturaIntegra ?? null);
+        setChamadasCarregamento('ok');
+      })
+      .catch((e: unknown) => {
+        if (abort.signal.aborted || seq !== buscaSeqRef.current) return;
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        setChamadasRows([]);
+        setCoberturaIntegra(null);
+        setChamadasCarregamento('error');
+        setChamadasErro(
+          e instanceof Error ? e.message : 'Não foi possível carregar as chamadas.',
+        );
+      });
   }, []);
 
-  const limparChamadasImportadas = useCallback(() => {
-    setChamadasRows([]);
-    setArquivoNome(null);
-    setAbaNome(null);
-    setEquipePorNomeAtendente({});
-    setEncontradoSadPorNomeAtendente({});
-    setEquipesResolucao('idle');
-    setEquipesResolucaoErro(null);
-  }, []);
+  const buscarChamadas = useCallback(
+    (filtro: ChamadasFiltroConsulta) => {
+      executarBusca(filtro);
+    },
+    [executarBusca],
+  );
+
+  const recarregarChamadas = useCallback(() => {
+    if (filtroAtivo) {
+      executarBusca(filtroAtivo);
+      return;
+    }
+    executarBusca(filtroPadraoDiaAtualIso());
+  }, [executarBusca, filtroAtivo]);
+
+  useEffect(() => {
+    if (cargaInicialFeita.current) return;
+    const token = getToken();
+    if (!token) {
+      setChamadasCarregamento('skipped');
+      return;
+    }
+    cargaInicialFeita.current = true;
+    executarBusca(filtroPadraoDiaAtualIso());
+  }, [executarBusca]);
 
   useEffect(() => {
     if (chamadasRows.length === 0) {
@@ -125,10 +190,12 @@ export function ChamadasImportProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       chamadasRows,
-      arquivoNome,
-      abaNome,
-      importarChamadas,
-      limparChamadasImportadas,
+      chamadasCarregamento,
+      chamadasErro,
+      coberturaIntegra,
+      filtroAtivo,
+      buscarChamadas,
+      recarregarChamadas,
       equipePorNomeAtendente,
       encontradoSadPorNomeAtendente,
       equipesResolucao,
@@ -136,10 +203,12 @@ export function ChamadasImportProvider({ children }: { children: ReactNode }) {
     }),
     [
       chamadasRows,
-      arquivoNome,
-      abaNome,
-      importarChamadas,
-      limparChamadasImportadas,
+      chamadasCarregamento,
+      chamadasErro,
+      coberturaIntegra,
+      filtroAtivo,
+      buscarChamadas,
+      recarregarChamadas,
       equipePorNomeAtendente,
       encontradoSadPorNomeAtendente,
       equipesResolucao,

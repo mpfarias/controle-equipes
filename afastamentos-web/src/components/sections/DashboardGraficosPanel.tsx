@@ -1,15 +1,19 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import {
   Box,
+  Chip,
   CircularProgress,
   FormControl,
+  Grid,
   InputLabel,
   MenuItem,
   Paper,
   Select,
+  Stack,
   Typography,
-  Grid,
+  alpha,
 } from '@mui/material';
+import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
 import {
   ResponsiveContainer,
   BarChart,
@@ -24,12 +28,23 @@ import {
   PieChart,
   Pie,
   Cell,
+  RadialBarChart,
+  RadialBar,
+  ComposedChart,
+  Area,
 } from 'recharts';
 import { ESCALA_MOTORISTA_DIA } from '../../constants/escalaMotoristasDia';
+import {
+  NEON,
+  NEON_PALETTE,
+  type EquipeStats,
+  type RestricoesMedicasStats,
+  type RowEquipeChart,
+  type TipoGraficoDashboard,
+  type UnidadeOperacionalStats,
+} from './dashboardGraficosNeonTheme';
 
-export type TipoGraficoDashboard = 'bar' | 'pie' | 'line';
-
-const PALETTE = ['#6366f1', '#3b82f6', '#86C99E', '#f59e0b', '#ec4899', '#06b6d4', '#8b5cf6', '#f97316'];
+export type { TipoGraficoDashboard };
 
 export interface DashboardGraficosPanelProps {
   tipoGrafico: TipoGraficoDashboard;
@@ -37,49 +52,213 @@ export interface DashboardGraficosPanelProps {
   periodoLabel: string;
   loadingAfastamentos: boolean;
   loadingPoliciais: boolean;
+  totalPoliciaisCadastrados: number | null;
   totalPoliciaisAfastados: number | null;
   totalPoliciaisDisponiveis: number | null;
   totalFerias: number | null;
   totalAbono: number | null;
+  totalRestricoesMedicas: number | null;
+  restricoesMedicasData: RestricoesMedicasStats;
+  feriasProgramadasSemAfastamentoCount: number | null;
+  feriasAtrasadasSemAfastamentoCount: number | null;
   efetivoPorStatus: Record<string, number>;
   efetivoPorPosto: Record<string, number>;
-  policiaisPorEquipe: Record<string, { total: number; afastados: number; disponiveis: number }>;
-  expedienteData: { total: number; afastados: number; disponiveis: number } | null;
-  motoristasData: { total: number; afastados: number; disponiveis: number } | null;
-  copomMulherData: { total: number; afastados: number; disponiveis: number } | null;
+  policiaisPorEquipe: Record<string, EquipeStats>;
+  expedienteData: UnidadeOperacionalStats | null;
+  motoristasData: UnidadeOperacionalStats | null;
+  copomMulherData: UnidadeOperacionalStats | null;
   usuarioEhCpmulher: boolean;
+  loadingExpediente?: boolean;
+  loadingMotoristas?: boolean;
+  loadingCopomMulher?: boolean;
 }
 
 type PontoValor = { name: string; value: number; color?: string };
 
-const STATUS_ORDER: { key: string; label: string }[] = [
-  { key: 'ATIVO', label: 'Ativo' },
-  { key: 'PTTC', label: 'PTTC' },
-  { key: 'DESIGNADO', label: 'Designado' },
-  { key: 'COMISSIONADO', label: 'Comissionado' },
+const STATUS_ORDER: { key: string; label: string; color: string }[] = [
+  { key: 'ATIVO', label: 'Ativo', color: NEON.colors.green },
+  { key: 'PTTC', label: 'PTTC', color: NEON.colors.cyan },
+  { key: 'DESIGNADO', label: 'Designado', color: NEON.colors.blue },
+  { key: 'COMISSIONADO', label: 'Comissionado', color: NEON.colors.purple },
 ];
 
-const POSTO_ORDER: { key: keyof DashboardGraficosPanelProps['efetivoPorPosto']; label: string }[] = [
-  { key: 'oficiais', label: 'Oficiais' },
-  { key: 'pracas', label: 'Praças' },
-  { key: 'civis', label: 'Civis' },
-  { key: 'outros', label: 'Outros' },
+const POSTO_ORDER: { key: string; label: string; color: string }[] = [
+  { key: 'oficiais', label: 'Oficiais', color: NEON.colors.indigo },
+  { key: 'pracas', label: 'Praças', color: NEON.colors.cyan },
+  { key: 'civis', label: 'Civis', color: NEON.colors.amber },
+  { key: 'outros', label: 'Outros', color: NEON.colors.slate },
 ];
 
-function ChartSimples({
+function pct(parte: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((parte / total) * 1000) / 10;
+}
+
+function NeonTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { name?: string; value?: number; color?: string }[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        px: 1.5,
+        py: 1,
+        bgcolor: alpha('#020617', 0.94),
+        border: `1px solid ${NEON.panelBorder}`,
+        boxShadow: NEON.panelGlow,
+        borderRadius: 1.5,
+      }}
+    >
+      {label ? (
+        <Typography variant="caption" sx={{ color: NEON.label, fontWeight: 700, display: 'block', mb: 0.5 }}>
+          {label}
+        </Typography>
+      ) : null}
+      {payload.map((p) => (
+        <Typography key={String(p.name)} variant="caption" sx={{ color: p.color ?? NEON.colors.cyan, display: 'block' }}>
+          {p.name}: <strong>{p.value ?? 0}</strong>
+        </Typography>
+      ))}
+    </Paper>
+  );
+}
+
+function NeonDefs() {
+  return (
+    <defs>
+      <filter id="neonGlow" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
+      <linearGradient id="neonBarGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor={NEON.colors.cyan} stopOpacity={0.95} />
+        <stop offset="100%" stopColor={NEON.colors.blue} stopOpacity={0.45} />
+      </linearGradient>
+    </defs>
+  );
+}
+
+function chartAxisProps() {
+  return {
+    stroke: NEON.axis,
+    tick: { fill: NEON.axis, fontSize: 11 },
+    tickLine: { stroke: NEON.gridStroke },
+  };
+}
+
+function KpiChip({
+  label,
+  value,
+  suffix,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  suffix?: string;
+  color: string;
+}) {
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        flex: '1 1 140px',
+        minWidth: 130,
+        p: 1.5,
+        borderRadius: 2,
+        bgcolor: NEON.panelBg,
+        border: `1px solid ${alpha(color, 0.35)}`,
+        boxShadow: `0 0 18px ${alpha(color, 0.15)}`,
+      }}
+    >
+      <Typography variant="caption" sx={{ color: NEON.muted, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+        {label}
+      </Typography>
+      <Typography variant="h5" sx={{ color, fontWeight: 800, lineHeight: 1.2, mt: 0.25 }}>
+        {value}
+        {suffix ? (
+          <Typography component="span" variant="body2" sx={{ color: NEON.muted, ml: 0.5 }}>
+            {suffix}
+          </Typography>
+        ) : null}
+      </Typography>
+    </Paper>
+  );
+}
+
+function SecaoNeon({
+  titulo,
+  subtitulo,
+  children,
+  size = { xs: 12, md: 6 },
+}: {
+  titulo: string;
+  subtitulo?: string;
+  children: ReactNode;
+  size?: { xs: number; md?: number; lg?: number };
+}) {
+  return (
+    <Grid size={size}>
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          height: '100%',
+          borderRadius: 2.5,
+          bgcolor: NEON.panelBg,
+          border: `1px solid ${NEON.panelBorder}`,
+          boxShadow: NEON.panelGlow,
+          backdropFilter: 'blur(8px)',
+        }}
+      >
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1} sx={{ mb: 1.5 }}>
+          <Box>
+            <Typography
+              variant="subtitle1"
+              sx={{
+                fontWeight: 700,
+                color: '#e2e8f0',
+                textShadow: `0 0 12px ${alpha(NEON.colors.cyan, 0.35)}`,
+              }}
+            >
+              {titulo}
+            </Typography>
+            {subtitulo ? (
+              <Typography variant="caption" sx={{ color: NEON.muted }}>
+                {subtitulo}
+              </Typography>
+            ) : null}
+          </Box>
+        </Stack>
+        {children}
+      </Paper>
+    </Grid>
+  );
+}
+
+function ChartSimplesNeon({
   tipo,
   data,
-  height = 300,
+  height = 280,
 }: {
   tipo: TipoGraficoDashboard;
   data: PontoValor[];
   height?: number;
 }) {
-  const colors = data.map((d, i) => d.color ?? PALETTE[i % PALETTE.length]);
+  const colors = data.map((d, i) => d.color ?? NEON_PALETTE[i % NEON_PALETTE.length]);
 
   if (data.length === 0) {
     return (
-      <Typography variant="body2" color="text.secondary" sx={{ py: 4, textAlign: 'center' }}>
+      <Typography variant="body2" sx={{ color: NEON.muted, py: 4, textAlign: 'center' }}>
         Sem dados para exibir neste período.
       </Typography>
     );
@@ -89,22 +268,24 @@ function ChartSimples({
     return (
       <ResponsiveContainer width="100%" height={height}>
         <PieChart>
+          <NeonDefs />
           <Pie
             data={data}
             dataKey="value"
             nameKey="name"
             cx="50%"
             cy="50%"
-            outerRadius={100}
-            label={({ name, percent }: { name?: string; percent?: number }) =>
-              `${name ?? ''} ${(((percent ?? 0) as number) * 100).toFixed(0)}%`}
+            innerRadius={52}
+            outerRadius={92}
+            paddingAngle={3}
+            label={({ name, percent }) => `${name} ${(((percent ?? 0) as number) * 100).toFixed(0)}%`}
           >
             {data.map((_, i) => (
-              <Cell key={i} fill={colors[i]} />
+              <Cell key={i} fill={colors[i]} stroke={alpha(colors[i]!, 0.6)} strokeWidth={2} filter="url(#neonGlow)" />
             ))}
           </Pie>
-          <Tooltip formatter={(v) => [v ?? 0, 'Quantidade']} />
-          <Legend />
+          <Tooltip content={<NeonTooltip />} />
+          <Legend wrapperStyle={{ color: NEON.label, fontSize: 12 }} />
         </PieChart>
       </ResponsiveContainer>
     );
@@ -113,12 +294,22 @@ function ChartSimples({
   if (tipo === 'line') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 72 }}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="name" angle={-38} textAnchor="end" height={90} interval={0} tick={{ fontSize: 11 }} />
-          <YAxis allowDecimals={false} />
-          <Tooltip />
-          <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={{ r: 4 }} name="Quantidade" />
+        <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 64 }}>
+          <NeonDefs />
+          <CartesianGrid stroke={NEON.gridStroke} strokeDasharray="4 4" />
+          <XAxis dataKey="name" angle={-32} textAnchor="end" height={72} interval={0} {...chartAxisProps()} />
+          <YAxis allowDecimals={false} {...chartAxisProps()} />
+          <Tooltip content={<NeonTooltip />} />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={NEON.colors.cyan}
+            strokeWidth={3}
+            dot={{ r: 5, fill: NEON.colors.cyan, strokeWidth: 2, stroke: '#fff' }}
+            activeDot={{ r: 7 }}
+            name="Quantidade"
+            filter="url(#neonGlow)"
+          />
         </LineChart>
       </ResponsiveContainer>
     );
@@ -126,12 +317,13 @@ function ChartSimples({
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 72 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="name" angle={-38} textAnchor="end" height={90} interval={0} tick={{ fontSize: 11 }} />
-        <YAxis allowDecimals={false} />
-        <Tooltip />
-        <Bar dataKey="value" name="Quantidade" radius={[6, 6, 0, 0]}>
+      <BarChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 64 }}>
+        <NeonDefs />
+        <CartesianGrid stroke={NEON.gridStroke} strokeDasharray="4 4" />
+        <XAxis dataKey="name" angle={-32} textAnchor="end" height={72} interval={0} {...chartAxisProps()} />
+        <YAxis allowDecimals={false} {...chartAxisProps()} />
+        <Tooltip content={<NeonTooltip />} />
+        <Bar dataKey="value" name="Quantidade" radius={[8, 8, 0, 0]} filter="url(#neonGlow)">
           {data.map((_, i) => (
             <Cell key={i} fill={colors[i]} />
           ))}
@@ -141,117 +333,106 @@ function ChartSimples({
   );
 }
 
-/** Gráfico de barras agrupadas: Total, Afastados, Disponíveis por setor */
-function ChartOperacionalBarras({
-  rows,
-  height = 320,
-}: {
-  rows: { name: string; total: number; afastados: number; disponiveis: number }[];
-  height?: number;
-}) {
-  if (rows.length === 0) {
-    return (
-      <Typography variant="body2" color="text.secondary" sx={{ py: 2 }}>
-        Sem dados.
-      </Typography>
-    );
-  }
+function ChartEquipesAgrupado({ rows, height = 300 }: { rows: RowEquipeChart[]; height?: number }) {
+  const data = rows.map((r) => ({
+    name: r.name,
+    total: r.total,
+    afastados: r.afastados,
+    disponiveis: r.disponiveis,
+    taxa: pct(r.afastados, r.total),
+  }));
+
+  if (data.length === 0) return null;
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="name" />
-        <YAxis allowDecimals={false} />
-        <Tooltip />
-        <Legend />
-        <Bar dataKey="total" fill="#94a3b8" name="Total" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="afastados" fill="#f59e0b" name="Afastados" radius={[4, 4, 0, 0]} />
-        <Bar dataKey="disponiveis" fill="#86C99E" name="Disponíveis" radius={[4, 4, 0, 0]} />
+      <BarChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+        <NeonDefs />
+        <CartesianGrid stroke={NEON.gridStroke} strokeDasharray="4 4" />
+        <XAxis dataKey="name" {...chartAxisProps()} />
+        <YAxis allowDecimals={false} {...chartAxisProps()} />
+        <Tooltip content={<NeonTooltip />} />
+        <Legend wrapperStyle={{ color: NEON.label, fontSize: 12 }} />
+        <Bar dataKey="total" fill={NEON.series.total} name="Total" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="afastados" fill={NEON.series.afastados} name="Afastados" radius={[4, 4, 0, 0]} filter="url(#neonGlow)" />
+        <Bar dataKey="disponiveis" fill={NEON.series.disponiveis} name="Disponíveis" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
 }
 
-function ChartOperacionalLinhas({
-  rows,
-  height = 320,
-}: {
-  rows: { name: string; total: number; afastados: number; disponiveis: number }[];
-  height?: number;
-}) {
-  if (rows.length === 0) return null;
+function ChartTaxaEquipes({ rows, height = 260 }: { rows: RowEquipeChart[]; height?: number }) {
+  const data = rows.map((r) => ({ name: r.name, taxa: pct(r.afastados, r.total) }));
+  if (data.every((d) => d.taxa === 0)) return null;
+
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={rows} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="name" />
-        <YAxis allowDecimals={false} />
-        <Tooltip />
-        <Legend />
-        <Line type="monotone" dataKey="total" stroke="#94a3b8" name="Total" dot />
-        <Line type="monotone" dataKey="afastados" stroke="#f59e0b" name="Afastados" dot />
-        <Line type="monotone" dataKey="disponiveis" stroke="#86C99E" name="Disponíveis" dot />
+      <LineChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+        <NeonDefs />
+        <CartesianGrid stroke={NEON.gridStroke} strokeDasharray="4 4" />
+        <XAxis dataKey="name" {...chartAxisProps()} />
+        <YAxis unit="%" domain={[0, 'auto']} {...chartAxisProps()} />
+        <Tooltip content={<NeonTooltip />} formatter={(v) => [`${v}%`, 'Taxa de afastamento']} />
+        <Line
+          type="monotone"
+          dataKey="taxa"
+          stroke={NEON.colors.orange}
+          strokeWidth={3}
+          dot={{ r: 5, fill: NEON.colors.orange }}
+          name="Taxa (%)"
+          filter="url(#neonGlow)"
+        />
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
-function MiniPies({
-  items,
+function ChartPanoramaPeriodo({
+  data,
+  height = 300,
 }: {
-  items: { titulo: string; fatias: { name: string; value: number }[] }[];
+  data: { name: string; afastados: number; disponiveis: number; ferias: number; abono: number }[];
+  height?: number;
 }) {
   return (
-    <Grid container spacing={2}>
-      {items.map((bloco) => (
-        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={bloco.titulo}>
-          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, textAlign: 'center' }}>
-            {bloco.titulo}
-          </Typography>
-          <ResponsiveContainer width="100%" height={220}>
-            <PieChart>
-              <Pie
-                data={bloco.fatias}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                innerRadius={40}
-                outerRadius={70}
-                label
-              >
-                {bloco.fatias.map((_, i) => (
-                  <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v) => [v ?? 0, '']} />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </Grid>
-      ))}
-    </Grid>
+    <ResponsiveContainer width="100%" height={height}>
+      <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+        <NeonDefs />
+        <CartesianGrid stroke={NEON.gridStroke} strokeDasharray="4 4" />
+        <XAxis dataKey="name" {...chartAxisProps()} />
+        <YAxis allowDecimals={false} {...chartAxisProps()} />
+        <Tooltip content={<NeonTooltip />} />
+        <Legend wrapperStyle={{ color: NEON.label, fontSize: 12 }} />
+        <Area type="monotone" dataKey="disponiveis" fill={alpha(NEON.series.disponiveis, 0.15)} stroke={NEON.series.disponiveis} name="Disponíveis" />
+        <Bar dataKey="afastados" fill={NEON.series.afastados} name="Afastados" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="ferias" fill={NEON.series.ferias} name="Férias" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="abono" fill={NEON.series.abono} name="Abono" radius={[4, 4, 0, 0]} />
+      </ComposedChart>
+    </ResponsiveContainer>
   );
 }
 
-function SecaoGrafico({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+function ChartRadialTaxa({ taxa, height = 220 }: { taxa: number; height?: number }) {
+  const data = [{ name: 'Afastados', value: taxa, fill: NEON.colors.orange }];
   return (
-    <Paper
-      elevation={0}
-      sx={{
-        p: 2,
-        mb: 2,
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 2,
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
-        {titulo}
-      </Typography>
-      {children}
-    </Paper>
+    <ResponsiveContainer width="100%" height={height}>
+      <RadialBarChart
+        cx="50%"
+        cy="50%"
+        innerRadius="58%"
+        outerRadius="92%"
+        barSize={14}
+        data={data}
+        startAngle={90}
+        endAngle={-270}
+      >
+        <RadialBar background={{ fill: alpha(NEON.colors.slate, 0.2) }} dataKey="value" cornerRadius={8} />
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill={NEON.colors.orange} fontSize={22} fontWeight={800}>
+          {taxa}%
+        </text>
+        <Tooltip content={<NeonTooltip />} formatter={(v) => [`${v}%`, 'Taxa de afastamento']} />
+      </RadialBarChart>
+    </ResponsiveContainer>
   );
 }
 
@@ -262,10 +443,15 @@ export function DashboardGraficosPanel(props: DashboardGraficosPanelProps) {
     periodoLabel,
     loadingAfastamentos,
     loadingPoliciais,
+    totalPoliciaisCadastrados,
     totalPoliciaisAfastados,
     totalPoliciaisDisponiveis,
     totalFerias,
     totalAbono,
+    totalRestricoesMedicas,
+    restricoesMedicasData,
+    feriasProgramadasSemAfastamentoCount,
+    feriasAtrasadasSemAfastamentoCount,
     efetivoPorStatus,
     efetivoPorPosto,
     policiaisPorEquipe,
@@ -275,180 +461,299 @@ export function DashboardGraficosPanel(props: DashboardGraficosPanelProps) {
     usuarioEhCpmulher,
   } = props;
 
+  const taxaAfastamentoGeral = useMemo(() => {
+    if (totalPoliciaisCadastrados == null || totalPoliciaisAfastados == null || totalPoliciaisCadastrados <= 0) {
+      return null;
+    }
+    return pct(totalPoliciaisAfastados, totalPoliciaisCadastrados);
+  }, [totalPoliciaisCadastrados, totalPoliciaisAfastados]);
+
+  const outrosAfastamentos = useMemo(() => {
+    if (totalPoliciaisAfastados == null || totalFerias == null || totalAbono == null) return null;
+    return Math.max(0, totalPoliciaisAfastados - totalFerias - totalAbono);
+  }, [totalPoliciaisAfastados, totalFerias, totalAbono]);
+
   const dadosIndicadoresMes: PontoValor[] = useMemo(() => {
     const out: PontoValor[] = [];
     if (totalPoliciaisAfastados != null) {
-      out.push({ name: 'Afastados no mês', value: totalPoliciaisAfastados, color: '#3b82f6' });
+      out.push({ name: 'Afastados', value: totalPoliciaisAfastados, color: NEON.series.afastados });
     }
     if (totalPoliciaisDisponiveis != null) {
-      out.push({ name: 'Disponíveis', value: totalPoliciaisDisponiveis, color: '#86C99E' });
+      out.push({ name: 'Disponíveis', value: totalPoliciaisDisponiveis, color: NEON.series.disponiveis });
     }
     if (totalFerias != null) {
-      out.push({ name: 'Férias', value: totalFerias, color: '#f59e0b' });
+      out.push({ name: 'Férias', value: totalFerias, color: NEON.series.ferias });
     }
     if (totalAbono != null) {
-      out.push({ name: 'Abono', value: totalAbono, color: '#ec4899' });
+      out.push({ name: 'Abono', value: totalAbono, color: NEON.series.abono });
+    }
+    if (outrosAfastamentos != null && outrosAfastamentos > 0) {
+      out.push({ name: 'Outros motivos', value: outrosAfastamentos, color: NEON.colors.indigo });
     }
     return out;
-  }, [totalPoliciaisAfastados, totalPoliciaisDisponiveis, totalFerias, totalAbono]);
+  }, [totalPoliciaisAfastados, totalPoliciaisDisponiveis, totalFerias, totalAbono, outrosAfastamentos]);
+
+  const dadosComposicaoAfastamentos: PontoValor[] = useMemo(() => {
+    const out: PontoValor[] = [];
+    if (totalFerias != null && totalFerias > 0) out.push({ name: 'Férias', value: totalFerias, color: NEON.series.ferias });
+    if (totalAbono != null && totalAbono > 0) out.push({ name: 'Abono', value: totalAbono, color: NEON.series.abono });
+    if (outrosAfastamentos != null && outrosAfastamentos > 0) {
+      out.push({ name: 'Demais motivos', value: outrosAfastamentos, color: NEON.colors.indigo });
+    }
+    return out;
+  }, [totalFerias, totalAbono, outrosAfastamentos]);
 
   const dadosEfetivoStatus: PontoValor[] = useMemo(
-    () =>
-      STATUS_ORDER.map((s, i) => ({
-        name: s.label,
-        value: efetivoPorStatus[s.key] ?? 0,
-        color: PALETTE[i % PALETTE.length],
-      })),
+    () => STATUS_ORDER.map((s) => ({ name: s.label, value: efetivoPorStatus[s.key] ?? 0, color: s.color })),
     [efetivoPorStatus],
   );
 
   const dadosEfetivoPosto: PontoValor[] = useMemo(
-    () =>
-      POSTO_ORDER.map((p, i) => ({
-        name: p.label,
-        value: (efetivoPorPosto[p.key] as number) ?? 0,
-        color: PALETTE[(i + 2) % PALETTE.length],
-      })),
+    () => POSTO_ORDER.map((p) => ({ name: p.label, value: (efetivoPorPosto[p.key] as number) ?? 0, color: p.color })),
     [efetivoPorPosto],
   );
 
-  const dadosEquipesDisponiveis: PontoValor[] = useMemo(() => {
-    return ['A', 'B', 'C', 'D', 'E'].map((eq, i) => {
-      const d = policiaisPorEquipe[eq] ?? { total: 0, afastados: 0, disponiveis: 0 };
-      return {
-        name: `Equipe ${eq}`,
-        value: d.disponiveis,
-        color: PALETTE[i % PALETTE.length],
-      };
-    });
-  }, [policiaisPorEquipe]);
+  const equipesRows = useMemo(
+    () =>
+      ['A', 'B', 'C', 'D', 'E'].map((eq) => {
+        const d = policiaisPorEquipe[eq] ?? { total: 0, afastados: 0, disponiveis: 0 };
+        return { name: `Eq. ${eq}`, ...d };
+      }),
+    [policiaisPorEquipe],
+  );
 
   const linhasOperacional = useMemo(() => {
     const rows: { name: string; total: number; afastados: number; disponiveis: number }[] = [];
     if (!usuarioEhCpmulher && expedienteData) {
-      rows.push({
-        name: 'Expediente',
-        total: expedienteData.total,
-        afastados: expedienteData.afastados,
-        disponiveis: expedienteData.disponiveis,
-      });
+      rows.push({ name: 'Expediente', ...expedienteData });
     }
     if (!usuarioEhCpmulher && motoristasData) {
-      rows.push({
-        name: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
-        total: motoristasData.total,
-        afastados: motoristasData.afastados,
-        disponiveis: motoristasData.disponiveis,
-      });
+      rows.push({ name: `Motoristas (${ESCALA_MOTORISTA_DIA})`, ...motoristasData });
     }
     if (copomMulherData) {
-      rows.push({
-        name: 'COPOM Mulher',
-        total: copomMulherData.total,
-        afastados: copomMulherData.afastados,
-        disponiveis: copomMulherData.disponiveis,
-      });
+      rows.push({ name: 'COPOM Mulher', ...copomMulherData });
     }
     return rows;
   }, [expedienteData, motoristasData, copomMulherData, usuarioEhCpmulher]);
 
-  const piesOperacional = useMemo(() => {
-    const items: { titulo: string; fatias: { name: string; value: number }[] }[] = [];
-    if (!usuarioEhCpmulher && expedienteData) {
-      items.push({
-        titulo: 'Expediente',
-        fatias: [
-          { name: 'Total', value: expedienteData.total },
-          { name: 'Afastados', value: expedienteData.afastados },
-          { name: 'Disponíveis', value: expedienteData.disponiveis },
-        ],
-      });
-    }
-    if (!usuarioEhCpmulher && motoristasData) {
-      items.push({
-        titulo: `Motoristas (${ESCALA_MOTORISTA_DIA})`,
-        fatias: [
-          { name: 'Total', value: motoristasData.total },
-          { name: 'Afastados', value: motoristasData.afastados },
-          { name: 'Disponíveis', value: motoristasData.disponiveis },
-        ],
-      });
-    }
-    if (copomMulherData) {
-      items.push({
-        titulo: 'COPOM Mulher',
-        fatias: [
-          { name: 'Total', value: copomMulherData.total },
-          { name: 'Afastados', value: copomMulherData.afastados },
-          { name: 'Disponíveis', value: copomMulherData.disponiveis },
-        ],
-      });
-    }
-    return items;
-  }, [expedienteData, motoristasData, copomMulherData, usuarioEhCpmulher]);
+  const panoramaPeriodo = useMemo(
+    () => [
+      {
+        name: 'COPOM',
+        afastados: totalPoliciaisAfastados ?? 0,
+        disponiveis: totalPoliciaisDisponiveis ?? 0,
+        ferias: totalFerias ?? 0,
+        abono: totalAbono ?? 0,
+      },
+    ],
+    [totalPoliciaisAfastados, totalPoliciaisDisponiveis, totalFerias, totalAbono],
+  );
 
-  const carregando = loadingAfastamentos && loadingPoliciais;
+  const dadosRestricoes: PontoValor[] = useMemo(
+    () => [
+      { name: 'Total ativas', value: restricoesMedicasData.total, color: NEON.series.restricao },
+      { name: 'Neste mês', value: restricoesMedicasData.esteMes, color: NEON.colors.pink },
+      { name: 'Hoje', value: restricoesMedicasData.hoje, color: NEON.colors.orange },
+    ],
+    [restricoesMedicasData],
+  );
+
+  const dadosAlertasFerias: PontoValor[] = useMemo(() => {
+    const out: PontoValor[] = [];
+    if (feriasProgramadasSemAfastamentoCount != null) {
+      out.push({
+        name: 'Programadas sem lançamento',
+        value: feriasProgramadasSemAfastamentoCount,
+        color: NEON.colors.amber,
+      });
+    }
+    if (feriasAtrasadasSemAfastamentoCount != null) {
+      out.push({
+        name: 'Atrasadas sem lançamento',
+        value: feriasAtrasadasSemAfastamentoCount,
+        color: NEON.series.restricao,
+      });
+    }
+    return out;
+  }, [feriasProgramadasSemAfastamentoCount, feriasAtrasadasSemAfastamentoCount]);
+
+  const carregando = loadingAfastamentos || loadingPoliciais;
 
   return (
     <Box
       id="dashboard-panel-graficos"
       role="tabpanel"
       aria-labelledby="dashboard-tab-graficos"
-      sx={{ py: 2, px: { xs: 0, sm: 1 } }}
+      sx={{
+        py: 2,
+        px: { xs: 0, sm: 0.5 },
+        borderRadius: 2,
+        background: `linear-gradient(165deg, ${alpha('#0b1f33', 0.55)} 0%, ${alpha('#020617', 0.35)} 100%)`,
+      }}
     >
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 2 }}>
-        <Typography variant="body2" color="text.secondary">
-          Período: <strong>{periodoLabel}</strong> — mesmos números da aba Cards.
-        </Typography>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel id="dashboard-tipo-grafico-label">Tipo de gráfico</InputLabel>
+      <Stack
+        direction={{ xs: 'column', sm: 'row' }}
+        alignItems={{ xs: 'stretch', sm: 'center' }}
+        justifyContent="space-between"
+        spacing={2}
+        sx={{ mb: 2.5 }}
+      >
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <InsightsOutlinedIcon sx={{ color: NEON.colors.cyan, filter: `drop-shadow(0 0 8px ${NEON.colors.cyan})` }} />
+          <Box>
+            <Typography variant="subtitle1" sx={{ color: '#e2e8f0', fontWeight: 700 }}>
+              Painel estatístico premium
+            </Typography>
+            <Typography variant="caption" sx={{ color: NEON.muted }}>
+              Período: <strong style={{ color: NEON.label }}>{periodoLabel}</strong> — espelha os cards do Dashboard
+            </Typography>
+          </Box>
+        </Stack>
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel id="dashboard-tipo-grafico-label" sx={{ color: NEON.muted }}>
+            Visualização
+          </InputLabel>
           <Select
             labelId="dashboard-tipo-grafico-label"
-            id="dashboard-tipo-grafico"
-            label="Tipo de gráfico"
+            label="Visualização"
             value={tipoGrafico}
             onChange={(e) => onTipoGraficoChange(e.target.value as TipoGraficoDashboard)}
+            sx={{
+              color: NEON.label,
+              '.MuiOutlinedInput-notchedOutline': { borderColor: NEON.panelBorder },
+              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: NEON.colors.cyan },
+            }}
           >
-            <MenuItem value="bar">Barras</MenuItem>
-            <MenuItem value="pie">Pizza</MenuItem>
-            <MenuItem value="line">Linha</MenuItem>
+            <MenuItem value="bar">Barras neon</MenuItem>
+            <MenuItem value="pie">Pizza neon</MenuItem>
+            <MenuItem value="line">Linha neon</MenuItem>
           </Select>
         </FormControl>
-      </Box>
+      </Stack>
 
-      {carregando && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-          <CircularProgress size={36} />
+      {carregando ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+          <CircularProgress size={40} sx={{ color: NEON.colors.cyan }} />
         </Box>
-      )}
-
-      {!carregando && (
+      ) : (
         <>
-          <SecaoGrafico titulo="Indicadores do mês (afastados, disponíveis, férias, abono)">
-            <ChartSimples tipo={tipoGrafico} data={dadosIndicadoresMes} />
-          </SecaoGrafico>
+          <Stack direction="row" flexWrap="wrap" gap={1.5} sx={{ mb: 2.5 }}>
+            <KpiChip
+              label="Efetivo cadastrado"
+              value={totalPoliciaisCadastrados ?? '—'}
+              color={NEON.colors.indigo}
+            />
+            <KpiChip
+              label="Afastados no período"
+              value={totalPoliciaisAfastados ?? '—'}
+              color={NEON.series.afastados}
+            />
+            <KpiChip
+              label="Disponíveis"
+              value={totalPoliciaisDisponiveis ?? '—'}
+              color={NEON.series.disponiveis}
+            />
+            <KpiChip
+              label="Taxa de afastamento"
+              value={taxaAfastamentoGeral ?? '—'}
+              suffix={taxaAfastamentoGeral != null ? '%' : undefined}
+              color={NEON.colors.orange}
+            />
+            <KpiChip
+              label="Restrições médicas"
+              value={totalRestricoesMedicas ?? restricoesMedicasData.total}
+              color={NEON.series.restricao}
+            />
+          </Stack>
 
-          <SecaoGrafico titulo="Efetivo do COPOM por status">
-            <ChartSimples tipo={tipoGrafico} data={dadosEfetivoStatus} />
-          </SecaoGrafico>
+          <Grid container spacing={2}>
+            <SecaoNeon titulo="Panorama do período" subtitulo="Afastados, disponíveis, férias e abono" size={{ xs: 12, lg: 8 }}>
+              <ChartPanoramaPeriodo data={panoramaPeriodo} />
+            </SecaoNeon>
 
-          <SecaoGrafico titulo="Efetivo por posto / graduação">
-            <ChartSimples tipo={tipoGrafico} data={dadosEfetivoPosto} />
-          </SecaoGrafico>
+            {taxaAfastamentoGeral != null && (
+              <SecaoNeon titulo="Taxa geral de afastamento" subtitulo="Percentual sobre o efetivo cadastrado" size={{ xs: 12, lg: 4 }}>
+                <ChartRadialTaxa taxa={taxaAfastamentoGeral} />
+              </SecaoNeon>
+            )}
 
-          <SecaoGrafico titulo="Equipes operacionais — policiais disponíveis">
-            <ChartSimples tipo={tipoGrafico} data={dadosEquipesDisponiveis} />
-          </SecaoGrafico>
+            <SecaoNeon titulo="Indicadores do mês" subtitulo="Totais consolidados">
+              <ChartSimplesNeon tipo={tipoGrafico} data={dadosIndicadoresMes} />
+            </SecaoNeon>
 
-          {linhasOperacional.length > 0 && (
-            <SecaoGrafico
-              titulo={`Expediente, motoristas (${ESCALA_MOTORISTA_DIA}) e COPOM Mulher (total, afastados, disponíveis)`}
+            <SecaoNeon titulo="Composição dos afastamentos" subtitulo="Férias, abono e demais motivos">
+              <ChartSimplesNeon tipo="pie" data={dadosComposicaoAfastamentos} />
+            </SecaoNeon>
+
+            <SecaoNeon titulo="Efetivo por status funcional">
+              <ChartSimplesNeon tipo={tipoGrafico} data={dadosEfetivoStatus} />
+            </SecaoNeon>
+
+            <SecaoNeon titulo="Efetivo por posto / graduação">
+              <ChartSimplesNeon tipo={tipoGrafico} data={dadosEfetivoPosto} />
+            </SecaoNeon>
+
+            <SecaoNeon
+              titulo="Equipes A–E — total, afastados e disponíveis"
+              subtitulo="Relação completa por equipe operacional"
+              size={{ xs: 12 }}
             >
-              {tipoGrafico === 'bar' && <ChartOperacionalBarras rows={linhasOperacional} />}
-              {tipoGrafico === 'line' && <ChartOperacionalLinhas rows={linhasOperacional} />}
-              {tipoGrafico === 'pie' && <MiniPies items={piesOperacional} />}
-            </SecaoGrafico>
-          )}
+              <ChartEquipesAgrupado rows={equipesRows} />
+            </SecaoNeon>
+
+            <SecaoNeon titulo="Taxa de afastamento por equipe" subtitulo="Percentual de afastados sobre o total da equipe">
+              <ChartTaxaEquipes rows={equipesRows} />
+            </SecaoNeon>
+
+            <SecaoNeon titulo="Disponíveis por equipe" subtitulo="Políciais aptos no período">
+              <ChartSimplesNeon
+                tipo={tipoGrafico}
+                data={equipesRows.map((r, i) => ({
+                  name: r.name,
+                  value: r.disponiveis,
+                  color: NEON_PALETTE[i % NEON_PALETTE.length],
+                }))}
+              />
+            </SecaoNeon>
+
+            {linhasOperacional.length > 0 && (
+              <SecaoNeon
+                titulo="Unidades especiais"
+                subtitulo={`Expediente, motoristas (${ESCALA_MOTORISTA_DIA}) e COPOM Mulher`}
+                size={{ xs: 12 }}
+              >
+                <ChartEquipesAgrupado rows={linhasOperacional} height={280} />
+              </SecaoNeon>
+            )}
+
+            <SecaoNeon titulo="Restrições médicas" subtitulo="Total, ocorrências no mês e hoje">
+              <ChartSimplesNeon tipo={tipoGrafico} data={dadosRestricoes} />
+            </SecaoNeon>
+
+            {dadosAlertasFerias.length > 0 && (
+              <SecaoNeon
+                titulo="Alertas de férias"
+                subtitulo="Previsão sem lançamento ou período atrasado"
+                size={{ xs: 12, md: 6 }}
+              >
+                <ChartSimplesNeon tipo={tipoGrafico} data={dadosAlertasFerias} />
+                <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>
+                  {dadosAlertasFerias.map((d) => (
+                    <Chip
+                      key={d.name}
+                      label={`${d.name}: ${d.value}`}
+                      size="small"
+                      sx={{
+                        bgcolor: alpha(d.color ?? NEON.colors.cyan, 0.12),
+                        color: d.color,
+                        border: `1px solid ${alpha(d.color ?? NEON.colors.cyan, 0.35)}`,
+                      }}
+                    />
+                  ))}
+                </Stack>
+              </SecaoNeon>
+            )}
+          </Grid>
         </>
       )}
     </Box>

@@ -75,7 +75,10 @@ import {
 } from './components/auth';
 import {
   clearSistemaSessao,
+  consumirLogoutEcossistemaDaQuery,
+  consumirRetornoHubDaQuery,
   getSistemaDestino,
+  limparForcarHubAposLogoutModulo,
   listaDestinosPosLogin,
   resolverFluxoSistemas,
   SISTEMA_ID_APP_ATUAL,
@@ -204,12 +207,29 @@ export default function App() {
   useEffect(() => {
     const loadUser = async () => {
       try {
+        if (consumirLogoutEcossistemaDaQuery()) {
+          clearSistemaSessao();
+          limparForcarHubAposLogoutModulo();
+          try {
+            await api.logout();
+          } catch {
+            removeToken();
+          }
+          setCurrentUser(null);
+          setAguardandoEscolhaSistema(false);
+          return;
+        }
+
         // Verificar se há token armazenado
         const token = getToken();
         if (token) {
           try {
             const usuario = await api.getAuthMe();
             setCurrentUser(usuario);
+            if (consumirRetornoHubDaQuery()) {
+              setAguardandoEscolhaSistema(true);
+              return;
+            }
             const fluxo = resolverFluxoSistemas(usuario);
             if (fluxo.acao === 'escolher-sistema') {
               setAguardandoEscolhaSistema(true);
@@ -423,6 +443,7 @@ export default function App() {
       return;
     }
     writeSistemaSessao(sistemaId);
+    limparForcarHubAposLogoutModulo();
     setAguardandoEscolhaSistema(false);
     setActiveTab('dashboard');
     if (sistemaId === SISTEMA_ID_ORION_SUPORTE) {
@@ -464,6 +485,7 @@ export default function App() {
   const handleLogout = async () => {
     setAvatarMenuAnchor(null);
     clearSistemaSessao();
+    limparForcarHubAposLogoutModulo();
     setAguardandoEscolhaSistema(false);
     // Registrar logout no backend antes de limpar o estado
     await api.logout();
@@ -747,6 +769,7 @@ export default function App() {
     const temAcessoAfastamentos =
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
+      permissoesPorTela['livro-ferias']?.VISUALIZAR ||
       permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
     const temAcessoListaEfetivo =
       permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
@@ -820,6 +843,7 @@ export default function App() {
     const temAcessoAfastamentos =
       permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
       permissoesPorTela['afastamentos']?.VISUALIZAR ||
+      permissoesPorTela['livro-ferias']?.VISUALIZAR ||
       permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
     const temAcessoListaEfetivo =
       permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
@@ -848,6 +872,7 @@ export default function App() {
           const temAfast =
             permissoesPorTela['afastamentos-mes']?.VISUALIZAR ||
             permissoesPorTela['afastamentos']?.VISUALIZAR ||
+            permissoesPorTela['livro-ferias']?.VISUALIZAR ||
             permissoesPorTela['restricao-afastamento']?.VISUALIZAR;
           const temListaEfet =
             permissoesPorTela['equipe']?.VISUALIZAR || permissoesPorTela['policiais']?.VISUALIZAR;
@@ -965,18 +990,12 @@ export default function App() {
 
   if (currentUser && aguardandoEscolhaSistema) {
     return (
-      <div className="app-container app-container--auth">
-        <div className="auth-shell">
-          <header className="auth-header">
-            <h1 className="auth-header__title">Órion - Sistema Integrado de Gestão e Análise - COPOM</h1>
-            <p className="auth-header__subtitle">Selecione qual sistema deseja acessar nesta sessão.</p>
-          </header>
-          <SelecionarSistemaView
-            usuario={currentUser}
-            onEscolher={handleEscolherSistema}
-            onLogout={handleLogout}
-          />
-        </div>
+      <div className="app-container app-container--auth app-container--hub">
+        <SelecionarSistemaView
+          usuario={currentUser}
+          onEscolher={handleEscolherSistema}
+          onLogout={handleLogout}
+        />
         <footer className="app-footer app-footer--auth">
           <span className="app-footer__label">Desenvolvido por</span>
           <div className="app-footer__credits">

@@ -43,6 +43,9 @@ export const muiTheme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        html: {
+          scrollbarGutter: 'stable',
+        },
         /* Deixa o fundo em camadas do html (emblema Órion + scrims) visível */
         body: {
           backgroundColor: 'transparent',

@@ -1,4 +1,4 @@
-import { ORION_SSO_HASH_PARAM, gravarTokenSession } from '../constants/orionEcossistemaAuth';
+import { ORION_SSO_HASH_PARAM, gravarTokenSession, sincronizarAcessoIdDoJwt } from '../constants/orionEcossistemaAuth';
 
 /**
  * Lê `#orion_sso=<jwt>` gravado pelo SAD ao redirecionar, persiste o token e remove o hash da URL.
@@ -22,6 +22,7 @@ export function consumirOrionSsoDoHashDaUrl(): boolean {
     return false;
   }
   gravarTokenSession(token.trim());
+  sincronizarAcessoIdDoJwt(token.trim());
   const clean = `${window.location.pathname}${window.location.search}`;
   window.history.replaceState(null, '', clean);
   return true;

@@ -3,12 +3,32 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
+  StreamableFile,
 } from '@nestjs/common';
 import { QualidadeRegistroStatus } from '@prisma/client';
 import { PrismaService } from '../prisma.service';
 import { CreateQualidadeRegistroDto } from './dto/create-qualidade-registro.dto';
 import { UpdateQualidadeRegistroDto } from './dto/update-qualidade-registro.dto';
 import { IntegraSspPoolService } from './integra-ssp-pool.service';
+import { intervaloDiaAtualBrasilia } from './integra-ssp-brasilia.util';
+import {
+  type ChamadaIntegraSspRow,
+  type ChamadaQualidadeApiRow,
+  mapChamadaIntegraSspParaApi,
+} from './integra-ssp-chamadas.mapper';
+import { ramalAtendeFiltroQualidade, SQL_WHERE_RAMAL_PREFIXO_MSSQL, SQL_WHERE_RAMAL_PREFIXO_POSTGRES } from './integra-ssp-chamadas.filter';
+import { buscarLocalizacoesPorChamadaIds } from './integra-ssp-chamadas-localizacao.util';
+import { listarOcorrenciasIntegraPaginado } from './integra-ssp-ocorrencias.util';
+import { listarChamadasIntegraPaginado } from './integra-ssp-chamadas-listagem.util';
+import { listarCatalogoNaturezasIntegra } from './integra-ssp-naturezas.util';
+import { consultarCoberturaChamadasIntegra } from './integra-ssp-cobertura.util';
+import {
+  nomeArquivoGravacao,
+  parseRecordFileConfig,
+  resolveRecordFileDownloadUrl,
+  type RecordFileConfig,
+} from './integra-ssp-record-file.util';
 
 export type UsuarioOrionQualidadeReq = {
   id: number;
@@ -26,6 +46,9 @@ export type UsuarioOrionQualidadeReq = {
  */
 @Injectable()
 export class OrionQualidadeService {
+  /** Período máximo permitido na consulta de chamadas (evita travamentos). */
+  private static readonly PERIODO_MAXIMO_CHAMADAS_MS = 31 * 24 * 60 * 60 * 1000;
+
   /** Partículas que não contam como “nome” para exigir dois termos na planilha. */
   private static readonly PARTICULAS_NOME = new Set([
     'de',
@@ -44,6 +67,12 @@ export class OrionQualidadeService {
     private readonly prisma: PrismaService,
     private readonly integraSspPool: IntegraSspPoolService,
   ) {}
+
+  private readonly recordFileConfig: RecordFileConfig | null = parseRecordFileConfig(process.env);
+
+  private enrichChamadasComGravacao(rows: ChamadaQualidadeApiRow[]): ChamadaQualidadeApiRow[] {
+    return rows.map((row) => ({ ...row, recordFileUrl: '' }));
+  }
 
   podeAcessarOrionQualidade(usuario: UsuarioOrionQualidadeReq): boolean {
     if (usuario.isAdmin === true) return true;
@@ -69,7 +98,8 @@ export class OrionQualidadeService {
       fase: 'dashboard-visual',
       /** Indicador fixo: login/JWT/usuários usam sempre o Prisma (`DATABASE_URL`), nunca integra_ssp. */
       autenticacaoViaPrisma: true,
-      integraSspPostgres: this.integraSspPool.isConfigured(),
+      integraSspConfigurado: this.integraSspPool.isConfigured(),
+      integraSspDriver: this.integraSspPool.getDriver(),
     };
   }
 
@@ -82,14 +112,342 @@ export class OrionQualidadeService {
       return {
         configurado,
         conectado: true,
+        driver: ping.driver,
         bancoAtual: ping.bancoAtual,
+        gravacaoDownloadConfigurada: this.recordFileConfig != null,
       };
     }
     return {
       configurado,
       conectado: false,
       mensagem: ping.mensagem,
+      gravacaoDownloadConfigurada: this.recordFileConfig != null,
     };
+  }
+
+  private resolverIntervaloConsultaIntegra(opts?: {
+    dataInicio?: string;
+    dataFim?: string;
+  }): { dataInicio: Date; dataFim: Date; rotuloDia: string } {
+    if (opts?.dataInicio || opts?.dataFim) {
+      if (!opts.dataInicio || !opts.dataFim) {
+        throw new BadRequestException('Informe dataInicio e dataFim juntos (ISO 8601).');
+      }
+      const dataInicio = new Date(opts.dataInicio);
+      const dataFim = new Date(opts.dataFim);
+      if (Number.isNaN(dataInicio.getTime()) || Number.isNaN(dataFim.getTime())) {
+        throw new BadRequestException('dataInicio ou dataFim inválidos.');
+      }
+      if (dataFim.getTime() < dataInicio.getTime()) {
+        throw new BadRequestException('dataFim deve ser posterior a dataInicio.');
+      }
+      if (dataFim.getTime() - dataInicio.getTime() > OrionQualidadeService.PERIODO_MAXIMO_CHAMADAS_MS) {
+        throw new BadRequestException('Período máximo para consulta: 31 dias.');
+      }
+      return { dataInicio, dataFim, rotuloDia: opts.dataInicio.slice(0, 10) };
+    }
+    const intervalo = intervaloDiaAtualBrasilia();
+    return {
+      dataInicio: intervalo.dataInicio,
+      dataFim: intervalo.dataFim,
+      rotuloDia: intervalo.rotuloDia,
+    };
+  }
+
+  /**
+   * Chamadas do HEFESTO (Integra SSP) para gráficos do Órion Qualidade.
+   * Por padrão retorna o dia civil atual em Brasília a partir de 00:01.
+   */
+  async listarChamadasIntegraSsp(
+    usuario: UsuarioOrionQualidadeReq,
+    opts?: { dataInicio?: string; dataFim?: string },
+  ) {
+    this.assertAcessoModulo(usuario);
+
+    if (!this.integraSspPool.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Integra SSP não configurado na API. Defina INTEGRA_SSP_MSSQL_* ou INTEGRA_SSP_DATABASE_URL.',
+      );
+    }
+
+    const { dataInicio, dataFim, rotuloDia } = this.resolverIntervaloConsultaIntegra(opts);
+
+    const queryText =
+      this.integraSspPool.getDriver() === 'postgres'
+        ? `
+          SELECT c.id, c.unique_id, c.chamador, c.fila, c.ramal, c.status,
+                 c.hora_entra_fila, c.hora_atende, c.hora_desliga,
+                 c.tempo_espera, c.duracao, c.quem_desliga,
+                 c."NO_USER_CADASTRO",
+                 c.record_file,
+                 m.motivo_encerramento
+          FROM "PRD_STG_HEFESTO"."CHAMADAS" c
+          LEFT JOIN "PRD_STG_HEFESTO"."MOTIVO_ENCERRAMENTO" m
+            ON m.id = c.cod_motivo_encerramento
+          WHERE c.hora_entra_fila >= $1 AND c.hora_entra_fila <= $2
+            ${SQL_WHERE_RAMAL_PREFIXO_POSTGRES}
+          ORDER BY c.hora_entra_fila ASC
+        `
+        : `
+          SELECT c.id, c.unique_id, c.chamador, c.fila, c.ramal, c.status,
+                 c.hora_entra_fila, c.hora_atende, c.hora_desliga,
+                 c.tempo_espera, c.duracao, c.quem_desliga,
+                 c.NO_USER_CADASTRO,
+                 c.record_file,
+                 m.motivo_encerramento
+          FROM PRD_STG_HEFESTO.CHAMADAS c
+          LEFT JOIN PRD_STG_HEFESTO.MOTIVO_ENCERRAMENTO m
+            ON m.id = c.cod_motivo_encerramento
+          WHERE c.hora_entra_fila >= @dataInicio AND c.hora_entra_fila <= @dataFim
+            ${SQL_WHERE_RAMAL_PREFIXO_MSSQL}
+          ORDER BY c.hora_entra_fila ASC
+        `;
+
+    let rowsBrutas: ChamadaIntegraSspRow[];
+    try {
+      rowsBrutas = await this.integraSspPool.queryRows<ChamadaIntegraSspRow>(queryText, {
+        dataInicio,
+        dataFim,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao consultar chamadas no Integra SSP: ${msg}`);
+    }
+
+    const rows = this.enrichChamadasComGravacao(
+      rowsBrutas
+        .filter((row) => ramalAtendeFiltroQualidade(row.ramal))
+        .map(mapChamadaIntegraSspParaApi),
+    );
+
+    const coberturaIntegra = await consultarCoberturaChamadasIntegra(
+      this.integraSspPool,
+      dataInicio,
+      dataFim,
+    );
+
+    return {
+      fonte: 'integra_ssp' as const,
+      rotuloDia,
+      dataInicio: dataInicio.toISOString(),
+      dataFim: dataFim.toISOString(),
+      total: rows.length,
+      coberturaIntegra,
+      rows,
+    };
+  }
+
+  private async buscarRecordFileChamada(id: string): Promise<string | null> {
+    const idNum = Number.parseInt(id, 10);
+    if (!Number.isFinite(idNum) || idNum <= 0) return null;
+
+    const queryText =
+      this.integraSspPool.getDriver() === 'postgres'
+        ? `SELECT record_file FROM "PRD_STG_HEFESTO"."CHAMADAS" WHERE id = $1`
+        : `SELECT record_file FROM PRD_STG_HEFESTO.CHAMADAS WHERE id = @id`;
+
+    const rows = await this.integraSspPool.queryRows<{ record_file?: string | null }>(queryText, {
+      id: idNum,
+    });
+    const raw = rows[0]?.record_file;
+    if (raw == null) return null;
+    const texto = String(raw).trim();
+    return texto.length > 0 ? texto : null;
+  }
+
+  /** Baixa o áudio da chamada (proxy autenticado para o arquivo Asterisk). */
+  async baixarGravacaoChamadaIntegraSsp(
+    usuario: UsuarioOrionQualidadeReq,
+    id: string,
+  ): Promise<StreamableFile> {
+    this.assertAcessoModulo(usuario);
+
+    if (!this.integraSspPool.isConfigured()) {
+      throw new ServiceUnavailableException('Integra SSP não configurado na API.');
+    }
+    if (!this.recordFileConfig) {
+      throw new ServiceUnavailableException(
+        'Download de gravações não configurado. Defina INTEGRA_SSP_RECORD_FILE_BASE_URL no .env da API ' +
+          '(o caminho do arquivo vem de record_file no banco, ex.: /var/spool/asterisk/monitor/...).',
+      );
+    }
+
+    let recordFile: string | null;
+    try {
+      recordFile = await this.buscarRecordFileChamada(id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao consultar gravação no Integra SSP: ${msg}`);
+    }
+
+    if (!recordFile) {
+      throw new NotFoundException('Gravação não encontrada para esta chamada.');
+    }
+
+    const downloadUrl = resolveRecordFileDownloadUrl(recordFile, this.recordFileConfig);
+    if (!downloadUrl) {
+      throw new ServiceUnavailableException('Não foi possível montar a URL de download da gravação.');
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(downloadUrl);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao acessar o servidor de gravações: ${msg}`);
+    }
+
+    if (!response.ok) {
+      throw new NotFoundException(
+        `Arquivo de gravação indisponível no servidor (${response.status}). Verifique INTEGRA_SSP_RECORD_FILE_BASE_URL.`,
+      );
+    }
+
+    const filename = nomeArquivoGravacao(recordFile);
+    const contentType = response.headers.get('content-type')?.trim() || 'audio/wav';
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename.replace(/"/g, '')}"`,
+    });
+  }
+
+  /** Localização (OCORRENCIA) sob demanda — usada na modal de registros do atendente. */
+  async localizacoesChamadasIntegraSsp(usuario: UsuarioOrionQualidadeReq, ids: number[]) {
+    this.assertAcessoModulo(usuario);
+    if (!this.integraSspPool.isConfigured()) {
+      throw new ServiceUnavailableException('Integra SSP não configurado na API.');
+    }
+    const unicos = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))].slice(0, 2000);
+    if (unicos.length === 0) {
+      return { itens: [] as Array<{ id: number; latitude: string; longitude: string }> };
+    }
+    try {
+      const map = await buscarLocalizacoesPorChamadaIds(this.integraSspPool, unicos);
+      const itens = [...map.entries()].map(([id, loc]) => ({
+        id,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      }));
+      return { itens };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao consultar localizações: ${msg}`);
+    }
+  }
+
+  /** Ocorrências HEFESTO (Integra SSP) — listagem paginada para exploração de dados. */
+  async listarOcorrenciasIntegraSsp(
+    usuario: UsuarioOrionQualidadeReq,
+    opts?: { page?: number; dataInicio?: string; dataFim?: string },
+  ) {
+    this.assertAcessoModulo(usuario);
+
+    if (!this.integraSspPool.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Integra SSP não configurado na API. Defina INTEGRA_SSP_MSSQL_* ou INTEGRA_SSP_DATABASE_URL.',
+      );
+    }
+
+    const { dataInicio, dataFim, rotuloDia } = this.resolverIntervaloConsultaIntegra(opts);
+
+    try {
+      const paginado = await listarOcorrenciasIntegraPaginado(this.integraSspPool, {
+        dataInicio,
+        dataFim,
+        page: opts?.page ?? 1,
+      });
+
+      return {
+        fonte: 'integra_ssp' as const,
+        tabela: 'PRD_STG_HEFESTO.OCORRENCIA',
+        rotuloDia,
+        dataInicio: dataInicio.toISOString(),
+        dataFim: dataFim.toISOString(),
+        ...paginado,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao consultar ocorrências no Integra SSP: ${msg}`);
+    }
+  }
+
+  /** Chamadas HEFESTO (Integra SSP) — listagem paginada da tabela CHAMADAS. */
+  async listarChamadasTabelaIntegraSsp(
+    usuario: UsuarioOrionQualidadeReq,
+    opts?: { page?: number; dataInicio?: string; dataFim?: string },
+  ) {
+    this.assertAcessoModulo(usuario);
+
+    if (!this.integraSspPool.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Integra SSP não configurado na API. Defina INTEGRA_SSP_MSSQL_* ou INTEGRA_SSP_DATABASE_URL.',
+      );
+    }
+
+    const { dataInicio, dataFim, rotuloDia } = this.resolverIntervaloConsultaIntegra(opts);
+
+    try {
+      const paginado = await listarChamadasIntegraPaginado(this.integraSspPool, {
+        dataInicio,
+        dataFim,
+        page: opts?.page ?? 1,
+      });
+
+      const coberturaIntegra = await consultarCoberturaChamadasIntegra(
+        this.integraSspPool,
+        dataInicio,
+        dataFim,
+      );
+
+      return {
+        fonte: 'integra_ssp' as const,
+        tabela: 'PRD_STG_HEFESTO.CHAMADAS',
+        rotuloDia,
+        dataInicio: dataInicio.toISOString(),
+        dataFim: dataFim.toISOString(),
+        coberturaIntegra,
+        ...paginado,
+        items: this.enrichChamadasComGravacao(paginado.items),
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao consultar chamadas no Integra SSP: ${msg}`);
+    }
+  }
+
+  /**
+   * Catálogo NAT-* → descrição legível.
+   * Não existe tabela de domínio acessível no Integra SSP; descrições vêm da narrativa.
+   */
+  async catalogoNaturezasIntegraSsp(usuario: UsuarioOrionQualidadeReq) {
+    this.assertAcessoModulo(usuario);
+
+    if (!this.integraSspPool.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Integra SSP não configurado na API. Defina INTEGRA_SSP_MSSQL_* ou INTEGRA_SSP_DATABASE_URL.',
+      );
+    }
+
+    try {
+      const items = await listarCatalogoNaturezasIntegra(this.integraSspPool);
+      const comDescricao = items.filter((i) => i.descricao).length;
+      return {
+        fonte: 'integra_ssp' as const,
+        metodo: 'narrativa' as const,
+        tabelaDominio: null as string | null,
+        aviso:
+          'Não há tabela de naturezas no Integra SSP acessível a este usuário. ' +
+          'As descrições foram inferidas do campo narrativa (padrão "Natureza: … | Descrição:").',
+        totalCodigos: items.length,
+        totalComDescricao: comDescricao,
+        items,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new ServiceUnavailableException(`Falha ao montar catálogo de naturezas: ${msg}`);
+    }
   }
 
   sessaoResumo(usuario: UsuarioOrionQualidadeReq) {

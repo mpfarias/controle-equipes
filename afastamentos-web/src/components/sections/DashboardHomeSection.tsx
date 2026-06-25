@@ -3457,10 +3457,19 @@ export function DashboardHomeSection({
             periodoLabel={periodoDashboardLabel}
             loadingAfastamentos={loadingAfastamentos}
             loadingPoliciais={loadingPoliciais}
+            totalPoliciaisCadastrados={totalPoliciaisCadastrados}
             totalPoliciaisAfastados={totalPoliciaisAfastados}
             totalPoliciaisDisponiveis={totalPoliciaisDisponiveis}
             totalFerias={totalFerias}
             totalAbono={totalAbono}
+            totalRestricoesMedicas={totalRestricoesMedicas}
+            restricoesMedicasData={restricoesMedicasData}
+            feriasProgramadasSemAfastamentoCount={
+              feriasProgramadasSemAfastamento != null ? feriasProgramadasSemAfastamento.length : null
+            }
+            feriasAtrasadasSemAfastamentoCount={
+              feriasAtrasadasSemAfastamento != null ? feriasAtrasadasSemAfastamento.length : null
+            }
             efetivoPorStatus={efetivoPorStatus}
             efetivoPorPosto={efetivoPorPosto}
             policiaisPorEquipe={policiaisPorEquipe}

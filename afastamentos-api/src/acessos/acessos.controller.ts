@@ -1,6 +1,7 @@
 import { Controller, Get, Query, Post, Body } from '@nestjs/common';
 import { AcessosService } from './acessos.service';
 import { Roles } from '../auth/roles.decorator';
+import { Public } from '../auth/public.decorator';
 
 @Controller('acessos')
 export class AcessosController {
@@ -13,6 +14,7 @@ export class AcessosController {
     return { acessoId: data.acessoId || 0 };
   }
 
+  @Public()
   @Post('logout')
   async registrarLogout(@Body() data: { acessoId: number }) {
     await this.acessosService.registrarLogout(data.acessoId);

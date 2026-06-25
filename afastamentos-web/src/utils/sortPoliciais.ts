@@ -108,3 +108,127 @@ export function sortPorPatenteENome<T extends { nome: string; status?: string | 
 export function sortAfastamentosPorPatenteENome<T extends { policial: { nome: string; status?: string | { nome?: string } | null } }>(itens: T[]): T[] {
   return [...itens].sort((a, b) => comparePorPatenteENome(a.policial, b.policial));
 }
+
+export type PolicialListaOrdenacaoCampo =
+  | 'nome'
+  | 'postoGraduacao'
+  | 'matricula'
+  | 'equipe'
+  | 'status'
+  | 'funcao'
+  | 'dataDesligamento';
+
+type PolicialOrdenavelLista = {
+  nome: string;
+  matricula: string;
+  equipe?: string | null;
+  status?: string | { nome?: string } | null;
+  funcao?: { nome?: string } | null;
+  postoGraduacao?: { ordem?: number } | null;
+  dataDesativacaoAPartirDe?: string | null;
+  desativadoEm?: string | null;
+};
+
+function statusEhDesativado(status: string | { nome?: string } | null | undefined): boolean {
+  if (status == null) return false;
+  const nome = typeof status === 'string' ? status : status?.nome;
+  return (nome ?? '').toUpperCase() === 'DESATIVADO';
+}
+
+function timestampDataDesligamentoPolicial(p: PolicialOrdenavelLista): number {
+  const a = p.dataDesativacaoAPartirDe;
+  const b = p.desativadoEm;
+  const raw =
+    (a != null && String(a).trim() !== '' ? String(a) : null) ??
+    (b != null && String(b).trim() !== '' ? String(b) : null);
+  if (!raw) return 0;
+  const t = Date.parse(raw);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function compareTextoColunaPolicial(a: string, b: string, dir: 'asc' | 'desc', numeric: boolean): number {
+  const cmp = a.localeCompare(b, 'pt-BR', { sensitivity: 'base', ...(numeric ? { numeric: true } : {}) });
+  return dir === 'asc' ? cmp : -cmp;
+}
+
+/** Ordenação de listas de policiais (Efetivo / Livro de Férias): patente no padrão ou coluna escolhida. */
+export function sortPoliciaisListaOrdenacao<T extends PolicialOrdenavelLista>(
+  itens: T[],
+  ordenacao: { campo: PolicialListaOrdenacaoCampo; direcao: 'asc' | 'desc' } | null,
+): T[] {
+  if (!ordenacao) {
+    return [...itens].sort((a, b) => {
+      const aDesativado = statusEhDesativado(a.status);
+      const bDesativado = statusEhDesativado(b.status);
+      if (aDesativado && !bDesativado) return 1;
+      if (!aDesativado && bDesativado) return -1;
+      return comparePorPatenteENome(a, b);
+    });
+  }
+
+  return [...itens].sort((a, b) => {
+    const dir = ordenacao.direcao;
+    if (ordenacao.campo === 'dataDesligamento') {
+      const ta = timestampDataDesligamentoPolicial(a);
+      const tb = timestampDataDesligamentoPolicial(b);
+      if (ta !== tb) {
+        return dir === 'desc' ? tb - ta : ta - tb;
+      }
+      return comparePorPatenteENome(a, b);
+    }
+    const aDesativado = statusEhDesativado(a.status);
+    const bDesativado = statusEhDesativado(b.status);
+    if (aDesativado && !bDesativado) return 1;
+    if (!aDesativado && bDesativado) return -1;
+
+    if (ordenacao.campo === 'nome') {
+      const cmp = comparePorPatenteENome(a, b);
+      return dir === 'asc' ? cmp : -cmp;
+    }
+
+    let primary = 0;
+    if (ordenacao.campo === 'status') {
+      const statusA = typeof a.status === 'string' ? a.status : a.status?.nome;
+      const statusB = typeof b.status === 'string' ? b.status : b.status?.nome;
+      primary = compareColunaStatusPolicial(statusA, statusB, dir);
+    } else {
+      switch (ordenacao.campo) {
+        case 'postoGraduacao': {
+          const ordemA = a.postoGraduacao?.ordem ?? 9999;
+          const ordemB = b.postoGraduacao?.ordem ?? 9999;
+          primary = ordemA - ordemB;
+          if (dir === 'desc') primary = -primary;
+          break;
+        }
+        case 'matricula':
+          primary = compareTextoColunaPolicial(
+            a.matricula.toUpperCase(),
+            b.matricula.toUpperCase(),
+            dir,
+            true,
+          );
+          break;
+        case 'equipe':
+          primary = compareTextoColunaPolicial(
+            (a.equipe ?? '').toUpperCase(),
+            (b.equipe ?? '').toUpperCase(),
+            dir,
+            false,
+          );
+          break;
+        case 'funcao':
+          primary = compareTextoColunaPolicial(
+            (a.funcao?.nome ?? '').toUpperCase(),
+            (b.funcao?.nome ?? '').toUpperCase(),
+            dir,
+            false,
+          );
+          break;
+        default:
+          return comparePorPatenteENome(a, b);
+      }
+    }
+    if (primary !== 0) return primary;
+    return comparePorPatenteENome(a, b);
+  });
+}

@@ -81,6 +81,9 @@ type PolicialResponse = Omit<PolicialWithRelations, 'ferias' | 'status'> & {
   previsaoFeriasSomenteAno?: boolean;
   /** Todos os exercícios com `FeriasPolicial` (quando a query inclui mais de um). */
   previsoesFeriasPorExercicio?: PrevisaoFeriasPorExercicioItem[];
+  /** Livro de Férias: datas do período previsto que inicia no mês filtrado. */
+  dataInicioPrevisaoFerias?: string;
+  dataFimPrevisaoFerias?: string;
   status: PolicialStatusValue;
 };
 
@@ -304,6 +307,100 @@ export class PoliciaisService {
     if (raw == null) return 0;
     const t = typeof raw === 'string' ? Date.parse(raw) : (raw as Date).getTime();
     return Number.isNaN(t) ? 0 : t;
+  }
+
+  private sortPoliciaisListaInMemory(
+    mapped: PolicialResponse[],
+    orderBy?:
+      | 'nome'
+      | 'postoGraduacao'
+      | 'matricula'
+      | 'equipe'
+      | 'status'
+      | 'funcao'
+      | 'dataDesligamento',
+    orderDir?: 'asc' | 'desc',
+  ): void {
+    const dir = orderDir ?? 'asc';
+    const statusRankLista = (nome: string): number => {
+      const n = nome.toUpperCase();
+      const rank: Record<string, number> = {
+        ATIVO: 1,
+        DESIGNADO: 2,
+        PTTC: 3,
+        COMISSIONADO: 4,
+        DESATIVADO: 99,
+      };
+      return rank[n] ?? 50;
+    };
+    const orderField = orderBy || 'nome';
+    mapped.sort((a, b) => {
+      if (orderField === 'dataDesligamento') {
+        const ta = this.desligamentoTimestampMs(a);
+        const tb = this.desligamentoTimestampMs(b);
+        if (ta !== tb) {
+          return dir === 'desc' ? tb - ta : ta - tb;
+        }
+        return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
+      }
+      const aDesativado = a.status === 'DESATIVADO';
+      const bDesativado = b.status === 'DESATIVADO';
+      if (aDesativado && !bDesativado) return 1;
+      if (!aDesativado && bDesativado) return -1;
+      let valorA: string;
+      let valorB: string;
+      switch (orderField) {
+        case 'nome':
+          valorA = a.nome.toUpperCase();
+          valorB = b.nome.toUpperCase();
+          break;
+        case 'matricula':
+          valorA = a.matricula.toUpperCase();
+          valorB = b.matricula.toUpperCase();
+          break;
+        case 'equipe':
+          valorA = a.equipe ?? '';
+          valorB = b.equipe ?? '';
+          break;
+        case 'status': {
+          const ra = statusRankLista(a.status ?? '');
+          const rb = statusRankLista(b.status ?? '');
+          if (ra !== rb) {
+            return dir === 'asc' ? ra - rb : rb - ra;
+          }
+          valorA = (a.status ?? '').toUpperCase();
+          valorB = (b.status ?? '').toUpperCase();
+          break;
+        }
+        case 'funcao':
+          valorA = ((a as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
+          valorB = ((b as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
+          break;
+        case 'postoGraduacao': {
+          const ordemA =
+            (a as { postoGraduacao?: { ordem?: number } }).postoGraduacao?.ordem ?? 9999;
+          const ordemB =
+            (b as { postoGraduacao?: { ordem?: number } }).postoGraduacao?.ordem ?? 9999;
+          if (ordemA !== ordemB) {
+            return dir === 'asc' ? ordemA - ordemB : ordemB - ordemA;
+          }
+          valorA = a.nome.toUpperCase();
+          valorB = b.nome.toUpperCase();
+          break;
+        }
+        default:
+          valorA = a.nome.toUpperCase();
+          valorB = b.nome.toUpperCase();
+      }
+      const cmp =
+        orderField === 'matricula'
+          ? valorA.localeCompare(valorB, 'pt-BR', { sensitivity: 'base', numeric: true })
+          : valorA.localeCompare(valorB, 'pt-BR', { sensitivity: 'base' });
+      if (cmp !== 0) {
+        return dir === 'asc' ? cmp : -cmp;
+      }
+      return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
+    });
   }
 
   private buildMonthRange(ano: number, mes: number): { dataInicio: Date; dataFim: Date } {
@@ -1050,88 +1147,7 @@ export class PoliciaisService {
       );
     }
 
-    /** Mesma ordem institucional usada no front (lista / coluna Status). */
-    const statusRankLista = (nome: string): number => {
-      const n = nome.toUpperCase();
-      const rank: Record<string, number> = {
-        ATIVO: 1,
-        DESIGNADO: 2,
-        PTTC: 3,
-        COMISSIONADO: 4,
-        DESATIVADO: 99,
-      };
-      return rank[n] ?? 50;
-    };
-
-    // Ordenar em memória: desativados sempre por último, depois pelo campo solicitado
-    const orderField = orderBy || 'nome';
-    mapped.sort((a, b) => {
-      if (orderField === 'dataDesligamento') {
-        const ta = this.desligamentoTimestampMs(a);
-        const tb = this.desligamentoTimestampMs(b);
-        if (ta !== tb) {
-          return dir === 'desc' ? tb - ta : ta - tb;
-        }
-        return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
-      }
-      const aDesativado = a.status === 'DESATIVADO';
-      const bDesativado = b.status === 'DESATIVADO';
-      if (aDesativado && !bDesativado) return 1;
-      if (!aDesativado && bDesativado) return -1;
-      let valorA: string;
-      let valorB: string;
-      switch (orderField) {
-        case 'nome':
-          valorA = a.nome.toUpperCase();
-          valorB = b.nome.toUpperCase();
-          break;
-        case 'matricula':
-          valorA = a.matricula.toUpperCase();
-          valorB = b.matricula.toUpperCase();
-          break;
-        case 'equipe':
-          valorA = a.equipe ?? '';
-          valorB = b.equipe ?? '';
-          break;
-        case 'status': {
-          const ra = statusRankLista(a.status ?? '');
-          const rb = statusRankLista(b.status ?? '');
-          if (ra !== rb) {
-            return dir === 'asc' ? ra - rb : rb - ra;
-          }
-          valorA = (a.status ?? '').toUpperCase();
-          valorB = (b.status ?? '').toUpperCase();
-          break;
-        }
-        case 'funcao':
-          valorA = ((a as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
-          valorB = ((b as { funcao?: { nome?: string } }).funcao?.nome ?? '').toUpperCase();
-          break;
-        case 'postoGraduacao': {
-          const ordemA =
-            (a as { postoGraduacao?: { ordem?: number } }).postoGraduacao?.ordem ?? 9999;
-          const ordemB =
-            (b as { postoGraduacao?: { ordem?: number } }).postoGraduacao?.ordem ?? 9999;
-          if (ordemA !== ordemB) {
-            return dir === 'asc' ? ordemA - ordemB : ordemB - ordemA;
-          }
-          valorA = a.nome.toUpperCase();
-          valorB = b.nome.toUpperCase();
-          break;
-        }
-        default:
-          valorA = a.nome.toUpperCase();
-          valorB = b.nome.toUpperCase();
-      }
-      const cmp =
-        orderField === 'matricula'
-          ? valorA.localeCompare(valorB, 'pt-BR', { sensitivity: 'base', numeric: true })
-          : valorA.localeCompare(valorB, 'pt-BR', { sensitivity: 'base' });
-      if (cmp !== 0) {
-        return dir === 'asc' ? cmp : -cmp;
-      }
-      return a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' });
-    });
+    this.sortPoliciaisListaInMemory(mapped, orderBy, dir);
 
     const total = mapped.length;
     const Policiales = mapped.slice(skip, skip + take);
@@ -1168,6 +1184,176 @@ export class PoliciaisService {
       page: currentPage,
       pageSize: currentPageSize,
       totalPages: Math.ceil(total / currentPageSize),
+    };
+  }
+
+  /**
+   * Livro de Férias: policiais com gozo ou previsão de férias iniciando no mês civil informado.
+   * Prioriza afastamento de Férias (gozo cadastrado); previsão entra só se ainda não houver gozo em outro mês do ano.
+   */
+  async listLivroFerias(options: {
+    mes: number;
+    ano: number;
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    equipe?: string;
+    equipes?: string[];
+    orderBy?:
+      | 'nome'
+      | 'postoGraduacao'
+      | 'matricula'
+      | 'equipe'
+      | 'status'
+      | 'funcao'
+      | 'dataDesligamento';
+    orderDir?: 'asc' | 'desc';
+  }): Promise<{
+    Policiales: PolicialResponse[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    const { mes, page = 1, pageSize = 50, search, equipe, equipes, orderBy, orderDir } = options;
+    const ano = options.ano;
+    const { dataInicio, dataFim } = this.buildMonthRange(ano, mes);
+    const inicioAno = new Date(ano, 0, 1, 0, 0, 0, 0);
+    const fimAno = new Date(ano, 11, 31, 23, 59, 59, 999);
+
+    const motivoFerias = await this.prisma.motivoAfastamento.findUnique({
+      where: { nome: 'Férias' },
+      select: { id: true },
+    });
+
+    type PeriodoLivro = { dataInicio: Date; dataFim: Date | null };
+    const periodoPorPolicial = new Map<number, PeriodoLivro>();
+
+    if (motivoFerias) {
+      const afastamentosNoMes = await this.prisma.afastamento.findMany({
+        where: {
+          motivoId: motivoFerias.id,
+          status: { in: [AfastamentoStatus.ATIVO, AfastamentoStatus.ENCERRADO] },
+          dataInicio: { gte: dataInicio, lte: dataFim },
+        },
+        select: { policialId: true, dataInicio: true, dataFim: true },
+        orderBy: { dataInicio: 'asc' },
+      });
+      for (const a of afastamentosNoMes) {
+        if (!periodoPorPolicial.has(a.policialId)) {
+          periodoPorPolicial.set(a.policialId, {
+            dataInicio: a.dataInicio,
+            dataFim: a.dataFim,
+          });
+        }
+      }
+    }
+
+    const policiaisComGozoOutroMesNoAno = new Set<number>();
+    if (motivoFerias) {
+      const gozosNoAno = await this.prisma.afastamento.findMany({
+        where: {
+          motivoId: motivoFerias.id,
+          status: { in: [AfastamentoStatus.ATIVO, AfastamentoStatus.ENCERRADO] },
+          dataInicio: { gte: inicioAno, lte: fimAno },
+        },
+        select: { policialId: true, dataInicio: true },
+      });
+      for (const g of gozosNoAno) {
+        const mesGozo = g.dataInicio.getUTCMonth() + 1;
+        const anoGozo = g.dataInicio.getUTCFullYear();
+        if (anoGozo === ano && mesGozo !== mes) {
+          policiaisComGozoOutroMesNoAno.add(g.policialId);
+        }
+      }
+    }
+
+    const previsoesNoMes = await this.prisma.feriasPolicial.findMany({
+      where: {
+        semMesDefinido: false,
+        dataInicio: { gte: dataInicio, lte: dataFim },
+      },
+      select: { policialId: true, dataInicio: true, dataFim: true },
+    });
+    for (const fp of previsoesNoMes) {
+      if (periodoPorPolicial.has(fp.policialId)) continue;
+      if (policiaisComGozoOutroMesNoAno.has(fp.policialId)) continue;
+      periodoPorPolicial.set(fp.policialId, {
+        dataInicio: fp.dataInicio,
+        dataFim: fp.dataFim,
+      });
+    }
+
+    const policialIds = Array.from(periodoPorPolicial.keys());
+    const emptyResult = {
+      Policiales: [] as PolicialResponse[],
+      total: 0,
+      page: Math.max(1, page),
+      pageSize: Math.max(1, pageSize),
+      totalPages: 1,
+    };
+    if (policialIds.length === 0) return emptyResult;
+
+    const where: Prisma.PolicialWhereInput = { id: { in: policialIds } };
+
+    if (equipes?.length) {
+      where.equipe = { in: equipes };
+    } else if (equipe) {
+      where.equipe = equipe;
+    }
+    if (search) {
+      where.OR = [
+        { nome: { contains: search, mode: 'insensitive' } },
+        { matricula: { contains: search, mode: 'insensitive' } },
+        { funcao: { nome: { contains: search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const include = {
+      funcao: true,
+      status: true,
+      postoGraduacao: true,
+      quadro: true,
+      ferias: {
+        where: { ano },
+        orderBy: { id: 'desc' as const },
+        take: 1,
+      },
+    };
+
+    const allPoliciais = await this.prisma.policial.findMany({
+      where,
+      include,
+      orderBy: { nome: 'asc' },
+    });
+
+    let mapped = allPoliciais.map((policial) => {
+      const base = this.mapFeriasPrevisao(
+        policial as unknown as PolicialWithRelations & { ferias?: FeriasPolicialEntity[] },
+      );
+      const periodo = periodoPorPolicial.get(policial.id);
+      if (!periodo) return base;
+      return {
+        ...base,
+        dataInicioPrevisaoFerias: periodo.dataInicio.toISOString(),
+        dataFimPrevisaoFerias: periodo.dataFim?.toISOString() ?? periodo.dataInicio.toISOString(),
+      };
+    });
+
+    this.sortPoliciaisListaInMemory(mapped, orderBy, orderDir);
+
+    const total = mapped.length;
+    const currentPage = Math.max(1, page);
+    const currentPageSize = Math.max(1, pageSize);
+    const skip = (currentPage - 1) * currentPageSize;
+    const Policiales = mapped.slice(skip, skip + currentPageSize);
+
+    return {
+      Policiales,
+      total,
+      page: currentPage,
+      pageSize: currentPageSize,
+      totalPages: Math.max(1, Math.ceil(total / currentPageSize)),
     };
   }
 

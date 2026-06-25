@@ -20,7 +20,11 @@ export function funcoesParaSelecao(funcoes: FuncaoOption[]): FuncaoOption[] {
 }
 
 /** Aba geral "Afastamentos" - agrupa as telas relacionadas. */
-export type AfastamentosSubTabKey = 'afastamentos-mes' | 'afastamentos' | 'restricao-afastamento';
+export type AfastamentosSubTabKey =
+  | 'afastamentos-mes'
+  | 'afastamentos'
+  | 'livro-ferias'
+  | 'restricao-afastamento';
 
 /** Aba geral "Efetivo" - agrupa as telas relacionadas. */
 export type EfetivoSubTabKey = 'equipe' | 'policiais';
@@ -69,6 +73,7 @@ export type TabKey =
   | 'relatorios-sistema'
   | 'relatorios-servico'
   | 'restricao-afastamento'
+  | 'livro-ferias'
   | 'gestao-sistema'
   /**
    * Chave legada / interna (não aparece em «Níveis de acesso»).
@@ -81,6 +86,7 @@ export type TabKey =
 export const AFastamentosSubTABS: { key: AfastamentosSubTabKey; label: string }[] = [
   { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'afastamentos-mes', label: 'Afastamentos do mês' },
+  { key: 'livro-ferias', label: 'Livro de Férias' },
   { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
 ];
 
@@ -110,6 +116,7 @@ export const TABS: { key: TabKey; label: string }[] = [
 export const PERMISSION_TABS: { key: TabKey; label: string }[] = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'afastamentos-mes', label: 'Afastamentos do mês' },
+  { key: 'livro-ferias', label: 'Livro de Férias' },
   { key: 'restricao-afastamento', label: 'Gerar restrição de afastamento' },
   { key: 'afastamentos', label: 'Gerenciar afastamentos' },
   { key: 'policiais', label: 'Cadastrar Policial' },
