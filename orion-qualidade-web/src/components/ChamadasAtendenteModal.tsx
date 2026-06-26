@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -19,9 +20,10 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
+  TextField,
   Typography,
 } from '@mui/material';
-import { Close, FilterList } from '@mui/icons-material';
+import { Close, FilterList, Search } from '@mui/icons-material';
 import type { ChamadaXlsxRow } from '../types/chamadasXlsx';
 import { googleMapsUrl } from '../utils/googleMapsLink';
 import { parseDataHoraChamada } from '../utils/periodoDatasChamadas';
@@ -54,6 +56,28 @@ const tableSortLabelSx = (ativo: boolean) => ({
 });
 
 type CampoFiltroModal = 'status' | 'quemDesligou' | 'motivoEncerramento';
+
+const CAMPOS_BUSCA: (keyof ChamadaXlsxRow)[] = [
+  'chamador',
+  'ramal',
+  'status',
+  'horaEntradaFila',
+  'horaAtendimento',
+  'horaDesligamento',
+  'duracaoSeg',
+  'quemDesligou',
+  'motivoEncerramento',
+  'id',
+  'uniqueId',
+];
+
+const CAMPOS_SUGESTAO_BUSCA: (keyof ChamadaXlsxRow)[] = [
+  'chamador',
+  'ramal',
+  'status',
+  'quemDesligou',
+  'motivoEncerramento',
+];
 
 type FiltrosModal = Record<CampoFiltroModal, Set<string>>;
 
@@ -99,6 +123,23 @@ function filtrarRegistros(registros: ChamadaXlsxRow[], filtros: FiltrosModal): C
     if (!passaGrupo(valorFiltro(row, 'motivoEncerramento'), filtros.motivoEncerramento)) return false;
     return true;
   });
+}
+
+function registroPassaBusca(row: ChamadaXlsxRow, termo: string): boolean {
+  const busca = termo.trim().toLowerCase();
+  if (!busca) return true;
+  return CAMPOS_BUSCA.some((campo) => String(row[campo] ?? '').trim().toLowerCase().includes(busca));
+}
+
+function sugestoesBusca(registros: ChamadaXlsxRow[]): string[] {
+  const valores = new Set<string>();
+  for (const row of registros) {
+    for (const campo of CAMPOS_SUGESTAO_BUSCA) {
+      const texto = String(row[campo] ?? '').trim();
+      if (texto) valores.add(texto);
+    }
+  }
+  return [...valores].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 
 function valorOrdenacao(row: ChamadaXlsxRow, campo: CampoOrdenacaoModal): number | null {
@@ -189,16 +230,19 @@ export function ChamadasAtendenteModal({
   const opcoesStatus = useMemo(() => valoresUnicos(registros, 'status'), [registros]);
   const opcoesQuemDesligou = useMemo(() => valoresUnicos(registros, 'quemDesligou'), [registros]);
   const opcoesMotivo = useMemo(() => valoresUnicos(registros, 'motivoEncerramento'), [registros]);
+  const opcoesBusca = useMemo(() => sugestoesBusca(registros), [registros]);
 
   const [painelFiltroAberto, setPainelFiltroAberto] = useState(false);
   const [filtros, setFiltros] = useState<FiltrosModal>(() => filtrosVazios());
   const [ordenacao, setOrdenacao] = useState(ORDENACAO_PADRAO);
+  const [buscaTexto, setBuscaTexto] = useState('');
 
   useEffect(() => {
     if (!aberto) return;
     setPainelFiltroAberto(false);
     setFiltros(filtrosVazios());
     setOrdenacao(ORDENACAO_PADRAO);
+    setBuscaTexto('');
   }, [aberto, nomeAtendente, registros]);
 
   const toggleOpcao = useCallback((campo: CampoFiltroModal, valor: string) => {
@@ -212,6 +256,7 @@ export function ChamadasAtendenteModal({
 
   const limparFiltros = useCallback(() => {
     setFiltros(filtrosVazios());
+    setBuscaTexto('');
   }, []);
 
   const alternarOrdenacao = useCallback((campo: CampoOrdenacaoModal) => {
@@ -222,13 +267,20 @@ export function ChamadasAtendenteModal({
     );
   }, []);
 
-  const registrosFiltrados = useMemo(() => filtrarRegistros(registros, filtros), [registros, filtros]);
+  const registrosFiltrados = useMemo(() => {
+    const porFiltros = filtrarRegistros(registros, filtros);
+    const termo = buscaTexto.trim();
+    if (!termo) return porFiltros;
+    return porFiltros.filter((row) => registroPassaBusca(row, termo));
+  }, [registros, filtros, buscaTexto]);
   const registrosExibidos = useMemo(
     () => ordenarRegistros(registrosFiltrados, ordenacao.campo, ordenacao.direcao),
     [registrosFiltrados, ordenacao],
   );
 
   const temFiltroAplicado = filtrosAtivos(filtros);
+  const temBuscaAplicada = buscaTexto.trim().length > 0;
+  const temFiltroOuBusca = temFiltroAplicado || temBuscaAplicada;
 
   return (
     <Dialog open={aberto} onClose={onFechar} maxWidth="xl" fullWidth scroll="paper">
@@ -241,7 +293,7 @@ export function ChamadasAtendenteModal({
             {nomeAtendente ?? '—'}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            {temFiltroAplicado
+            {temFiltroOuBusca
               ? `${registrosFiltrados.length} de ${registros.length} registro(s) exibido(s)`
               : `${registros.length} registro(s) no período filtrado`}
             {localizacaoCarregamento ? ' · carregando localizações…' : null}
@@ -259,20 +311,58 @@ export function ChamadasAtendenteModal({
         ) : (
           <>
             <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-              <Stack direction="row" spacing={1} alignItems="center">
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={1}
+                alignItems={{ md: 'center' }}
+                useFlexGap
+              >
                 <Button
                   variant={painelFiltroAberto ? 'contained' : 'outlined'}
                   size="small"
                   startIcon={<FilterList />}
                   onClick={() => setPainelFiltroAberto((v) => !v)}
+                  sx={{ flexShrink: 0 }}
                 >
                   Filtrar
                 </Button>
-                {temFiltroAplicado ? (
-                  <Button variant="text" size="small" onClick={limparFiltros}>
-                    Limpar filtros
+                {temFiltroOuBusca ? (
+                  <Button variant="text" size="small" onClick={limparFiltros} sx={{ flexShrink: 0 }}>
+                    Limpar
                   </Button>
                 ) : null}
+                <Autocomplete
+                  freeSolo
+                  size="small"
+                  options={opcoesBusca}
+                  value={buscaTexto}
+                  inputValue={buscaTexto}
+                  onInputChange={(_event, valor) => setBuscaTexto(valor)}
+                  onChange={(_event, valor) => setBuscaTexto(typeof valor === 'string' ? valor : valor ?? '')}
+                  filterOptions={(options, { inputValue }) => {
+                    const termo = inputValue.trim().toLowerCase();
+                    if (!termo) return options.slice(0, 40);
+                    return options.filter((opcao) => opcao.toLowerCase().includes(termo)).slice(0, 40);
+                  }}
+                  noOptionsText="Nenhuma sugestão"
+                  sx={{ flex: 1, minWidth: { xs: '100%', md: 280 } }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Buscar"
+                      placeholder="Chamador, ramal, status, motivo…"
+                      InputProps={{
+                        ...params.InputProps,
+                        startAdornment: (
+                          <>
+                            <Search fontSize="small" color="action" sx={{ ml: 0.5, mr: 0.5 }} />
+                            {params.InputProps.startAdornment}
+                          </>
+                        ),
+                      }}
+                    />
+                  )}
+                />
               </Stack>
             </Box>
 
@@ -307,7 +397,7 @@ export function ChamadasAtendenteModal({
 
             {registrosFiltrados.length === 0 ? (
               <Typography variant="body2" color="text.secondary" sx={{ p: 3 }}>
-                Nenhum registro corresponde aos filtros selecionados.
+                Nenhum registro corresponde à busca ou aos filtros selecionados.
               </Typography>
             ) : (
               <TableContainer sx={{ maxHeight: 'min(60vh, 640px)' }}>
